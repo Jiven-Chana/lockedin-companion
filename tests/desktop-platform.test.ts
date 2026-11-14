@@ -288,7 +288,8 @@ describe("desktop packaging policy", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
-		assert.equal(pkg.homepage, "https://github.com/Jiven-Chana/lockedin-companion");
+		// LockedIn: no homepage, so no repository URL reaches model providers (see NOTICE).
+		assert.equal(pkg.homepage, undefined);
 		assert.equal(pkg.desktopName, "learnharness.desktop");
 	});
 });

@@ -27,7 +27,10 @@ import { nativeSubscriptionStream } from "./subscription-stream.ts";
  * Agent's default Pi attribution otherwise overrides the Models identity. */
 export const APP_IDENTITY = Object.freeze({
 	userAgent: Object.freeze({ custom: `learnharness/${packageMetadata.version}` }),
-	attribution: Object.freeze({ name: packageMetadata.name, url: packageMetadata.homepage }),
+	// LockedIn: no provider attribution headers (OpenRouter HTTP-Referer/title,
+	// OpenCode client). null also turns off pi-ai's own default attribution,
+	// so nothing identifying the app or repository is sent to model providers.
+	attribution: null,
 });
 
 /**

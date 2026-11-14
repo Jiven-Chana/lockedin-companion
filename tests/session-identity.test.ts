@@ -56,8 +56,9 @@ async function closed<T>(run: () => Promise<T>): Promise<T> {
 
 describe("native app and conversation identity", { concurrency: false }, () => {
 	it("shares one deeply frozen metadata-derived identity, without mutable conversation state", () => {
-		assert.deepEqual(APP_IDENTITY, { userAgent: { custom: `learnharness/${metadata.version}` }, attribution: { name: metadata.name, url: metadata.homepage } });
-		for (const value of [APP_IDENTITY, APP_IDENTITY.userAgent, APP_IDENTITY.attribution]) assert.ok(Object.isFrozen(value));
+		// LockedIn: no public homepage, so no provider attribution (see NOTICE).
+		assert.deepEqual(APP_IDENTITY, { userAgent: { custom: `learnharness/${metadata.version}` }, attribution: null });
+		for (const value of [APP_IDENTITY, APP_IDENTITY.userAgent]) assert.ok(Object.isFrozen(value));
 		assert.ok(!Object.hasOwn(APP_IDENTITY, "sessionId"));
 	});
 
@@ -118,13 +119,13 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 				assert.equal(request.headers.get("user-agent"), `learnharness/${metadata.version}`);
 				if (provider === "opencode-go") {
 					assert.equal(new URL(request.url).origin, "https://opencode.ai");
-					assert.equal(request.headers.get("x-opencode-client"), metadata.name);
+					assert.equal(request.headers.get("x-opencode-client"), null);
 					assert.equal(request.headers.get("x-opencode-session"), "chat_wire_exact");
 					assert.ok(!JSON.stringify(Object.fromEntries(request.headers)).includes("dummy-router"));
 				} else {
 					assert.equal(new URL(request.url).origin, "https://openrouter.ai");
-					assert.equal(request.headers.get("x-openrouter-title"), metadata.name);
-					assert.equal(request.headers.get("http-referer"), metadata.homepage);
+					assert.equal(request.headers.get("x-openrouter-title"), null);
+					assert.equal(request.headers.get("http-referer"), null);
 					assert.equal(request.headers.get("x-session-id"), "chat_wire_exact");
 				}
 			}
@@ -260,7 +261,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 			for (const request of requests) {
 				assert.equal(new URL(request.url).origin, "https://opencode.ai");
 				assert.equal(new URL(request.url).pathname, "/inference/go/v1/chat/completions");
-				assert.equal(request.headers.get("x-opencode-client"), metadata.name);
+				assert.equal(request.headers.get("x-opencode-client"), null); // LockedIn: attribution off (NOTICE)
 				assert.equal(request.headers.get("user-agent"), `learnharness/${metadata.version}`);
 				assert.ok(!JSON.stringify(Object.fromEntries(request.headers)).includes("dummy-router"));
 			}
@@ -299,7 +300,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 				assert.equal(headers.get("user-agent"), `learnharness/${metadata.version}`);
 				if (provider === "openrouter") {
 					assert.equal(headers.get("x-session-id"), sessionId);
-					assert.equal(headers.get("x-openrouter-title"), metadata.name);
+					assert.equal(headers.get("x-openrouter-title"), null); // LockedIn: attribution off (NOTICE)
 				} else {
 					assert.equal(headers.get("session_id"), sessionId);
 					assert.equal(body.prompt_cache_key, sessionId);
