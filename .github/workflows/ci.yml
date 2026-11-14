@@ -1,0 +1,59 @@
+name: ci
+
+# The merge gate for LockedIn (docs/companion/SDLC.md#ci).
+# Runs on every PR into main and every push to main.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: companion-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run plugins:setup
+      - name: Companion checks (prompt drift + companion suite, fast fail)
+        run: npm run companion:check
+      - run: npm run typecheck
+      - name: Lint (enforces the import law)
+        run: npm run lint
+      - name: Full test suite (upstream + companion, no paid models)
+        run: npm test
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run plugins:setup
+      - name: Next production build (route handler signatures, bundling)
+        run: npm run build
+      - name: Seed script runs against a fresh data dir
+        run: LH_DATA_DIR="$RUNNER_TEMP/seed-check" npm run companion:seed

@@ -1,0 +1,60 @@
+name: "Companion: feature (lo-fi → hi-fi)"
+description: Turn a lo-fi finding into a hi-fi feature of the LockedIn companion.
+title: "[feat] "
+labels: ["companion", "feature"]
+body:
+  - type: dropdown
+    id: journey
+    attributes:
+      label: Journey
+      options:
+        - J1 First run (taste before setup)
+        - J2 Post-lecture nudge
+        - J3 Missed lecture
+        - J4 Resurfaced miss
+        - J5 Study block / lock
+        - J6 Coming back after a break
+        - Plumbing / engine
+    validations:
+      required: true
+  - type: textarea
+    id: finding
+    attributes:
+      label: Lo-fi finding
+      description: What did the lo-fi test (or research) show? Quote the participant or the finding.
+    validations:
+      required: true
+  - type: input
+    id: evidence
+    attributes:
+      label: Evidence IDs
+      placeholder: "e.g. AE2-5, Q-8, R-4, LIT-3"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable behaviour, the way plan §2.1 writes them.
+      placeholder: |
+        - A new user reaches question 1 in ≤ 60 s and ≤ 3 screens
+        - The nudge never fires inside a timetabled event
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Layers touched
+      multiple: true
+      options:
+        - Pure rule / policy (src/core/companion)
+        - Service / route (src/server/companion, app/api/companion)
+        - Prompt overrides (companion/seed/prompts)
+        - Content (companion/content)
+        - Phone UI (app/m)
+        - Event log (T23 measure)
+  - type: textarea
+    id: decision
+    attributes:
+      label: Needs a group decision?
+      description: If yes, link or add it to docs/companion/DECISIONS.md before building.

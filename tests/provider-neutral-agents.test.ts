@@ -208,7 +208,8 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 						if (transport.provider === "opencode-go") {
 							assert.match(request.headers.get("x-opencode-session") ?? "", /^[0-9a-f-]{36}$/);
 							assert.equal(request.headers.get("x-opencode-session"), requests[0]!.headers.get("x-opencode-session"));
-							assert.equal(request.headers.get("x-opencode-client"), "learnharness");
+							// LockedIn sends no provider attribution (no public homepage; see NOTICE).
+							assert.equal(request.headers.get("x-opencode-client"), null);
 						}
 						const url = new URL(request.url);
 						assert.equal(url.origin, transport.origin);

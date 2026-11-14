@@ -24,6 +24,7 @@ Without `COMPANION_ENGINE` set, sessions run on the **scripted** engine, so a fr
 | | |
 |---|---|
 | [docs/companion/README.md](docs/companion/README.md) | Architecture, commands, where to change what, data layout |
+| [docs/companion/SDLC.md](docs/companion/SDLC.md) | How we build and ship: branches, commits, PRs, CI (and [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | [docs/companion/API.md](docs/companion/API.md) | Every `/api/companion` route |
 | [docs/companion/DECISIONS.md](docs/companion/DECISIONS.md) | Decisions made in the build, and decisions still open |
 | [docs/companion/CHECKPOINT.md](docs/companion/CHECKPOINT.md) | The engine checkpoint runbook |
