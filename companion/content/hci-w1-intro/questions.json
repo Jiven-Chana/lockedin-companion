@@ -1,0 +1,45 @@
+{
+	"lectureId": "hci-w1-intro",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "usability-goals",
+			"leadIn": "Start with the usability goals (Slide 3).",
+			"stem": "\"Once I've used it, I can still use it after a month away.\" Which usability goal is this?",
+			"options": ["Memorability", "Efficiency", "Utility", "Effectiveness"],
+			"correct": [0],
+			"explanation": "Memorability is how easy it is to remember how to use a product after a break; learnability is how easy it is to learn in the first place (Slide 3).",
+			"hint": "It is about remembering, not learning."
+		},
+		{
+			"id": "q2",
+			"nodeId": "ux-goals",
+			"leadIn": "Usability versus experience (Slide 4).",
+			"stem": "Which is a user experience goal rather than a usability goal?",
+			"options": ["Enjoyable", "Efficient", "Safe", "Learnable"],
+			"correct": [0],
+			"explanation": "User experience goals describe how the interaction feels (enjoyable, satisfying); efficiency, safety and learnability are usability goals (Slides 3–4).",
+			"hint": "Which one is about feeling?"
+		},
+		{
+			"id": "q3",
+			"nodeId": "lifecycle",
+			"leadIn": "The lifecycle (Slide 5).",
+			"stem": "Which is NOT one of the four interaction design activities?",
+			"options": ["Writing the marketing plan", "Discovering requirements", "Prototyping", "Evaluating"],
+			"correct": [0],
+			"explanation": "The four activities are discover requirements, design alternatives, prototype and evaluate, repeated iteratively (Slide 5).",
+			"hint": "Three of these appear on Slide 5."
+		},
+		{
+			"id": "q4",
+			"nodeId": "ucd",
+			"leadIn": "User-centred design (Slide 6).",
+			"stem": "Which principle of user-centred design means testing designs with real people and changing them?",
+			"options": ["Empirical measurement and iterative design", "Early focus on technology", "Designing for the average user", "Freezing requirements early"],
+			"correct": [0],
+			"explanation": "User-centred design combines an early focus on users, empirical measurement of real use, and iteration (Slide 6).",
+			"hint": "Measure, then iterate."
+		}
+	]
+}

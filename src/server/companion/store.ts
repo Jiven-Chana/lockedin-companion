@@ -1,0 +1,249 @@
+/**
+ * The companion store (plan §7.2): one folder per data directory,
+ * `${LH_DATA_DIR}/companion/`. JSON documents are replaced atomically
+ * (LearnHarness's temp-file-and-rename helper); logs are append-only JSONL.
+ *
+ * Like LearnHarness this is single-user and single-process: one server per
+ * data directory. Every method is synchronous, so a read-modify-write never
+ * interleaves with another request inside the process.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import { writeFileAtomicSync } from "../../store/atomic-write.ts";
+import type {
+	CompanionSession,
+	CompanionState,
+	EngineName,
+	EventLogEntry,
+	Lecture,
+	Miss,
+	NudgeRecord,
+	Profile,
+	StudyBlock,
+} from "../../core/companion/types.ts";
+import { badRequest } from "./errors.ts";
+
+export interface DemoState {
+	/** Demo clock offset from real time. */
+	clockOffsetMs: number;
+	participant?: string;
+	/** Engine for the next sessions, set from the facilitator panel. */
+	engineOverride?: EngineName;
+}
+
+export interface RuntimeState {
+	/** The firm/gentle lock's "let me through" window. */
+	lockOverrideUntil?: string;
+}
+
+const FILES = {
+	profile: "profile.json",
+	lectures: "lectures.json",
+	blocks: "blocks.json",
+	sessions: "sessions.json",
+	misses: "misses.json",
+	nudges: "nudges.jsonl",
+	events: "events.jsonl",
+	demo: "demo.json",
+	runtime: "runtime.json",
+} as const;
+
+const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
+
+export function assertSafeId(id: string, what = "id"): string {
+	if (!ID_RE.test(id)) throw badRequest(`invalid ${what}`);
+	return id;
+}
+
+export class CompanionStore {
+	constructor(readonly dir: string) {}
+
+	private path(name: string): string {
+		return path.join(this.dir, name);
+	}
+
+	private readJson<T>(name: string, fallback: T): T {
+		try {
+			return JSON.parse(fs.readFileSync(this.path(name), "utf-8")) as T;
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return fallback;
+			// A corrupt document must never be silently replaced: keep it and fail loudly.
+			throw new Error(`companion store: cannot read ${name}: ${(err as Error).message}`);
+		}
+	}
+
+	private writeJson(name: string, value: unknown): void {
+		fs.mkdirSync(this.dir, { recursive: true });
+		writeFileAtomicSync(this.path(name), `${JSON.stringify(value, null, "\t")}\n`);
+	}
+
+	private readJsonl<T>(name: string): T[] {
+		let text: string;
+		try {
+			text = fs.readFileSync(this.path(name), "utf-8");
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+			throw err;
+		}
+		const out: T[] = [];
+		for (const line of text.split("\n")) {
+			if (!line.trim()) continue;
+			try {
+				out.push(JSON.parse(line) as T);
+			} catch {
+				// A torn final line from a crash mid-append: skip it.
+			}
+		}
+		return out;
+	}
+
+	private appendJsonl(name: string, value: unknown): void {
+		fs.mkdirSync(this.dir, { recursive: true });
+		fs.appendFileSync(this.path(name), `${JSON.stringify(value)}\n`, "utf-8");
+	}
+
+	// ─── documents ──────────────────────────────────────────────────────────
+
+	profile(): Profile | null {
+		return this.readJson<Profile | null>(FILES.profile, null);
+	}
+	saveProfile(p: Profile): void {
+		this.writeJson(FILES.profile, p);
+	}
+
+	lectures(): Lecture[] {
+		return this.readJson<Lecture[]>(FILES.lectures, []);
+	}
+	saveLectures(l: Lecture[]): void {
+		this.writeJson(FILES.lectures, l);
+	}
+	updateLecture(id: string, fn: (l: Lecture) => Lecture): Lecture | null {
+		const all = this.lectures();
+		const i = all.findIndex((l) => l.id === id);
+		if (i < 0) return null;
+		all[i] = fn(all[i]!);
+		this.saveLectures(all);
+		return all[i]!;
+	}
+
+	blocks(): StudyBlock[] {
+		return this.readJson<StudyBlock[]>(FILES.blocks, []);
+	}
+	saveBlocks(b: StudyBlock[]): void {
+		this.writeJson(FILES.blocks, b);
+	}
+
+	sessions(): CompanionSession[] {
+		return this.readJson<CompanionSession[]>(FILES.sessions, []);
+	}
+	session(id: string): CompanionSession | null {
+		return this.sessions().find((s) => s.id === id) ?? null;
+	}
+	saveSession(s: CompanionSession): void {
+		const all = this.sessions();
+		const i = all.findIndex((x) => x.id === s.id);
+		if (i >= 0) all[i] = s;
+		else all.push(s);
+		this.writeJson(FILES.sessions, all);
+	}
+	updateSession(id: string, fn: (s: CompanionSession) => CompanionSession): CompanionSession | null {
+		const all = this.sessions();
+		const i = all.findIndex((x) => x.id === id);
+		if (i < 0) return null;
+		all[i] = fn(all[i]!);
+		this.writeJson(FILES.sessions, all);
+		return all[i]!;
+	}
+
+	misses(): Miss[] {
+		return this.readJson<Miss[]>(FILES.misses, []);
+	}
+	saveMisses(m: Miss[]): void {
+		this.writeJson(FILES.misses, m);
+	}
+
+	// ─── nudges: append-only, last record per id wins ───────────────────────
+
+	nudges(): NudgeRecord[] {
+		const byId = new Map<string, NudgeRecord>();
+		for (const n of this.readJsonl<NudgeRecord>(FILES.nudges)) byId.set(n.id, n);
+		return [...byId.values()].sort((a, b) => a.firedAt.localeCompare(b.firedAt));
+	}
+	nudge(id: string): NudgeRecord | null {
+		return this.nudges().find((n) => n.id === id) ?? null;
+	}
+	appendNudge(n: NudgeRecord): void {
+		this.appendJsonl(FILES.nudges, n);
+	}
+
+	// ─── event log ──────────────────────────────────────────────────────────
+
+	appendEvent(e: EventLogEntry): void {
+		this.appendJsonl(FILES.events, e);
+	}
+	events(): EventLogEntry[] {
+		return this.readJsonl<EventLogEntry>(FILES.events);
+	}
+
+	// ─── demo + runtime ─────────────────────────────────────────────────────
+
+	demo(): DemoState {
+		return { clockOffsetMs: 0, ...this.readJson<Partial<DemoState>>(FILES.demo, {}) };
+	}
+	saveDemo(patch: Partial<DemoState>): DemoState {
+		const next = { ...this.demo(), ...patch };
+		this.writeJson(FILES.demo, next);
+		return next;
+	}
+	runtime(): RuntimeState {
+		return this.readJson<RuntimeState>(FILES.runtime, {});
+	}
+	saveRuntime(patch: Partial<RuntimeState>): void {
+		this.writeJson(FILES.runtime, { ...this.runtime(), ...patch });
+	}
+
+	// ─── materials ──────────────────────────────────────────────────────────
+
+	materialsDir(lectureId: string): string {
+		return path.join(this.dir, "materials", assertSafeId(lectureId, "lecture id"));
+	}
+
+	state(): CompanionState {
+		return {
+			profile: this.profile(),
+			lectures: this.lectures(),
+			blocks: this.blocks(),
+			sessions: this.sessions(),
+			misses: this.misses(),
+			nudges: this.nudges(),
+		};
+	}
+
+	/**
+	 * Delete the student's data. Facilitator state (demo clock, participant)
+	 * survives unless `everything`. With `archiveEvents` the event log is
+	 * moved to archive/ first (facilitator resets between participants must
+	 * never lose T23 data); without it the log is deleted (the student's
+	 * "delete all my data").
+	 */
+	wipe(opts: { everything?: boolean; keepMaterials?: boolean; archiveEvents?: boolean } = {}): string | null {
+		if (!fs.existsSync(this.dir)) return null;
+		let archived: string | null = null;
+		const events = this.path(FILES.events);
+		if (opts.archiveEvents && fs.existsSync(events) && fs.statSync(events).size > 0) {
+			const dir = path.join(this.dir, "archive");
+			fs.mkdirSync(dir, { recursive: true });
+			const who = this.demo().participant ?? "unassigned";
+			archived = path.join(dir, `events-${new Date().toISOString().replace(/[:.]/g, "-")}-${who}.jsonl`);
+			fs.renameSync(events, archived);
+		}
+		for (const entry of fs.readdirSync(this.dir)) {
+			if (!opts.everything && entry === FILES.demo) continue;
+			if (opts.keepMaterials && entry === "materials") continue;
+			if (opts.archiveEvents && entry === "archive") continue;
+			fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
+		}
+		return archived;
+	}
+}

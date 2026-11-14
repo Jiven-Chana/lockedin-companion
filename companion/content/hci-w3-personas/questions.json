@@ -1,0 +1,129 @@
+{
+	"lectureId": "hci-w3-personas",
+	"goal": "5 questions on personas and scenarios, about 10 minutes",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "persona-purpose",
+			"leadIn": "Start with what a persona is for (Slide 4).",
+			"stem": "Which is the main purpose of a persona?",
+			"options": [
+				"To focus design decisions on specific users' goals",
+				"To record the demographic average of all users",
+				"To replace user research when time is short",
+				"To describe one real participant in detail"
+			],
+			"correct": [0],
+			"explanation": "A persona keeps specific users' goals in view and builds empathy, so decisions are made for someone concrete (Slide 4). It is built from research, not a substitute for it (Slide 7), and it is an archetype, not one real person (Slide 3).",
+			"hint": "Think about the 'elastic user' problem on Slide 2.",
+			"workedExample": "Worked example (Slide 4): a team arguing about adding a 'share to social' button asks 'would Priya need this on the bus?' Priya is the persona; her goals settle the argument, which is what a persona is for."
+		},
+		{
+			"id": "q2",
+			"nodeId": "persona-basis",
+			"leadIn": "Now, where a persona comes from (Slide 3).",
+			"stem": "A persona is best described as…",
+			"options": [
+				"A pattern of goals and behaviours seen across several research participants",
+				"The single most typical participant from the interviews",
+				"A marketing segment defined by age and income",
+				"The designer's own preferences written in the third person"
+			],
+			"correct": [0],
+			"explanation": "A persona is an archetype: a pattern seen across several participants, given a name and context (Slide 3). It is not one real person, not a market segment, and certainly not the designer (Slide 2).",
+			"hint": "It is built from research, but it is not any one person.",
+			"workedExample": "Worked example (Slide 3): five interviewees all study on public transport and want short tasks. The persona 'Priya' combines that pattern; no single interviewee is Priya."
+		},
+		{
+			"id": "q3",
+			"nodeId": "persona-contents",
+			"leadIn": "What belongs in a persona (Slide 5)?",
+			"stem": "Which attribute is least useful to include in a persona?",
+			"options": [
+				"Her favourite colour, which no participant mentioned",
+				"Her goal of revising during her commute",
+				"Her frustration that current apps need a stable connection",
+				"That she uses her phone one-handed while standing"
+			],
+			"correct": [0],
+			"explanation": "Goals, behaviours, context and frustrations drive design decisions; irrelevant trivia such as a favourite colour does not, and it does not trace back to the research (Slide 5).",
+			"hint": "Ask of each attribute: would it change a design decision?"
+		},
+		{
+			"id": "q4",
+			"nodeId": "persona-types",
+			"leadIn": "Personas come in kinds (Slide 6).",
+			"stem": "What is an anti-persona?",
+			"options": [
+				"Someone the product is deliberately not designed for",
+				"A persona whose needs conflict with the primary persona's",
+				"A persona that turned out to be wrong after testing",
+				"The secondary persona when there is only one"
+			],
+			"correct": [0],
+			"explanation": "An anti-persona (negative persona) describes who the product is not for, which helps the team say no (Slide 6).",
+			"hint": "The 'anti' is about the target group, not about being wrong."
+		},
+		{
+			"id": "q5",
+			"nodeId": "scenario-definition",
+			"leadIn": "On to scenarios (Slide 8).",
+			"stem": "Which of these is a scenario?",
+			"options": [
+				"Priya opens the app on the bus, answers three questions before her stop, and resumes at home",
+				"A wireframe of the question screen with three buttons",
+				"A list of features ranked by priority",
+				"A table of participants' ages and courses"
+			],
+			"correct": [0],
+			"explanation": "A scenario is a short narrative of a persona achieving a goal in a context; it describes what happens, not how the interface looks (Slide 8).",
+			"hint": "A scenario is a story with a person, a goal and a setting.",
+			"workedExample": "Worked example (Slide 8): 'Priya has ten minutes between lectures. She taps the reminder, answers three questions about personas and gets one wrong; the explanation cites the slide.' That is an activity scenario: persona, goal, context, no screen layout."
+		},
+		{
+			"id": "q6",
+			"nodeId": "scenario-value",
+			"leadIn": "Why bother writing scenarios (Slide 9)?",
+			"stem": "Which is a main benefit of scenarios early in design?",
+			"options": [
+				"They expose requirements and edge cases before anything is built",
+				"They prove that the design is usable",
+				"They replace the need for prototypes",
+				"They give exact measurements of task time"
+			],
+			"correct": [0],
+			"explanation": "Scenarios are cheap and readable, so they surface requirements and edge cases early (\"what if the bus has no signal?\") (Slide 9). Usability still has to be evaluated with prototypes.",
+			"hint": "Think about the 'what if the bus has no signal?' example."
+		},
+		{
+			"id": "q7",
+			"nodeId": "persona-purpose",
+			"retestOnly": true,
+			"leadIn": "Back to what personas are for (Slide 4).",
+			"stem": "A team keeps saying 'users might want…' in meetings. How does a persona help?",
+			"options": [
+				"It replaces a vague user with a specific person whose goals settle the argument",
+				"It lists every feature that any user might want",
+				"It removes the need to talk to users again",
+				"It ranks features by how many users asked for them"
+			],
+			"correct": [0],
+			"explanation": "Personas make arguments concrete: 'Priya needs this on a bus' beats 'users might want…', which focuses decisions on specific goals (Slide 4)."
+		},
+		{
+			"id": "q8",
+			"nodeId": "persona-basis",
+			"retestOnly": true,
+			"leadIn": "Where personas come from, again (Slide 7).",
+			"stem": "Why is an 'ad hoc' persona, written without research, risky?",
+			"options": [
+				"It encodes the team's assumptions and stereotypes as if they were findings",
+				"It is too detailed to be useful",
+				"It cannot be given a name or photo",
+				"It is always identical to the anti-persona"
+			],
+			"correct": [0],
+			"explanation": "Without research behind it, a persona just dresses up the team's assumptions (Slide 7). Every attribute should trace back to data (Slide 5)."
+		}
+	]
+}

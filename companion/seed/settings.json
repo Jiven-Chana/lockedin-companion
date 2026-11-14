@@ -1,0 +1,20 @@
+{
+	"version": 1,
+	"models": {
+		"strong": { "model": { "provider": "anthropic", "id": "<fast model with reliable tool use>" }, "thinkingLevel": "low" },
+		"cheap": { "model": { "provider": "anthropic", "id": "<small model>" } },
+		"vision": { "model": { "provider": "anthropic", "id": "<image-capable model>" } }
+	},
+	"graph": { "enabled": false, "rendering": false },
+	"agent": {
+		"tools": { "research": false, "demo": false, "visual": false, "pdf": false },
+		"graphTools": { "enabled": false },
+		"fileAccess": { "restricted": true, "folders": [] },
+		"prompts": {
+			"prober/10-probe-doctrine.md": true,
+			"teacher/10-planning.md": true,
+			"teacher/05-method.md": true,
+			"shared/40-formatting.md": true
+		}
+	}
+}

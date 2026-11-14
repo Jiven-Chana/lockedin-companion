@@ -1,0 +1,50 @@
+{
+	"lectureId": "gt-w2-nash",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "nash-definition",
+			"leadIn": "Start with the definition (Slide 3).",
+			"stem": "A strategy profile is a Nash equilibrium when…",
+			"options": [
+				"No player can gain by changing their own strategy alone",
+				"Every player gets the highest payoff in the game",
+				"Players together cannot do any better",
+				"Every player plays a dominant strategy"
+			],
+			"correct": [0],
+			"explanation": "In a Nash equilibrium every strategy is a best response to the others, so no one gains from a unilateral change (Slide 3). It need not be the best joint outcome (Slide 4).",
+			"hint": "Think about one player deviating on their own."
+		},
+		{
+			"id": "q2",
+			"nodeId": "nash-not-optimal",
+			"leadIn": "Equilibrium versus optimality (Slide 4).",
+			"stem": "In the Prisoner's Dilemma, (Defect, Defect) is…",
+			"options": [
+				"A Nash equilibrium that is not Pareto optimal",
+				"Pareto optimal but not a Nash equilibrium",
+				"Both a Nash equilibrium and Pareto optimal",
+				"Neither a Nash equilibrium nor Pareto optimal"
+			],
+			"correct": [0],
+			"explanation": "Neither player gains by switching alone, so it is a Nash equilibrium, but both would prefer (Cooperate, Cooperate), so it is not Pareto optimal (Slide 4).",
+			"hint": "Check unilateral deviation, then check whether both could do better together."
+		},
+		{
+			"id": "q3",
+			"nodeId": "multiple-equilibria",
+			"leadIn": "When there is more than one (Slide 5).",
+			"stem": "Driving on the left or the right is an example of…",
+			"options": [
+				"A coordination game with two Nash equilibria",
+				"A game with no Nash equilibrium",
+				"A Prisoner's Dilemma",
+				"A game where one strategy strictly dominates"
+			],
+			"correct": [0],
+			"explanation": "Both (left, left) and (right, right) are equilibria; conventions decide which one is played (Slide 5).",
+			"hint": "Both conventions work as long as everyone agrees."
+		}
+	]
+}

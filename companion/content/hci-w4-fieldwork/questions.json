@@ -1,0 +1,128 @@
+{
+	"lectureId": "hci-w4-fieldwork",
+	"goal": "5 questions on fieldwork and ethnography, about 10 minutes",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "why-field",
+			"leadIn": "Start with why we leave the lab at all (Slide 2).",
+			"stem": "What is the main reason to study people in the field?",
+			"options": [
+				"What people do in context often differs from what they say they do",
+				"Field studies are quicker than surveys",
+				"Field data is easier to analyse statistically",
+				"Participants prefer not to come to a lab"
+			],
+			"correct": [0],
+			"explanation": "Context shapes behaviour, and people's accounts of what they do miss interruptions and workarounds; fieldwork shows what actually happens (Slide 2).",
+			"hint": "Compare what people say with what they do.",
+			"workedExample": "Worked example (Slide 2): in an interview a nurse says she always logs medication on the ward PC. Observing her shift shows she writes doses on her glove and enters them later because the PC is always busy. Only the field visit reveals the workaround."
+		},
+		{
+			"id": "q2",
+			"nodeId": "ethnography-aim",
+			"leadIn": "What ethnography is after (Slide 3).",
+			"stem": "Which best describes the aim of ethnography?",
+			"options": [
+				"To understand a setting from the participants' point of view",
+				"To measure how long tasks take",
+				"To test whether a prototype is usable",
+				"To collect as many survey responses as possible"
+			],
+			"correct": [0],
+			"explanation": "Ethnography aims at understanding, not measuring: immersion to see the setting as participants see it (Slide 3).",
+			"hint": "Is the goal a number or an understanding?"
+		},
+		{
+			"id": "q3",
+			"nodeId": "contextual-inquiry",
+			"leadIn": "Contextual inquiry has a model behind it (Slide 5).",
+			"stem": "In contextual inquiry's master–apprentice model, who is the master?",
+			"options": [
+				"The user, who is the expert in their own work",
+				"The researcher, who leads the interview",
+				"The designer, who will build the product",
+				"The client, who commissioned the study"
+			],
+			"correct": [0],
+			"explanation": "The user is the expert; the researcher learns like an apprentice by watching the real work and asking about it (Slide 5).",
+			"hint": "Who knows the work best?",
+			"workedExample": "Worked example (Slide 5): sitting with a librarian as she processes returns, you ask 'why did you put that one aside?' She explains a rule you'd never find in a manual. She is teaching; you are the apprentice."
+		},
+		{
+			"id": "q4",
+			"nodeId": "field-notes",
+			"leadIn": "How to write things down (Slide 6).",
+			"stem": "Good field notes should…",
+			"options": [
+				"Separate what was observed from your interpretation of it",
+				"Record only your conclusions, to save time",
+				"Be written up a week later, once you have reflected",
+				"Avoid any context about the setting"
+			],
+			"correct": [0],
+			"explanation": "Write notes as soon as possible and keep observation separate from interpretation, so later analysis can question the interpretation (Slide 6).",
+			"hint": "Think about what you'd need if you later doubted your own reading."
+		},
+		{
+			"id": "q5",
+			"nodeId": "observer-effect",
+			"leadIn": "Being watched changes things (Slide 7).",
+			"stem": "Participants work unusually carefully while you observe them. What is this, and one way to reduce it?",
+			"options": [
+				"The observer (Hawthorne) effect; spend longer in the field so they get used to you",
+				"Confirmation bias; ask leading questions",
+				"Triangulation; use only one data source",
+				"Sampling error; observe fewer people"
+			],
+			"correct": [0],
+			"explanation": "People change behaviour when watched (the Hawthorne effect). Staying longer and triangulating with other data reduce it (Slide 7).",
+			"hint": "It is named after a factory study."
+		},
+		{
+			"id": "q6",
+			"nodeId": "triangulation",
+			"leadIn": "Checking a finding (Slide 8).",
+			"stem": "Which is an example of triangulation?",
+			"options": [
+				"Checking an interview claim against your observations and usage logs",
+				"Interviewing the same participant three times with the same questions",
+				"Asking three colleagues whether they agree with your opinion",
+				"Writing the same finding in three reports"
+			],
+			"correct": [0],
+			"explanation": "Triangulation uses more than one source, method or researcher to check a finding (Slide 8).",
+			"hint": "More than one kind of evidence."
+		},
+		{
+			"id": "q7",
+			"nodeId": "ethics",
+			"leadIn": "Ethics in the field (Slide 9).",
+			"stem": "Which is required for informed consent?",
+			"options": [
+				"Participants understand what is collected and why, and can withdraw",
+				"Participants sign before they are told the study's purpose",
+				"Recording is hidden so behaviour stays natural",
+				"Only the organisation's manager agrees on everyone's behalf"
+			],
+			"correct": [0],
+			"explanation": "Informed consent means participants understand what you collect and why, and can withdraw at any time (Slide 9).",
+			"hint": "'Informed' is the key word."
+		},
+		{
+			"id": "q8",
+			"nodeId": "why-field",
+			"retestOnly": true,
+			"leadIn": "Back to why fieldwork matters (Slide 2).",
+			"stem": "A survey says students revise for two hours a day. Why might a field study disagree?",
+			"options": [
+				"Self-reports miss interruptions and differ from observed behaviour",
+				"Surveys always overestimate everything by exactly half",
+				"Field studies only work with professionals",
+				"Students cannot answer surveys accurately about anything"
+			],
+			"correct": [0],
+			"explanation": "What people report and what they do in context differ; observation captures interruptions and workarounds a survey misses (Slide 2)."
+		}
+	]
+}

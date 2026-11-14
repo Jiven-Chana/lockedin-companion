@@ -1,0 +1,46 @@
+{
+	"lectureId": "hci-w2-users",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "mental-models",
+			"leadIn": "Start with mental models (Slide 4).",
+			"stem": "A user keeps pressing a thermostat to 30° to heat the room faster. What does this show?",
+			"options": [
+				"An inaccurate mental model of how the thermostat works",
+				"A gulf of evaluation caused by missing feedback",
+				"A limit of short-term memory",
+				"Good recognition over recall"
+			],
+			"correct": [0],
+			"explanation": "The user believes a higher setting heats faster, like a tap; a thermostat only switches on or off. That is an inaccurate mental model, which users use to predict what will happen (Slide 4).",
+			"hint": "What does the user believe is going on inside the device?",
+			"workedExample": "Worked example (Slide 4): someone presses the lift call button repeatedly, believing more presses bring the lift sooner. Their mental model is that the button is a 'hurry' control, which it is not."
+		},
+		{
+			"id": "q2",
+			"nodeId": "recognition-recall",
+			"leadIn": "Memory and design (Slide 3).",
+			"stem": "Why do menus usually beat typed commands for new users?",
+			"options": [
+				"Recognising an option is easier than recalling a command",
+				"Menus are faster for experts",
+				"Commands exceed the 7 ± 2 limit",
+				"Menus use less screen space"
+			],
+			"correct": [0],
+			"explanation": "Recognition is easier than recall, so showing options helps (Slide 3). The 7 ± 2 figure is about memory span, not a menu rule.",
+			"hint": "Choosing versus remembering."
+		},
+		{
+			"id": "q3",
+			"nodeId": "gulfs",
+			"leadIn": "The two gulfs (Slide 6).",
+			"stem": "You tap Save and nothing visibly changes, so you are unsure it worked. Which gulf is this?",
+			"options": ["The gulf of evaluation", "The gulf of execution", "The conceptual model gap", "Attention overload"],
+			"correct": [0],
+			"explanation": "The gulf of evaluation is the gap between the system's state and your ability to tell what happened; missing feedback widens it (Slide 6).",
+			"hint": "Is the problem doing the action, or knowing what it did?"
+		}
+	]
+}

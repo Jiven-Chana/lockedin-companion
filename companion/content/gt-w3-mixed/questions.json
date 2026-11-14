@@ -1,0 +1,50 @@
+{
+	"lectureId": "gt-w3-mixed",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "why-mix",
+			"leadIn": "Start with Matching Pennies (Slide 2).",
+			"stem": "Why does Matching Pennies have no pure-strategy Nash equilibrium?",
+			"options": [
+				"In every pure profile one player gains by switching",
+				"Both players have dominant strategies",
+				"The payoffs are equal in every cell",
+				"There are too many strategies to compare"
+			],
+			"correct": [0],
+			"explanation": "Whatever pure pair is played, the loser wants to switch, so no pure profile is stable (Slide 2).",
+			"hint": "Pick any cell and ask who wants to move."
+		},
+		{
+			"id": "q2",
+			"nodeId": "indifference",
+			"leadIn": "How mixing is pinned down (Slide 4).",
+			"stem": "In a mixed-strategy equilibrium, each player chooses probabilities that…",
+			"options": [
+				"Make the other player indifferent between their pure strategies",
+				"Maximise their own chance of winning each round",
+				"Match the other player's probabilities exactly",
+				"Minimise the total payoff of the game"
+			],
+			"correct": [0],
+			"explanation": "This is the indifference principle: if the other player weren't indifferent, they would switch to their better pure strategy (Slide 4).",
+			"hint": "What stops the other player from switching?"
+		},
+		{
+			"id": "q3",
+			"nodeId": "nash-theorem",
+			"leadIn": "The existence result (Slide 5).",
+			"stem": "What does Nash's theorem guarantee?",
+			"options": [
+				"Every finite game has at least one Nash equilibrium, possibly mixed",
+				"Every game has a pure-strategy Nash equilibrium",
+				"Every Nash equilibrium is Pareto optimal",
+				"Every game has exactly one Nash equilibrium"
+			],
+			"correct": [0],
+			"explanation": "Nash (1950) showed that every finite game has at least one equilibrium, which may require mixed strategies (Slide 5).",
+			"hint": "Existence, not uniqueness."
+		}
+	]
+}

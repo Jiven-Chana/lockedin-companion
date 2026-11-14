@@ -1,0 +1,50 @@
+{
+	"lectureId": "gt-w1-dominance",
+	"questions": [
+		{
+			"id": "q1",
+			"nodeId": "dominance",
+			"leadIn": "Start with dominance (Slide 3).",
+			"stem": "Strategy A strictly dominates strategy B when…",
+			"options": [
+				"A gives a higher payoff than B whatever the other players do",
+				"A gives a higher payoff than B for at least one choice of the others",
+				"A is the strategy most players choose",
+				"A and B give the same payoff on average"
+			],
+			"correct": [0],
+			"explanation": "Strict dominance means better in every case, against every combination of the other players' strategies (Slide 3).",
+			"hint": "'Whatever the others do' is the key phrase."
+		},
+		{
+			"id": "q2",
+			"nodeId": "prisoners-dilemma",
+			"leadIn": "The Prisoner's Dilemma (Slide 4).",
+			"stem": "Why is the Prisoner's Dilemma a dilemma?",
+			"options": [
+				"Each player's dominant strategy leads to an outcome both would want to avoid",
+				"Neither player has a dominant strategy",
+				"The payoffs are unknown to the players",
+				"Cooperating is dominant but players defect anyway"
+			],
+			"correct": [0],
+			"explanation": "Defect dominates for each player, but mutual defection is worse for both than mutual cooperation (Slide 4).",
+			"hint": "Compare what each does individually with what is best jointly."
+		},
+		{
+			"id": "q3",
+			"nodeId": "iterated-elimination",
+			"leadIn": "Iterated elimination (Slide 5).",
+			"stem": "What does iterated elimination of strictly dominated strategies assume?",
+			"options": [
+				"Players are rational and know the others are rational too",
+				"Players choose at random",
+				"Players can communicate before choosing",
+				"Every game has a dominant strategy for every player"
+			],
+			"correct": [0],
+			"explanation": "Each round of elimination relies on players knowing the others won't play dominated strategies, which needs rationality to be common knowledge (Slide 5).",
+			"hint": "Why would a strategy become dominated only after another player's strategy is removed?"
+		}
+	]
+}

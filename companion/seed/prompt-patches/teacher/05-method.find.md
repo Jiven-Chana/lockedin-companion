@@ -1,0 +1,1 @@
+The goal is thorough, deep, real understanding — not coverage. Sessions run as long as the understanding needs, plans grow as elaborate as the subject requires; there is no schedule to keep and nothing to rush.
