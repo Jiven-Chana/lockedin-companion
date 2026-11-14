@@ -50,7 +50,7 @@ content(hci-w4): replace draft fieldwork slides with the real deck
 - **quality:** `npm run companion:check` (prompt-override drift check + companion suite, fast fail), `npm run typecheck`, `npm run lint` (enforces the import law), `npm test` (full suite, no paid model calls)
 - **build:** `npm run build` (Next production build; catches route-handler signature errors), then `npm run companion:seed` against a fresh data dir
 
-**Branch protection** for `main` (Settings → Rules → Rulesets): require a pull request, require the `quality` and `build` checks, block force pushes and deletion. GitHub only enforces rulesets on private repositories on a paid plan. On a free personal account, either upgrade, move the repository to a team organisation, or make it public; until then, the rules above are a team agreement.
+**Branch protection:** the `protect-main` ruleset (Settings → Rules → Rulesets) applies to `main`: a pull request is required, the `quality` and `build` checks must pass on an up-to-date branch, review threads must be resolved, and force pushes and deletion are blocked. Required approvals are 0 while one person is building; raise it to 1 once teammates are added as collaborators.
 
 ## Environments
 
