@@ -32,3 +32,5 @@ xai-credentials.json*
 
 # LockedIn companion: per-participant data dirs (never commit participant data)
 /runs/
+# The "delete all my data" route is source, not runtime data (data/ above matches any depth)
+!/app/api/companion/data/
