@@ -20,6 +20,8 @@ export interface OpeningMessageInput {
 	misses?: Miss[];
 	now: Date;
 	slideTokenBudget?: number;
+	/** The lecture's concept map (mermaid graph TD); the teacher plans on its node slugs. */
+	conceptMap?: string;
 }
 
 const GOALS: Record<SessionSpec["kind"], string> = {
@@ -70,6 +72,9 @@ export function buildOpeningMessage(input: OpeningMessageInput): { text: string;
 		`Budget: ${budgetLine(spec)}`,
 		`Mode: ${spec.mode === "show-first" ? "show me first" : "question me first"}.`,
 		...revisitBlock(spec.kind === "retest" ? input.misses : undefined),
+		...(input.conceptMap?.trim()
+			? ["", "CONCEPT MAP (plan on these node slugs)", "```mermaid", input.conceptMap.trim(), "```"]
+			: []),
 		"",
 		'SLIDES (cite as "(Slide n)")',
 		slides.markdown.trim(),
