@@ -14,8 +14,10 @@ npm run plugins:setup                 # once after a fresh checkout
 cp companion/seed/.env.local.example .env.local   # add a provider key for real teaching
 npm run companion:seed                # settings, prompt overrides, demo content → data/
 
-npm run dev                           # http://localhost:3000/api/companion/health
+COMPANION_DEMO=1 npm run dev          # the app: http://localhost:3000/app
 ```
+
+Open **http://localhost:3000/app** for the LockedIn app (onboarding on first run; light, dark, system and high contrast in Me) and **/app/facilitator** for the demo clock, scenarios and nudges (`COMPANION_DEMO=1`). The engine's own developer UI stays at `/`.
 
 Without `COMPANION_ENGINE` set, sessions run on the **scripted** engine, so a fresh checkout works with no API key.
 
