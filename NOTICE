@@ -19,3 +19,6 @@ Modifications made for LockedIn (from 14 November 2026):
 - Removed the upstream release, website and CI workflows (and the tests
   that pinned them), issue templates, CONTRIBUTING and SECURITY files, and
   replaced them and the README with LockedIn's own.
+- Moved the engine's pages (app/layout.tsx, page.tsx, chat/, settings/,
+  plugins/) into the route group app/(engine)/ so LockedIn's app at /app
+  has its own root layout; URLs are unchanged.
