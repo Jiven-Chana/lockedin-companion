@@ -22,11 +22,12 @@ import { CompanionContent } from "./content.ts";
 import { LearnHarnessEngine } from "./engines/learnharness.ts";
 import { ScriptedEngine } from "./engines/scripted.ts";
 import { createLearnHarnessPort } from "./lh-port.ts";
+import { fetchCalendarText } from "./calendar-fetch.ts";
 import { CompanionService, type PdfConverter } from "./service.ts";
 import { CompanionStore } from "./store.ts";
 
-export const companionDataDir = (): string => path.join(PATHS.data, "companion");
-export const companionContentDir = (): string => path.join(PATHS.root, "companion", "content");
+export const companionDataDir = (): string => path.join(/* turbopackIgnore: true */ PATHS.data, "companion");
+export const companionContentDir = (): string => path.join(/* turbopackIgnore: true */ PATHS.root, "companion", "content");
 
 export function demoEnabled(env: Record<string, string | undefined> = process.env): boolean {
 	return env.COMPANION_DEMO === "1";
@@ -74,6 +75,7 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
 		convertPdf: pdfConverter,
+		fetchCalendar: (url) => fetchCalendarText(url),
 		engineStatus: learnHarnessStatus,
 	});
 }

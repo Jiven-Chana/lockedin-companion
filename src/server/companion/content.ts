@@ -25,11 +25,11 @@ export class CompanionContent {
 
 	private candidates(lectureId: string, file: string): string[] {
 		assertSafeId(lectureId, "lecture id");
-		return [path.join(this.store.materialsDir(lectureId), file), path.join(this.repoContentDir, lectureId, file)];
+		return [path.join(/* turbopackIgnore: true */ this.store.materialsDir(lectureId), file), path.join(/* turbopackIgnore: true */ this.repoContentDir, lectureId, file)];
 	}
 
 	private find(lectureId: string, file: string): string | null {
-		return this.candidates(lectureId, file).find((p) => fs.existsSync(p)) ?? null;
+		return this.candidates(lectureId, file).find((p) => fs.existsSync(/* turbopackIgnore: true */ p)) ?? null;
 	}
 
 	slidesPath(lectureId: string): string | null {
@@ -38,7 +38,7 @@ export class CompanionContent {
 
 	slidesMarkdown(lectureId: string): string | null {
 		const p = this.slidesPath(lectureId);
-		return p ? fs.readFileSync(p, "utf-8") : null;
+		return p ? fs.readFileSync(/* turbopackIgnore: true */ p, "utf-8") : null;
 	}
 
 	hasMaterials(lectureId: string): boolean {
@@ -54,6 +54,12 @@ export class CompanionContent {
 		return md ? slideTitles(md).map((s) => s.title) : [];
 	}
 
+	/** The lecture's concept map (mermaid graph TD), if one was authored or saved. */
+	conceptMapSource(lectureId: string): string | null {
+		const p = this.find(lectureId, "map.mmd");
+		return p ? fs.readFileSync(/* turbopackIgnore: true */ p, "utf-8") : null;
+	}
+
 	pdfPath(lectureId: string): string | null {
 		return this.find(lectureId, "slides.pdf");
 	}
@@ -62,21 +68,21 @@ export class CompanionContent {
 	scriptedSet(lectureId: string): ScriptedSet | null {
 		const p = this.find(lectureId, "questions.json");
 		if (!p) return null;
-		const parsed = validateScriptedSet(JSON.parse(fs.readFileSync(p, "utf-8")));
+		const parsed = validateScriptedSet(JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ p, "utf-8")));
 		if (!parsed.ok) throw new Error(`invalid scripted set ${p}: ${parsed.errors.join("; ")}`);
 		return parsed.set;
 	}
 
 	sampleTimetable(): SampleTimetable {
-		return JSON.parse(fs.readFileSync(path.join(this.repoContentDir, "sample-timetable.json"), "utf-8")) as SampleTimetable;
+		return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ this.repoContentDir, "sample-timetable.json"), "utf-8")) as SampleTimetable;
 	}
 
 	/** Write converted slides (materials upload). */
 	writeMaterials(lectureId: string, files: { slidesMd: string; pdf?: Uint8Array }): string {
 		const dir = this.store.materialsDir(lectureId);
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(path.join(dir, "slides.md"), files.slidesMd, "utf-8");
-		if (files.pdf) fs.writeFileSync(path.join(dir, "slides.pdf"), files.pdf);
+		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
+		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.md"), files.slidesMd, "utf-8");
+		if (files.pdf) fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
 		return dir;
 	}
 }

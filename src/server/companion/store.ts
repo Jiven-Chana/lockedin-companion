@@ -35,6 +35,8 @@ export interface DemoState {
 export interface RuntimeState {
 	/** The firm/gentle lock's "let me through" window. */
 	lockOverrideUntil?: string;
+	/** A subscribed calendar link (F-03); stays on this laptop. */
+	calendarUrl?: string;
 }
 
 const FILES = {
@@ -60,12 +62,12 @@ export class CompanionStore {
 	constructor(readonly dir: string) {}
 
 	private path(name: string): string {
-		return path.join(this.dir, name);
+		return path.join(/* turbopackIgnore: true */ this.dir, name);
 	}
 
 	private readJson<T>(name: string, fallback: T): T {
 		try {
-			return JSON.parse(fs.readFileSync(this.path(name), "utf-8")) as T;
+			return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ this.path(name), "utf-8")) as T;
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") return fallback;
 			// A corrupt document must never be silently replaced: keep it and fail loudly.
@@ -74,14 +76,14 @@ export class CompanionStore {
 	}
 
 	private writeJson(name: string, value: unknown): void {
-		fs.mkdirSync(this.dir, { recursive: true });
-		writeFileAtomicSync(this.path(name), `${JSON.stringify(value, null, "\t")}\n`);
+		fs.mkdirSync(/* turbopackIgnore: true */ this.dir, { recursive: true });
+		writeFileAtomicSync(/* turbopackIgnore: true */ this.path(name), `${JSON.stringify(value, null, "\t")}\n`);
 	}
 
 	private readJsonl<T>(name: string): T[] {
 		let text: string;
 		try {
-			text = fs.readFileSync(this.path(name), "utf-8");
+			text = fs.readFileSync(/* turbopackIgnore: true */ this.path(name), "utf-8");
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
 			throw err;
@@ -99,8 +101,8 @@ export class CompanionStore {
 	}
 
 	private appendJsonl(name: string, value: unknown): void {
-		fs.mkdirSync(this.dir, { recursive: true });
-		fs.appendFileSync(this.path(name), `${JSON.stringify(value)}\n`, "utf-8");
+		fs.mkdirSync(/* turbopackIgnore: true */ this.dir, { recursive: true });
+		fs.appendFileSync(/* turbopackIgnore: true */ this.path(name), `${JSON.stringify(value)}\n`, "utf-8");
 	}
 
 	// ─── documents ──────────────────────────────────────────────────────────
@@ -206,7 +208,7 @@ export class CompanionStore {
 	// ─── materials ──────────────────────────────────────────────────────────
 
 	materialsDir(lectureId: string): string {
-		return path.join(this.dir, "materials", assertSafeId(lectureId, "lecture id"));
+		return path.join(/* turbopackIgnore: true */ this.dir, "materials", assertSafeId(lectureId, "lecture id"));
 	}
 
 	state(): CompanionState {
@@ -228,21 +230,21 @@ export class CompanionStore {
 	 * "delete all my data").
 	 */
 	wipe(opts: { everything?: boolean; keepMaterials?: boolean; archiveEvents?: boolean } = {}): string | null {
-		if (!fs.existsSync(this.dir)) return null;
+		if (!fs.existsSync(/* turbopackIgnore: true */ this.dir)) return null;
 		let archived: string | null = null;
 		const events = this.path(FILES.events);
-		if (opts.archiveEvents && fs.existsSync(events) && fs.statSync(events).size > 0) {
-			const dir = path.join(this.dir, "archive");
-			fs.mkdirSync(dir, { recursive: true });
+		if (opts.archiveEvents && fs.existsSync(/* turbopackIgnore: true */ events) && fs.statSync(/* turbopackIgnore: true */ events).size > 0) {
+			const dir = path.join(/* turbopackIgnore: true */ this.dir, "archive");
+			fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
 			const who = this.demo().participant ?? "unassigned";
-			archived = path.join(dir, `events-${new Date().toISOString().replace(/[:.]/g, "-")}-${who}.jsonl`);
-			fs.renameSync(events, archived);
+			archived = path.join(/* turbopackIgnore: true */ dir, `events-${new Date().toISOString().replace(/[:.]/g, "-")}-${who}.jsonl`);
+			fs.renameSync(/* turbopackIgnore: true */ events, archived);
 		}
-		for (const entry of fs.readdirSync(this.dir)) {
+		for (const entry of fs.readdirSync(/* turbopackIgnore: true */ this.dir)) {
 			if (!opts.everything && entry === FILES.demo) continue;
 			if (opts.keepMaterials && entry === "materials") continue;
 			if (opts.archiveEvents && entry === "archive") continue;
-			fs.rmSync(path.join(this.dir, entry), { recursive: true, force: true });
+			fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ this.dir, entry), { recursive: true, force: true });
 		}
 		return archived;
 	}
