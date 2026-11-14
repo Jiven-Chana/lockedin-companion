@@ -27,7 +27,9 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
-import { assembleSlidesMarkdown, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
+import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
+import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
+import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
 import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay } from "../../core/companion/time.ts";
 import { icsToLectures, materializeSampleTimetable, parseIcs, readsSummary, scenarioClock } from "../../core/companion/timetable.ts";
 import {
@@ -71,6 +73,8 @@ export interface CompanionServiceDeps {
 	autoFallback?: boolean;
 	readyTimeoutMs?: number;
 	convertPdf?: PdfConverter;
+	/** Fetches a calendar link (network guards live in the default implementation). */
+	fetchCalendar?: (url: string) => Promise<string>;
 	/** Is the LearnHarness engine usable (models + key)? For /health. */
 	engineStatus?: () => Record<string, unknown>;
 	newId?: (prefix: string) => string;
@@ -280,6 +284,93 @@ export class CompanionService {
 		assertSafeId(lectureId, "lecture id");
 		const md = this.content.slidesMarkdown(lectureId);
 		return { lectureId, hasMaterials: md !== null, hasPdf: this.content.pdfPath(lectureId) !== null, slides: md ? slideTitles(md) : [] };
+	}
+
+	/** Slide sections for the slide panel and reader. */
+	lectureSlides(lectureId: string) {
+		assertSafeId(lectureId, "lecture id");
+		const md = this.content.slidesMarkdown(lectureId);
+		return { slides: md ? parseSlides(md) : [] };
+	}
+
+	/** Ideas to revisit (open misses), optionally for one lecture: never "overdue". */
+	openMisses(lectureId?: string | null) {
+		const lectures = new Map(this.store.lectures().map((l) => [l.id, l]));
+		return {
+			misses: this.store
+				.misses()
+				.filter((m) => m.status === "open" && (!lectureId || m.lectureId === lectureId))
+				.map((m) => ({ id: m.id, lectureId: m.lectureId, lectureTitle: lectures.get(m.lectureId)?.title ?? m.lectureId, module: lectures.get(m.lectureId)?.module ?? "", questionText: m.questionText, correctLabels: m.correctLabels, explanation: m.explanation ?? null, reason: m.reason, createdAt: m.createdAt, nextDue: m.nextDue })),
+		};
+	}
+
+	/** Modules the sample timetable offers (onboarding step 1). */
+	availableModules() {
+		const sample = this.content.sampleTimetable();
+		return { modules: sample.modules, label: sample.label };
+	}
+
+	/** The lecture's concept map coloured by this student's answers (F-12). */
+	lectureMap(lectureId: string) {
+		assertSafeId(lectureId, "lecture id");
+		if (!this.store.lectures().some((l) => l.id === lectureId)) throw notFound("lecture");
+		const source = this.content.conceptMapSource(lectureId);
+		let base: { nodes: Omit<MapNode, "status" | "answers">[]; edges: { from: string; to: string }[] };
+		let kind: "authored" | "headings" = "authored";
+		const parsed = source ? parseMermaidPlan(source) : null;
+		if (parsed?.ok && parsed.plan) {
+			base = {
+				nodes: parsed.plan.nodes.map((n) => ({ id: n.id, ...splitNodeLabel(n.title || n.id) })),
+				edges: parsed.plan.edges.map((e) => ({ from: e.from, to: e.to })),
+			};
+		} else {
+			kind = "headings";
+			const md = this.content.slidesMarkdown(lectureId);
+			base = starterMap(md ? slideTitles(md) : []);
+		}
+		const evidence: MapEvidence[] = this.store
+			.events()
+			.filter((e) => e.type === "answer" && e.data.lectureId === lectureId && e.data.graded === true)
+			.map((e) => ({
+				nodeId: typeof e.data.nodeId === "string" ? e.data.nodeId : undefined,
+				slides: Array.isArray(e.data.slides) ? (e.data.slides as number[]) : [],
+				correct: e.data.correct === true,
+				dontKnow: e.data.dontKnow === true,
+				confidence: typeof e.data.confidence === "number" ? e.data.confidence : null,
+				at: e.t,
+			}));
+		const misses = this.store.misses().filter((m) => m.lectureId === lectureId);
+		return { lectureId, source: kind, mermaid: source ?? "", nodes: nodeStatuses(base.nodes, evidence, misses), edges: base.edges };
+	}
+
+	/** Subscribe to a calendar link (F-03): fetch, import, remember for refreshes. */
+	async subscribeCalendar(rawUrl: unknown) {
+		if (typeof rawUrl !== "string" || rawUrl.length > 2000) throw badRequest("url is required");
+		const url = rawUrl.trim().replace(/^webcal:\/\//i, "https://");
+		let parsed: URL;
+		try {
+			parsed = new URL(url);
+		} catch {
+			throw badRequest("that doesn't look like a link");
+		}
+		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw badRequest("calendar links start with https:// or webcal://");
+		if (!this.deps.fetchCalendar) throw new CompanionError("calendar_unavailable", 501, "calendar links are not available here");
+		let text: string;
+		try {
+			text = await this.deps.fetchCalendar(parsed.toString());
+		} catch (err) {
+			throw new CompanionError("calendar_fetch_failed", 502, err instanceof Error ? err.message : "couldn't fetch that calendar");
+		}
+		const result = this.importIcs(text);
+		this.store.saveRuntime({ calendarUrl: parsed.toString() });
+		this.log("settings_changed", { changed: ["calendar"], source: "link", events: result.added });
+		return result;
+	}
+
+	async refreshCalendar() {
+		const url = this.store.runtime().calendarUrl;
+		if (!url) throw badRequest("no calendar link is connected");
+		return this.subscribeCalendar(url);
 	}
 
 	/** The lecture's slide PDF, for the slide sheet (pdfjs renders the cited page). */
@@ -564,6 +655,7 @@ export class CompanionService {
 				lecture,
 				...(moduleName ? { moduleName } : {}),
 				slidesMarkdown: this.content.slidesMarkdown(lecture.id) ?? "",
+				conceptMap: this.content.conceptMapSource(lecture.id) ?? undefined,
 				misses,
 				now: this.now(),
 			});
@@ -695,7 +787,8 @@ export class CompanionService {
 		if (session.spec.kind === "retest" && counts && session.spec.missIds) misses = applyRetestAnswer(misses, session.spec.missIds, updated.answered, record, now);
 		if (miss || session.spec.kind === "retest") this.store.saveMisses(misses);
 		this.log("answer", {
-			sessionId: id, questionId: record.questionId, n: updated.answered, engine: session.engine, kind: session.spec.kind,
+			sessionId: id, lectureId: session.spec.lectureId, questionId: record.questionId, nodeId: record.nodeId ?? null,
+			slides: parseSlideRefs(record.explanation), n: updated.answered, engine: session.engine, kind: session.spec.kind,
 			graded: record.graded, correct: record.correct, dontKnow: record.dontKnow, confidence: record.confidence ?? null,
 			why: !!record.why, whyLength: record.why?.length ?? 0, assisted: (session.hintedQuestionIds ?? []).includes(record.questionId),
 			msOnQuestion: session.questionShownAt ? now.getTime() - new Date(session.questionShownAt).getTime() : null,

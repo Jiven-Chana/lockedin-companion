@@ -25,10 +25,16 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
 | POST | `/timetable/import` | `.ics` text, or `{ ics }` | `{ added, unmapped: [{ summary, start, end }] }` |
+| POST | `/timetable/subscribe` | `{ url }` (`https://` or `webcal://`) | Same as import. The server fetches the link with guards: http(s) only, no private/loopback addresses, no redirects, 5 s, 2 MB. The link is remembered for refreshes |
+| POST | `/timetable/refresh` | | Re-reads the subscribed link |
+| GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |
 | GET | `/lectures` | `?module=HCI&q=personas` | `{ lectures: (Lecture & { status: "answered" \| "revisit" \| "not-started", revisit })[] }` |
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
+| GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }] }` for the slide panel |
+| GET | `/lectures/:id/map` | | The concept map: `{ source: "authored" \| "headings", mermaid, nodes: [{ id, title, slides, status: solid \| shaky \| revisit \| notyet, answers }], edges: [{ from, to }] }` |
+| GET | `/misses` | `?lectureId=` | Ideas to revisit (open misses): `{ misses: [{ id, lectureId, lectureTitle, module, questionText, correctLabels, explanation, reason, createdAt, nextDue }] }` |
 | GET | `/materials/:lectureId/pdf` | | the slide PDF (for the slide sheet; render page n with pdfjs) |
 | POST | `/materials/:lectureId` | **demo.** PDF bytes, or multipart `file` | `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR): caption them by hand in `slides.md` |
 

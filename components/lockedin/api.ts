@@ -1,0 +1,128 @@
+/**
+ * The LockedIn app's client for /api/companion (docs/companion/API.md).
+ * Types come from the core barrel, the only src module components may import.
+ */
+
+import type { CompanionSession, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, StudyBlock } from "@/src/core";
+
+export class ApiError extends Error {
+	constructor(readonly status: number, readonly code: string, message: string) {
+		super(message);
+	}
+}
+
+export async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; raw?: BodyInit; headers?: Record<string, string> } = {}): Promise<T> {
+	const res = await fetch(`/api/companion${path}`, {
+		method: init.method ?? (init.body !== undefined || init.raw !== undefined ? "POST" : "GET"),
+		headers: init.raw !== undefined ? init.headers : init.body !== undefined ? { "content-type": "application/json" } : undefined,
+		body: init.raw ?? (init.body !== undefined ? JSON.stringify(init.body) : undefined),
+		cache: "no-store",
+	});
+	if (res.status === 204) return undefined as T;
+	const text = await res.text();
+	const data = text ? JSON.parse(text) : null;
+	if (!res.ok) throw new ApiError(res.status, data?.code ?? "error", data?.error ?? `Request failed (${res.status})`);
+	return data as T;
+}
+
+export type Banner = (NudgeRecord & { ready: boolean }) | null;
+export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "not-started"; revisit: number };
+
+export interface TodayData {
+	now: string;
+	onboarded: boolean;
+	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
+	lectures: LectureWithStatus[];
+	nextBlock: { blockId: string; start: string; end: string } | null;
+	readyToRevisit: number;
+	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
+	banner: Banner;
+	activeSession: string | null;
+}
+
+export interface ProgressData {
+	week: { sessions: number; questionsAnswered: number; readyToRevisit: number };
+	welcomeBack: TodayData["welcomeBack"];
+	roadmap: Record<string, LectureWithStatus[]>;
+}
+
+export interface DemoState {
+	now: string;
+	clockOffsetMs: number;
+	participant: string | null;
+	engineOverride: "learnharness" | "scripted" | null;
+	defaultEngine: "learnharness" | "scripted";
+	onboarded: boolean;
+	candidates: { type: string; key: string; text: string; lectureId: string | null; fireAt: string; fireBy: string; sessionId: string | null }[];
+	banner: Banner;
+	scenarios: string[];
+}
+
+export interface MissItem {
+	id: string;
+	lectureId: string;
+	lectureTitle: string;
+	module: string;
+	questionText: string;
+	correctLabels: string[];
+	explanation: string | null;
+	reason: "wrong" | "dont-know" | "low-confidence";
+	createdAt: string;
+	nextDue: string;
+}
+
+export interface SlideSection {
+	number: number;
+	title: string;
+	body: string;
+}
+
+export interface ConceptMapData {
+	lectureId: string;
+	mermaid: string;
+	source: "authored" | "headings";
+	nodes: { id: string; title: string; slides: number[]; status: "solid" | "shaky" | "revisit" | "notyet"; answers: number }[];
+	edges: { from: string; to: string }[];
+}
+
+export const lockedIn = {
+	today: () => api<TodayData>("/today"),
+	profile: () => api<{ profile: Profile | null }>("/profile").then((r) => r.profile),
+	updateProfile: (patch: { prefs?: Partial<Profile["prefs"]>; appearance?: Partial<Profile["appearance"]> }) => api<Profile>("/profile", { method: "PUT", body: patch }),
+	onboard: (body: { modules: string[]; timetableSource: "sample" | "ics"; nudgesPerDay: 1 | 2 }) => api<{ profile: Profile; tryNow: TodayData["tryNow"] }>("/onboarding", { body }),
+	importIcs: (text: string) => api<{ added: number; unmapped: { summary: string }[] }>("/timetable/import", { raw: text, headers: { "content-type": "text/calendar" } }),
+	subscribe: (url: string) => api<{ added: number; unmapped: { summary: string }[] }>("/timetable/subscribe", { body: { url } }),
+	reads: () => api<{ source: string; label: string; events: number; lectures: number; modules: string[]; lastReadAt: string | null; location: string }>("/reads"),
+	lectures: (q?: string) => api<{ lectures: LectureWithStatus[] }>(`/lectures${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.lectures),
+	missed: (id: string, missed = true) => api<Lecture>(`/lectures/${encodeURIComponent(id)}/missed`, { body: { missed } }),
+	roadmap: () => api<Record<string, LectureWithStatus[]>>("/roadmap"),
+	slides: (id: string) => api<{ slides: SlideSection[] }>(`/materials/${encodeURIComponent(id)}/slides`).then((r) => r.slides),
+	map: (id: string) => api<ConceptMapData>(`/lectures/${encodeURIComponent(id)}/map`),
+	progress: () => api<ProgressData>("/progress"),
+	misses: (lectureId?: string) => api<{ misses: MissItem[] }>(`/misses${lectureId ? `?lectureId=${encodeURIComponent(lectureId)}` : ""}`).then((r) => r.misses),
+	refreshCalendar: () => api<{ added: number }>("/timetable/refresh", { method: "POST" }),
+	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
+	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
+	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
+	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
+	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
+	hint: (id: string, questionId: string) => api<{ text: string }>(`/sessions/${encodeURIComponent(id)}/hint`, { body: { questionId } }),
+	showMe: (id: string, questionId: string) => api(`/sessions/${encodeURIComponent(id)}/show-me`, { body: { questionId } }),
+	more: (id: string) => api<{ budget: number }>(`/sessions/${encodeURIComponent(id)}/more`, { body: {} }),
+	stop: (id: string) => api(`/sessions/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+	retry: (id: string) => api(`/sessions/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
+	deleteAll: () => api("/data", { method: "DELETE" }),
+	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	demo: {
+		state: () => api<DemoState>("/demo/state"),
+		clock: (body: { set?: string; advanceMinutes?: number; jump?: string }) => api<DemoState>("/demo/clock", { body }),
+		fire: (type: string, lectureId?: string) => api<NudgeRecord>("/demo/fire", { body: { type, lectureId } }),
+		scenario: (name: string) => api<DemoState>("/demo/scenario", { body: { name } }),
+		reset: () => api<DemoState>("/demo/reset", { method: "POST" }),
+		participant: (participant: string | null) => api<DemoState>("/demo/participant", { body: { participant } }),
+		engine: (engine: "learnharness" | "scripted" | null) => api<DemoState>("/demo/engine", { body: { engine } }),
+	},
+};
+
+export type { CompanionSession, SessionView };
