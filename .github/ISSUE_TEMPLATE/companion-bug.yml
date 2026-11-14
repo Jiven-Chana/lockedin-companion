@@ -1,0 +1,34 @@
+name: "Companion: bug"
+description: Something in the LockedIn companion is wrong.
+title: "[bug] "
+labels: ["companion", "bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what should have happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Facilitator steps are ideal (scenario, demo clock, which nudge, which answer).
+      placeholder: |
+        1. POST /api/companion/demo/scenario {"name":"tayo"}
+        2. Advance the clock to 13:05, tick
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options: [scripted, learnharness, both, not session-related]
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Event-log rows (events.csv), the session id / chat id, server log lines. No participant names, no API keys.

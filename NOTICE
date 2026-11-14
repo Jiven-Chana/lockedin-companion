@@ -15,5 +15,6 @@ Modifications made for LockedIn (from 14 November 2026):
 - Re-exported them from src/core/index.ts and src/server/index.ts, and added
   companion npm scripts to package.json.
 - Renamed the package and the app title to LockedIn.
-- Removed the upstream release, website and CI workflows, issue templates,
-  CONTRIBUTING and SECURITY files, and replaced the README.
+- Removed the upstream release, website and CI workflows (and the tests
+  that pinned them), issue templates, CONTRIBUTING and SECURITY files, and
+  replaced them and the README with LockedIn's own.
