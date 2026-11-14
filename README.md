@@ -29,6 +29,7 @@ Without `COMPANION_ENGINE` set, sessions run on the **scripted** engine, so a fr
 | [docs/companion/DECISIONS.md](docs/companion/DECISIONS.md) | Decisions made in the build, and decisions still open |
 | [docs/companion/CHECKPOINT.md](docs/companion/CHECKPOINT.md) | The engine checkpoint runbook |
 | [docs/companion/plan.md](docs/companion/plan.md) | The hi-fi MVP implementation plan |
+| [docs/companion/mvp1-plan.md](docs/companion/mvp1-plan.md) | MVP 1: the student app (design, features, branches) — proposal |
 
 ## Checks
 
