@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { moduleHue, type SessionKind } from "@/src/core";
-import { lockedIn } from "../api";
+import { ApiError, lockedIn } from "../api";
 import { ConceptMap } from "../concept-map";
 import { fmtDay, fmtTime, useData } from "../hooks";
 import { StatusTag } from "../icons";
@@ -20,13 +20,15 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 	const [selected, setSelected] = useState<string | null>(null);
 	const [openSlide, setOpenSlide] = useState<number | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [msg, setMsg] = useState<string | null>(null);
+	const [confirmRemove, setConfirmRemove] = useState(false);
 	const lectures = useData(() => lockedIn.lectures());
 	const slides = useData(() => lockedIn.slides(lectureId), [lectureId]);
 	const map = useData(() => lockedIn.map(lectureId), [lectureId]);
 	const misses = useData(() => lockedIn.misses(lectureId), [lectureId]);
 
 	const lecture = lectures.data?.find((l) => l.id === lectureId);
-	if (lectures.data && !lecture) return <div className="li-card li-empty">That lecture isn&apos;t in your timetable. <Link href="/app/library">Back to the Library</Link></div>;
+	if (lectures.data && !lecture) return <div className="li-card li-empty">That isn&apos;t in your course any more. <Link href="/app/library">Back to the Library</Link></div>;
 	if (!lecture) return <div className="li-card li-empty">Loading…</div>;
 
 	async function start(kind: SessionKind) {
@@ -48,7 +50,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module} · Week {lecture.week}</Link>
+						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · Week ${lecture.week}` : ""}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
 						<span className="li-muted">{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : lecture.week > 0 ? `Week ${lecture.week} · from your course material` : "From your course material"}{lecture.attended === false ? " · you weren't there" : ""}</span>
 					</div>
@@ -56,8 +58,33 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 				<div className="li-row">
 					<button type="button" className="li-btn primary big" disabled={!lecture.hasMaterials || busy} onClick={() => start(lecture.attended === false ? "missed-lecture" : "post-lecture")}>{lecture.attended === false ? "Show me this lecture" : "Quiz me"}</button>
 					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => start("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
-					<button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button>
+					{lecture.start ? <button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button> : null}
+					<label className="li-btn ghost" style={{ cursor: "pointer" }}>
+						{lecture.hasMaterials ? "Replace material" : "Add slides (PDF)"}
+						<input type="file" accept=".pdf,application/pdf" className="li-sr" onChange={async (e) => {
+							const f = e.target.files?.[0];
+							if (!f) return;
+							setMsg("Reading your slides…");
+							try {
+								const r = await lockedIn.replaceMaterials(lectureId, f);
+								setMsg(`${r.slideCount} slides added${r.needsCaption.length ? `; no text found on ${r.needsCaption.length}` : ""}.`);
+								void lectures.reload(); void slides.reload(); void map.reload();
+							} catch (err) {
+								setMsg(err instanceof ApiError ? err.message : "Couldn't read that PDF");
+							}
+						}} />
+					</label>
+					{lecture.hasMaterials ? (
+						confirmRemove ? (
+							<span className="li-row" style={{ gap: 8 }}>
+								<b>{lecture.start ? "Remove the slides you added?" : "Remove this unit?"}</b>
+								<button type="button" className="li-btn primary" onClick={async () => { await lockedIn.removeMaterials(lectureId); setConfirmRemove(false); if (!lecture.start) router.push("/app/library"); else { void lectures.reload(); void slides.reload(); } }}>Remove</button>
+								<button type="button" className="li-btn" onClick={() => setConfirmRemove(false)}>Keep</button>
+							</span>
+						) : <button type="button" className="li-btn ghost" onClick={() => setConfirmRemove(true)}>Remove</button>
+					) : null}
 				</div>
+				{msg ? <div className="li-note" role="status">{msg}</div> : null}
 
 				<div role="tablist" aria-label="Lecture" className="li-seg" style={{ alignSelf: "flex-start" }}>
 					{([["map", "Concept map"], ["slides", `Slides (${slides.data?.length ?? 0})`], ["revisit", `Ideas to revisit (${openMisses.length})`]] as [Tab, string][]).map(([k, label]) => (

@@ -25,6 +25,11 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	return data as T;
 }
 
+export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
+export interface MaterialProposal {
+	uploadId: string;
+	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number] }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
+}
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
 
@@ -117,6 +122,13 @@ export const lockedIn = {
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	// v0.1 course material and module weeks (F-104, V-18)
+	course: () => api<CourseModule[]>("/course"),
+	setModuleWeek: (code: string, body: { week: number | null; readingWeeks?: number[]; inReadingWeek?: boolean }) => api<CourseModule>(`/modules/${encodeURIComponent(code)}`, { method: "PUT", body }),
+	proposeMaterials: (code: string, form: FormData) => api<MaterialProposal>(`/modules/${encodeURIComponent(code)}/materials`, { raw: form }),
+	saveMaterials: (code: string, body: { uploadId: string; units: { file: number; title: string; week: number; pages: [number, number] }[] }) => api<{ units: Lecture[] }>(`/modules/${encodeURIComponent(code)}/materials`, { method: "PUT", body }),
+	replaceMaterials: (lectureId: string, file: File) => { const f = new FormData(); f.append("file", file); return api<{ slideCount: number; needsCaption: number[] }>(`/materials/${encodeURIComponent(lectureId)}`, { raw: f }); },
+	removeMaterials: (lectureId: string) => api(`/materials/${encodeURIComponent(lectureId)}`, { method: "DELETE" }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
 	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[] }) =>

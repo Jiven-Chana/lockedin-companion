@@ -283,7 +283,7 @@ export function SessionScreen({ id }: { id: string }) {
 						</div>
 						<div className="li-slide">
 							<span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>
-							{s ? (<><h3>{s.title}</h3><Prose text={s.body} /></>) : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this lecture yet. Add the PDF from the Library.</p>}
+							{s ? (<><h3>{s.title}</h3><Prose text={s.body} /></>) : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 						</div>
 						{total ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === current ? "true" : "false"} />)}</div> : null}
 						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>The panel follows the slide the explanation cites. Click any slide chip to open it here.</span>
