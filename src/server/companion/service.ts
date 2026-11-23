@@ -27,11 +27,14 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
+import { clampBlockMinutes, pacedUnits, proposeWeek } from "../../core/companion/plan-week.ts";
+import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
+import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
 import { checkProposal, currentWeek, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
@@ -769,25 +772,209 @@ export class CompanionService {
 		return parsed.blocks;
 	}
 
-	/** Skip a block's next occurrence (today if it is today), one tap (X-7). */
-	skipBlock(blockId: string, date?: string): StudyBlock {
+	// ─── the weekly plan (F-110), the routine (F-109), the check-in (F-111) ─
+
+	private planSettings() {
+		return { ...DEFAULT_PLAN, ...(this.store.profile()?.plan ?? {}) };
+	}
+
+	private mondayOf(d: Date) {
+		return addDays(atTime(d, "00:00"), 1 - isoWeekday(d));
+	}
+
+	/** A week's plan: its blocks (not removed), lectures, the target and how much is planned. `weekOf` is any YYYY-MM-DD in it. */
+	plan(weekOf?: string) {
+		const profile = this.requireProfile();
+		const monday = this.mondayOf(weekOf && /^\d{4}-\d{2}-\d{2}$/.test(weekOf) ? new Date(`${weekOf}T12:00:00`) : this.now());
+		const from = dateKey(monday);
+		const to = dateKey(addDays(monday, 6));
+		const settings = this.planSettings();
+		const blocks = this.store.blocks().filter((b) => b.date >= from && b.date <= to && b.status !== "removed").sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`));
+		const lectures = this.store.lectures().filter((l) => l.start && dateKey(new Date(l.start)) >= from && dateKey(new Date(l.start)) <= to);
+		const titles = new Map(this.store.lectures().map((l) => [l.id, { title: l.title, module: l.module }]));
+		const committed = blocks.filter((b) => b.status === "accepted" || b.status === "started").reduce((n, b) => n + b.minutes, 0);
+		return {
+			week: from,
+			target: settings.weeklyTargetMinutes,
+			blockMinutes: settings.blockMinutes,
+			committedMinutes: committed,
+			proposedMinutes: blocks.filter((b) => b.status === "proposed").reduce((n, b) => n + b.minutes, 0),
+			blocks: blocks.map((b) => ({ ...b, focus: b.lectureId ? (titles.get(b.lectureId) ?? null) : null })),
+			lectures,
+			commitments: profile.routine?.commitments ?? [],
+		};
+	}
+
+	/** Propose blocks for a week (default: this one) to meet the target. Earlier proposals for that week are replaced. */
+	proposePlan(body: unknown = {}) {
+		const profile = this.requireProfile();
+		const settings = this.planSettings();
+		const target = settings.weeklyTargetMinutes;
+		if (!target) throw new CompanionError("no_target", 409, "Set a weekly study target first.");
+		const b = (body ?? {}) as { week?: unknown };
+		const now = this.now();
+		const monday = this.mondayOf(typeof b.week === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.week) ? new Date(`${b.week}T12:00:00`) : now);
+		const from = dateKey(monday);
+		const to = dateKey(addDays(monday, 6));
+		const lastFrom = dateKey(addDays(monday, -7));
+		const all = this.store.blocks();
+		const inWeek = all.filter((x) => x.date >= from && x.date <= to);
+		const units = lecturesWithStatus(this.store.state()).filter((l) => l.hasMaterials);
+		const blocksWanted = Math.ceil(target / clampBlockMinutes(settings.blockMinutes));
+		const focus = pacedUnits({ modules: profile.modules, units, now: now > monday ? now : monday, blocks: blocksWanted });
+		const r = proposeWeek({
+			week: monday,
+			now,
+			lectures: this.store.lectures(),
+			...(profile.routine ? { routine: profile.routine } : {}),
+			quietHours: profile.prefs.quietHours,
+			targetMinutes: target,
+			blockMinutes: settings.blockMinutes,
+			existing: inWeek,
+			lastWeek: all.filter((x) => x.date >= lastFrom && x.date < from),
+			focus,
+			firstTask: (id) => this.packs?.bank(id)?.[0]?.id,
+			newId: () => this.id("blk"),
+		});
+		this.store.saveBlocks([...all.filter((x) => !(x.status === "proposed" && x.date >= from && x.date <= to)), ...r.proposals]);
+		this.log("plan_proposed", { week: from, proposals: r.proposals.length, plannedMinutes: r.plannedMinutes, target, roomMinutes: r.roomMinutes, fits: r.fits, gaps: r.proposals.filter((p) => p.reason === "gap").length });
+		return { ...this.plan(from), roomMinutes: r.roomMinutes, fits: r.fits, message: r.fits ? null : PLAN_COPY.weekTooFull(r.roomMinutes) };
+	}
+
+	/** Tick, move, start or remove one block (one action each, F-110). A move keeps its focus and first task. */
+	updateBlock(blockId: string, patch: unknown) {
+		const p = (patch ?? {}) as { status?: unknown; date?: unknown; start?: unknown; minutes?: unknown; source?: unknown };
 		const blocks = this.store.blocks();
 		const block = blocks.find((b) => b.id === blockId);
 		if (!block) throw notFound("block");
-		let target = date;
-		if (target !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(target)) throw badRequest("date must be YYYY-MM-DD");
-		if (!target) {
-			const now = this.now();
-			let d = now;
-			for (let i = 0; i < 8; i++, d = addDays(now, i)) {
-				if (isoWeekday(d) === block.weekday && (i > 0 || addMinutes(atTime(d, block.start), block.minutes) > now)) break;
-			}
-			target = dateKey(d);
+		const next: StudyBlock = { ...block };
+		const moved = (p.date !== undefined && p.date !== block.date) || (p.start !== undefined && p.start !== block.start);
+		if (p.date !== undefined) {
+			if (typeof p.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(p.date)) throw badRequest("date must be YYYY-MM-DD");
+			next.date = p.date;
 		}
-		const updated = { ...block, skippedDates: [...new Set([...block.skippedDates, target])].sort() };
-		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? updated : b)));
-		this.log("settings_changed", { changed: ["blocks.skip"], blockId, date: target });
-		return updated;
+		if (p.start !== undefined) {
+			if (!isValidHM(p.start)) throw badRequest("start must be HH:MM");
+			next.start = p.start;
+		}
+		if (p.minutes !== undefined) {
+			if (!Number.isInteger(p.minutes) || (p.minutes as number) < BLOCK_RULES.minMinutes || (p.minutes as number) > BLOCK_RULES.maxMinutes) throw badRequest(`minutes must be ${BLOCK_RULES.minMinutes}–${BLOCK_RULES.maxMinutes}`);
+			next.minutes = p.minutes as number;
+		}
+		if (p.status !== undefined) {
+			if (p.status !== "accepted" && p.status !== "removed" && p.status !== "started" && p.status !== "proposed") throw badRequest("status must be accepted, started, removed or proposed");
+			next.status = p.status;
+			if (p.status === "started") next.startedAt = this.now().toISOString();
+		}
+		if (moved && next.status === "proposed") next.status = "accepted"; // moving a proposal is choosing it
+		const source = p.source === "phone" ? "phone" : undefined;
+		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? next : b)));
+		const data = { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, ...(source ? { source } : {}) };
+		if (moved) this.log("plan_moved", { ...data, from: `${block.date} ${block.start}` });
+		if (p.status === "accepted" && block.status !== "accepted") this.log("plan_accepted", data);
+		if (p.status === "removed") this.log("plan_removed", data);
+		if (p.status === "started") this.log("block_started", { ...data, via: "plan" });
+		return next;
+	}
+
+	/** Accept proposals: the listed ids, or every proposal in that week. */
+	acceptBlocks(body: unknown) {
+		const b = (body ?? {}) as { ids?: unknown; week?: unknown };
+		const ids = Array.isArray(b.ids) ? new Set(b.ids.filter((x): x is string => typeof x === "string")) : null;
+		const week = this.plan(typeof b.week === "string" ? b.week : undefined).week;
+		const end = dateKey(addDays(new Date(`${week}T12:00:00`), 6));
+		const blocks = this.store.blocks();
+		const accepted: StudyBlock[] = [];
+		const out = blocks.map((x) => {
+			if (x.status !== "proposed" || (ids ? !ids.has(x.id) : x.date < week || x.date > end)) return x;
+			const y = { ...x, status: "accepted" as const };
+			accepted.push(y);
+			return y;
+		});
+		this.store.saveBlocks(out);
+		for (const a of accepted) this.log("plan_accepted", { blockId: a.id, date: a.date, start: a.start, minutes: a.minutes, lectureId: a.lectureId ?? null });
+		return this.plan(week);
+	}
+
+	/** Target, block length, Sunday time, focus screen (Me → Study blocks). The target changes only when the student sets it. */
+	updatePlanSettings(body: unknown) {
+		const profile = this.requireProfile();
+		const b = (body ?? {}) as Partial<NonNullable<Profile["plan"]>>;
+		const cur = this.planSettings();
+		const next = { ...cur };
+		if (b.weeklyTargetMinutes !== undefined) {
+			if (b.weeklyTargetMinutes !== null && (!Number.isInteger(b.weeklyTargetMinutes) || b.weeklyTargetMinutes < 30 || b.weeklyTargetMinutes > 40 * 60)) throw badRequest("weeklyTargetMinutes must be 30 minutes to 40 hours, or null");
+			next.weeklyTargetMinutes = b.weeklyTargetMinutes;
+		}
+		if (b.blockMinutes !== undefined) next.blockMinutes = clampBlockMinutes(Number(b.blockMinutes) || DEFAULT_PLAN.blockMinutes);
+		if (b.sundayTime !== undefined) {
+			if (!isValidHM(b.sundayTime)) throw badRequest("sundayTime must be HH:MM");
+			next.sundayTime = b.sundayTime;
+		}
+		if (b.focusScreen !== undefined) next.focusScreen = b.focusScreen === true;
+		this.store.saveProfile({ ...profile, plan: next });
+		if (next.weeklyTargetMinutes !== cur.weeklyTargetMinutes) this.log("target_changed", { from: cur.weeklyTargetMinutes, to: next.weeklyTargetMinutes, via: "settings" });
+		this.log("settings_changed", { changed: Object.keys(b).map((k) => `plan.${k}`) });
+		return next;
+	}
+
+	/** Save a confirmed routine (from the setup chat or the plain form) and propose this week (F-109 → F-110). */
+	saveRoutine(body: unknown) {
+		const profile = this.requireProfile();
+		const b = (body ?? {}) as { routine?: unknown; source?: unknown; modules?: unknown };
+		const v = validateRoutine(b.routine, this.now().toISOString());
+		if (!v.ok) throw badRequest(v.errors.join("; "), v.errors);
+		const plan = { ...this.planSettings(), weeklyTargetMinutes: v.routine.weeklyTargetMinutes, blockMinutes: v.routine.preferredBlockMinutes };
+		this.store.saveProfile({ ...profile, routine: v.routine, plan });
+		// The chat also learns each module's week and reading weeks (V-18).
+		if (Array.isArray(b.modules)) for (const m of b.modules as { code?: unknown; week?: unknown; readingWeeks?: unknown }[]) {
+			if (typeof m?.code === "string" && profile.modules.some((x) => x.code === m.code) && Number.isInteger(m.week)) this.setModuleWeek(m.code, { week: m.week, ...(Array.isArray(m.readingWeeks) ? { readingWeeks: m.readingWeeks } : {}) });
+		}
+		this.log(b.source === "form" ? "setup_chat_fallback_form" : "setup_chat_confirmed", { target: v.routine.weeklyTargetMinutes, commitments: v.routine.commitments.length, energy: v.routine.energy });
+		return { routine: v.routine, plan: this.proposePlan({}) };
+	}
+
+	/** The Sunday check-in (F-111): last week's blocks started and minutes, the target, and next week's room. */
+	checkin() {
+		const profile = this.requireProfile();
+		const now = this.now();
+		const summary = lastWeekSummary(this.store.blocks(), now);
+		const settings = this.planSettings();
+		const nextMonday = addDays(this.mondayOf(now), 7);
+		const room = proposeWeek({
+			week: nextMonday, now, lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours,
+			targetMinutes: 0, blockMinutes: settings.blockMinutes, existing: [], lastWeek: [], focus: [], newId: (i) => `x${i}`,
+		}).roomMinutes;
+		this.log("checkin_shown", { started: summary.started, minutes: summary.minutes });
+		return { ...summary, target: settings.weeklyTargetMinutes, nextWeek: dateKey(nextMonday), roomMinutes: room, feelings: PLAN_COPY.feelings };
+	}
+
+	/** { feeling } → the proposed target; then { target: minutes } confirms it, or { keep: true } keeps the current one. */
+	answerCheckin(body: unknown) {
+		const b = (body ?? {}) as { feeling?: unknown; target?: unknown; keep?: unknown };
+		const c = this.checkin();
+		if (!c.target) throw new CompanionError("no_target", 409, "Set a weekly study target first.");
+		const current = c.target;
+		if (b.feeling !== undefined) {
+			if (!(FEELINGS as readonly string[]).includes(b.feeling as string)) throw badRequest(`feeling must be one of ${FEELINGS.join(", ")}`);
+			const proposed = proposeTarget(current, b.feeling as Feeling, c.roomMinutes);
+			this.log("checkin_answered", { feeling: b.feeling, current, proposed });
+			return { proposed, current, ask: proposed === current ? null : PLAN_COPY.targetProposal(proposed), keepLabel: PLAN_COPY.keepTarget(current) };
+		}
+		if (b.keep === true) {
+			this.log("target_kept", { target: current });
+			return { target: current, plan: this.proposePlan({ week: c.nextWeek }) };
+		}
+		if (Number.isInteger(b.target)) {
+			this.updatePlanSettings({ weeklyTargetMinutes: b.target });
+			return { target: b.target, plan: this.proposePlan({ week: c.nextWeek }) };
+		}
+		throw badRequest("send { feeling }, then { target } to confirm or { keep: true }");
+	}
+
+	/** Skip a block: v0.1 blocks are dated, so skipping is removing (X-7: one tap). */
+	skipBlock(blockId: string): StudyBlock {
+		return this.updateBlock(blockId, { status: "removed" });
 	}
 
 	activeBlock() {

@@ -128,8 +128,8 @@ describe("companion HTTP routes", () => {
 		assert.equal((await json(r.reads.GET(req("GET")))).label, "Sample timetable");
 		assert.ok((await json(r.progress.GET(req("GET")))).week);
 		assert.equal((await json(r.materials.GET(req("GET"), ctx({ lectureId: "hci-w3-personas" })))).slides.length, 10);
-		await json(r.blocks.PUT(req("PUT", [{ id: "b1", weekday: 3, start: "15:00", minutes: 25, skippedDates: [] }])));
-		await json(r.blocks.PUT(req("PUT", [{ id: "b1", weekday: 9 }])), 400);
+		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "2026-11-18", start: "15:00", minutes: 25, status: "accepted", source: "student" }])));
+		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "Wednesday" }])), 400);
 		const profile = await json(r.profile.PUT(req("PUT", { prefs: { nudgesPerDay: 2 }, appearance: { theme: "dark" } })));
 		assert.equal(profile.prefs.nudgesPerDay, 2);
 		await json(r.events.POST(req("POST", { type: "onboarding_step", data: { step: 2 } })));

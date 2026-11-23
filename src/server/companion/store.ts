@@ -137,8 +137,9 @@ export class CompanionStore {
 		return all[i]!;
 	}
 
+	/** Dated blocks (v0.1 F-110). v0.0's weekly slots (no date, never had a screen) are dropped on read. */
 	blocks(): StudyBlock[] {
-		return this.readJson<StudyBlock[]>(FILES.blocks, []);
+		return this.readJson<StudyBlock[]>(FILES.blocks, []).filter((b) => typeof b.date === "string" && typeof b.status === "string");
 	}
 	saveBlocks(b: StudyBlock[]): void {
 		this.writeJson(FILES.blocks, b);

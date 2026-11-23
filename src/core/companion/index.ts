@@ -25,3 +25,6 @@ export * from "./module-detect.ts";
 export * from "./prose.ts";
 export * from "./units.ts";
 export * from "./study-pack.ts";
+export * from "./plan-week.ts";
+export * from "./checkin.ts";
+export * from "./routine.ts";

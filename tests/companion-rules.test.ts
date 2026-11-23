@@ -148,11 +148,11 @@ describe(".ics import", () => {
 });
 
 describe("study blocks and the lock", () => {
-	const block = { id: "b1", weekday: 2, start: "13:00", minutes: 60, skippedDates: [] };
+	const block = { id: "b1", date: "2026-11-17", start: "13:00", minutes: 60, status: "accepted" as const, source: "student" as const };
 
-	it("validates: at most 2, sane times, ids", () => {
+	it("validates: a date, sane times, ids", () => {
 		assert.equal(validateBlocks([block]).ok, true);
-		const bad = validateBlocks([{ ...block, weekday: 8, start: "25:00", minutes: 5 }]);
+		const bad = validateBlocks([{ ...block, date: "Tuesday", start: "25:00", minutes: 5 }]);
 		assert.equal(bad.ok, false);
 		assert.equal((bad as { errors: string[] }).errors.length, 3);
 	});
@@ -162,7 +162,8 @@ describe("study blocks and the lock", () => {
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 13, 26))?.onBreak, true);
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 13, 31))?.onBreak, false);
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 14, 0)), null);
-		assert.equal(activeBlock([{ ...block, skippedDates: ["2026-11-17"] }], new Date(2026, 10, 17, 13, 10)), null);
+		assert.equal(activeBlock([{ ...block, status: "removed" }], new Date(2026, 10, 17, 13, 10)), null);
+		assert.equal(activeBlock([{ ...block, date: "2026-11-24" }], new Date(2026, 10, 17, 13, 10)), null, "only on its own date");
 	});
 
 	it("there is always a way out", () => {

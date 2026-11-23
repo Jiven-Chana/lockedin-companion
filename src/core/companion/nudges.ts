@@ -99,8 +99,9 @@ export interface Commitment {
 	end: Date;
 }
 
+/** A block is a commitment on its own date once accepted (or started); proposals and removed blocks aren't (F-110). */
 export function blockOccursOn(block: StudyBlock, day: Date): boolean {
-	return block.weekday === isoWeekday(day) && !block.skippedDates.includes(dateKey(day));
+	return block.date === dateKey(day) && (block.status === "accepted" || block.status === "started");
 }
 
 /** Every timetabled event and study block on the given local day, by start. */
@@ -497,7 +498,7 @@ export function forcedCandidate(
 			return snoozed && session ? n4Candidate(session, snoozed.id, now, true) : "no snoozed nudge with a live session";
 		}
 		case "block": {
-			const block = state.blocks[0] ?? { id: "demo-block", weekday: isoWeekday(now), start: "00:00", minutes: 25, skippedDates: [] };
+			const block: StudyBlock = state.blocks.find((b) => blockOccursOn(b, now)) ?? { id: "demo-block", date: dateKey(now), start: "00:00", minutes: 25, status: "accepted", source: "student" };
 			return blockCandidate(state, block, now, now, true) ?? "no lecture to focus the block on";
 		}
 	}

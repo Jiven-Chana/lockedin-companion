@@ -128,19 +128,20 @@ describe("global rules", () => {
 	});
 
 	it("never inside a study block (except the block's own start)", () => {
-		const block: StudyBlock = { id: "b1", weekday: 2, start: "13:00", minutes: 60, skippedDates: [] };
+		const block: StudyBlock = { id: "b1", date: "2026-11-17", start: "13:00", minutes: 60, status: "accepted", source: "student" };
 		const s = state({ lectures: [HCI], blocks: [block], sessions: [readyN1] });
 		assert.deepEqual(types(s, TUE(13, 5)), ["block"]);
 		assert.deepEqual(types({ ...s, nudges: [fired("block", TUE(13), { key: "block:b1:2026-11-17" })] }, TUE(13, 20)), []);
 	});
 
-	it("a skipped block does not fire", () => {
-		const block: StudyBlock = { id: "b1", weekday: 2, start: "15:00", minutes: 25, skippedDates: ["2026-11-17"] };
+	it("a removed block, or one only proposed, does not fire (F-110)", () => {
+		const block: StudyBlock = { id: "b1", date: "2026-11-17", start: "15:00", minutes: 25, status: "removed", source: "planner" };
+		assert.deepEqual(types(state({ lectures: [HCI], blocks: [{ ...block, status: "proposed" }], nudges: [fired("N-1", TUE(13, 5))] }), TUE(15, 1)), []);
 		assert.deepEqual(types(state({ lectures: [HCI], blocks: [block], nudges: [fired("N-1", TUE(13, 5))] }), TUE(15, 1)), []);
 	});
 
 	it("a block start does not count toward the cap (open decision 6 default)", () => {
-		const block: StudyBlock = { id: "b1", weekday: 2, start: "16:00", minutes: 25, skippedDates: [] };
+		const block: StudyBlock = { id: "b1", date: "2026-11-17", start: "16:00", minutes: 25, status: "accepted", source: "planner" };
 		const s = state({ lectures: [HCI], blocks: [block], nudges: [fired("N-1", TUE(13, 5))] });
 		assert.deepEqual(types(s, TUE(16, 2)), ["block"]);
 	});

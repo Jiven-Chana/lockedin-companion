@@ -196,6 +196,10 @@ export interface Profile {
 		eveningTime: string;
 	};
 	appearance: { theme: string; accent: string; textSize: string; lineSpacing: string; reduceMotion: boolean };
+	/** The weekly plan (F-110, F-111, V-5). */
+	plan?: { weeklyTargetMinutes: number | null; blockMinutes: number; sundayTime: string; focusScreen: boolean };
+	/** From the setup chat or the plain form (F-109). */
+	routine?: Routine;
 	/** The student's IANA time zone, e.g. "Europe/London" (F-108): floating calendar times are read in it. */
 	timeZone?: string;
 	/** The AI connection at onboarding (v0.1 F-101). The live state is GET /api/companion/ai. */
@@ -231,16 +235,41 @@ export interface Lecture {
 	hasMaterials: boolean;
 }
 
+/**
+ * A study block on a date (v0.1 F-110: generalised from v0.0's weekly
+ * slots). The planner proposes; the student ticks, moves or removes. Only
+ * accepted and started blocks are commitments (nudges, the active block).
+ */
 export interface StudyBlock {
 	id: string;
-	/** ISO weekday: 1 = Monday … 7 = Sunday. */
-	weekday: number;
+	/** Local date, "YYYY-MM-DD". */
+	date: string;
 	/** "HH:MM" */
 	start: string;
 	minutes: number;
+	/** The course unit to study (the pacing rule's pick, spec §5.5). */
 	lectureId?: string;
-	/** Local dates ("YYYY-MM-DD") this block is skipped (X-7). */
-	skippedDates: string[];
+	/** A bank question to start with (F-105). */
+	firstTaskQuestionId?: string;
+	/** "keep-up" or "gap": why this unit (spec §5.5). */
+	reason?: "keep-up" | "gap";
+	/** The weekday-and-time slot it repeats from last week (LIT-18 anchors), e.g. "2@14:00". */
+	anchorOf?: string;
+	status: "proposed" | "accepted" | "started" | "removed";
+	source: "planner" | "student" | "phone";
+	startedAt?: string;
+}
+
+/** What the setup chat learns (F-109, V-4). Confirmed by the student; never sets a Settings toggle. */
+export interface Routine {
+	energy: Array<"morning" | "afternoon" | "evening">;
+	/** Private busy time: shifts, gym, commute. */
+	commitments: Array<{ label: string; weekdays: number[]; start: string; end: string }>;
+	/** Free text, never sensed (R-2). */
+	places: string[];
+	weeklyTargetMinutes: number;
+	preferredBlockMinutes: number;
+	confirmedAt: string;
 }
 
 export type NudgeType = "N-1" | "N-2" | "N-3" | "N-4" | "block";
@@ -379,6 +408,20 @@ export const COMPANION_EVENT_TYPES = [
 	"calendar_connected",
 	"calendar_refreshed",
 	"calendar_error",
+	// v0.1 F-109, F-110, F-111
+	"plan_proposed",
+	"plan_accepted",
+	"plan_moved",
+	"plan_removed",
+	"setup_chat_started",
+	"setup_chat_turn",
+	"setup_chat_confirmed",
+	"setup_chat_skipped",
+	"setup_chat_fallback_form",
+	"checkin_shown",
+	"checkin_answered",
+	"target_changed",
+	"target_kept",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

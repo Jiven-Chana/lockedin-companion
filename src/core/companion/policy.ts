@@ -97,6 +97,56 @@ export const PACK_RULES = {
 	slideTokenBudget: 12_000,
 } as const;
 
+/**
+ * The weekly plan (F-110, V-5) and the pacing rule (spec §5.5, V-18).
+ * Defaults chosen in the build (DECISIONS.md V-18), open to the group.
+ */
+export const PLAN_RULES = {
+	defaultBlockMinutes: 50,
+	minBlockMinutes: 25,
+	maxBlockMinutes: 90,
+	maxBlocksPerDay: 2,
+	maxBlocksPerWeek: 10,
+	/** Gap kept free either side of a lecture, event or commitment. */
+	bufferMinutes: 10,
+	/** Block starts are rounded to this many minutes. */
+	slotStepMinutes: 15,
+	/** Energy windows, local times. */
+	energy: { morning: ["08:00", "12:00"], afternoon: ["12:00", "17:00"], evening: ["17:00", "22:00"] } as const,
+	/** Pacing: catch-up on older weak units gets at most this share of the week's blocks… */
+	gapShare: 1 / 3,
+	/** …and only units at most this many weeks behind the current week. */
+	maxGapWeeksBack: 6,
+	/** "Keep up" covers the current week and this many before it. */
+	keepUpWeeksBack: 1,
+} as const;
+
+export const DEFAULT_PLAN: NonNullable<Profile["plan"]> = {
+	weeklyTargetMinutes: null,
+	blockMinutes: 50,
+	sundayTime: "19:00",
+	focusScreen: false,
+};
+
+/** Sunday check-in (F-111, V-5): the target moves in these steps, within these bounds. */
+export const CHECKIN_RULES = { stepMinutes: 30, minTargetMinutes: 30 } as const;
+
+/** Wording for the plan and the check-in (spec Appendix A, draft, group to confirm). Never "missed", "overdue", "behind". */
+export const PLAN_COPY = {
+	hours: (minutes: number) => {
+		const h = Math.floor(minutes / 60);
+		const m = minutes % 60;
+		return h && m ? `${h} h ${m}` : h ? `${h} h` : `${m} min`;
+	},
+	weekTooFull: (minutes: number) => `Your week only has room for ${PLAN_COPY.hours(minutes)}. I've planned that.`,
+	checkin: (started: number, minutes: number) =>
+		`Last week: ${started} ${started === 1 ? "block" : "blocks"} started, ${PLAN_COPY.hours(minutes).replace(/ h (\d+)$/, " h $1 min")}. How did it feel?`,
+	feelings: { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" } as const,
+	targetProposal: (minutes: number) => `Try ${PLAN_COPY.hours(minutes)} next week?`,
+	keepTarget: (minutes: number) => `Keep ${PLAN_COPY.hours(minutes)}`,
+	yes: "Yes",
+} as const;
+
 /** Calendars in (F-108). */
 export const CALENDAR_RULES = {
 	/** A subscribed link is re-read when the app opens and at least this often while it runs. */
