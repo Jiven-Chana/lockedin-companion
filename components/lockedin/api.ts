@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -25,6 +25,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	return data as T;
 }
 
+export interface PackData { meta: PackMeta | null; explainers: Explainer[]; questions: number; running: boolean }
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
@@ -122,6 +123,10 @@ export const lockedIn = {
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	// v0.1 study packs (F-105)
+	pack: (id: string) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`),
+	startPack: (id: string, fresh = false) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`, { body: { fresh } }),
+	cancelPack: (id: string) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`, { method: "DELETE" }),
 	// v0.1 course material and module weeks (F-104, V-18)
 	course: () => api<CourseModule[]>("/course"),
 	setModuleWeek: (code: string, body: { week: number | null; readingWeeks?: number[]; inReadingWeek?: boolean }) => api<CourseModule>(`/modules/${encodeURIComponent(code)}`, { method: "PUT", body }),
