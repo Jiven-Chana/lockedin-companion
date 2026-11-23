@@ -25,7 +25,9 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
+import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
@@ -75,6 +77,14 @@ export interface CompanionServiceDeps {
 	convertPdf?: PdfConverter;
 	/** Fetches a calendar link (network guards live in the default implementation). */
 	fetchCalendar?: (url: string) => Promise<string>;
+	/**
+	 * v0.1 F-102: when set, sessions default to this engine whenever the
+	 * student's AI is ready (connected, three slots set, background use on).
+	 * Unset: `defaultEngine` always (an explicit COMPANION_ENGINE, tests).
+	 */
+	engineWhenAiReady?: EngineName;
+	/** Connect your AI (F-101): engine access and the key check. */
+	ai?: { port: AiPort; verifyKey: KeyVerifier };
 	/** Is the LearnHarness engine usable (models + key)? For /health. */
 	engineStatus?: () => Record<string, unknown>;
 	newId?: (prefix: string) => string;
@@ -90,8 +100,38 @@ const MODULE_CODE = /^[A-Za-z0-9 _-]{1,32}$/;
 
 export class CompanionService {
 	private readonly preparing = new Map<string, Promise<void>>();
+	private aiReady = false;
+	/** Connect your AI (F-101). Null when the engine isn't wired (tests). */
+	readonly ai: CompanionAi | null;
 
-	constructor(private readonly deps: CompanionServiceDeps) {}
+	constructor(private readonly deps: CompanionServiceDeps) {
+		this.ai = deps.ai
+			? new CompanionAi(deps.ai.port, deps.ai.verifyKey, (type, data) => this.log(type, data), (ready) => this.noteAiReady(ready))
+			: null;
+	}
+
+	private noteAiReady(ready: boolean) {
+		if (ready && !this.aiReady && this.deps.engineWhenAiReady) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
+		this.aiReady = ready;
+	}
+
+	/** The engine new sessions use (F-102): the student's AI when it's ready, otherwise the declared fallback. */
+	defaultEngine(): EngineName {
+		return this.deps.engineWhenAiReady && this.aiReady ? this.deps.engineWhenAiReady : this.deps.defaultEngine;
+	}
+
+	requireAi(): CompanionAi {
+		if (!this.ai) throw new CompanionError("ai_unavailable", 501, "AI connection is not available here");
+		return this.ai;
+	}
+
+	/** A lecture by id: the timetable's, or the bundled first-taste lecture (O-3) for students who don't take it. */
+	private lectureById(id: string): Lecture | undefined {
+		const own = this.store.lectures().find((l) => l.id === id);
+		if (own || id !== FIRST_TASTE_LECTURE) return own;
+		const sample = this.content.sampleTimetable();
+		return materializeSampleTimetable(sample, this.now(), { hasMaterials: (lid) => this.content.hasMaterials(lid) }).find((l) => l.id === id);
+	}
 
 	private get store() {
 		return this.deps.store;
@@ -133,11 +173,13 @@ export class CompanionService {
 		return eventsToCsv(this.store.events());
 	}
 
-	health() {
+	async health() {
 		const demo = this.store.demo();
+		const ai = this.ai ? await this.ai.status().catch(() => null) : null;
 		return {
 			ok: true,
-			defaultEngine: this.deps.defaultEngine,
+			ai: ai ? { connected: ai.provider !== null, provider: ai.provider, modelsReady: ai.modelsReady, ready: ai.ready, blocker: ai.blocker } : null,
+			defaultEngine: this.defaultEngine(),
 			engineOverride: demo.engineOverride ?? null,
 			autoFallback: !!this.deps.autoFallback,
 			onboarded: this.store.profile() !== null,
@@ -233,6 +275,99 @@ export class CompanionService {
 			reads: this.reads(),
 			tryNow: tryNow ? { lectureId: tryNow.id, title: tryNow.title, module: tryNow.module, spec: specFor("try-now", tryNow.id, profile.prefs) } : null,
 		};
+	}
+
+	// ─── onboarding v0.1: calendar first, then modules (J1′, V-17) ──────────
+
+	/** POST /onboarding: the v0.1 body has `calendar`; the v0.0 body (scenarios, tests) doesn't. */
+	async onboarding(body: unknown) {
+		if (body && typeof body === "object" && "calendar" in body) return this.onboardFlow(body);
+		return this.onboard(body as OnboardingInput);
+	}
+
+	private calendarEvents(text: string) {
+		if (!text.includes("BEGIN:VCALENDAR")) throw badRequest("not an iCalendar file");
+		const now = this.now();
+		return parseIcs(text, { from: addDays(now, -28), to: addDays(now, 120) });
+	}
+
+	/** Read a calendar (link or file text) without saving anything, and propose its modules. */
+	async calendarPreview(body: unknown) {
+		const b = (body ?? {}) as { url?: unknown; text?: unknown };
+		const text = b.url !== undefined ? (await this.fetchCalendarLink(b.url)).text : typeof b.text === "string" ? b.text : null;
+		if (text === null) throw badRequest("send { url } or { text }");
+		const events = this.calendarEvents(text);
+		return { events: events.length, modules: detectModules(events) };
+	}
+
+	/**
+	 * Onboarding v0.1 (J1′): the confirmed modules plus how the timetable
+	 * arrives. `calendar`: { kind: "sample" } (labelled demo week),
+	 * { kind: "link", url }, { kind: "file", text } or { kind: "none" }.
+	 * Modules are { name, code? }; a missing code is made from the name.
+	 */
+	async onboardFlow(body: unknown) {
+		const b = (body ?? {}) as { modules?: unknown; calendar?: { kind?: unknown; url?: unknown; text?: unknown }; nudgesPerDay?: unknown };
+		const kind = b.calendar?.kind;
+		if (kind !== "sample" && kind !== "link" && kind !== "file" && kind !== "none") throw badRequest("calendar.kind must be sample, link, file or none");
+		const nudgesPerDay = b.nudgesPerDay === undefined ? DEFAULT_PREFS.nudgesPerDay : b.nudgesPerDay;
+		if (nudgesPerDay !== 1 && nudgesPerDay !== 2) throw badRequest("nudgesPerDay must be 1 or 2");
+
+		let modules: { code: string; name: string }[] | undefined;
+		if (kind !== "sample") {
+			if (!Array.isArray(b.modules) || b.modules.length === 0) throw badRequest("add at least one module");
+			if (b.modules.length > 20) throw badRequest("at most 20 modules");
+			const taken = new Set<string>();
+			modules = b.modules.map((raw) => {
+				const m = (raw ?? {}) as { code?: unknown; name?: unknown };
+				const name = typeof m.name === "string" ? m.name.trim() : "";
+				if (!name || name.length > 80) throw badRequest("each module needs a name (up to 80 characters)");
+				const code = typeof m.code === "string" && m.code.trim() ? m.code.trim().toUpperCase() : codeFromName(name, taken);
+				if (!MODULE_CODE_RE.test(code)) throw badRequest(`invalid module code ${code}`);
+				if (taken.has(code)) throw badRequest(`two modules share the code ${code}`);
+				taken.add(code);
+				return { code, name };
+			});
+		}
+		// Fetch before saving anything, so a bad link leaves no half-made profile.
+		const link = kind === "link" ? await this.fetchCalendarLink(b.calendar?.url) : null;
+		const fileText = kind === "file" ? (typeof b.calendar?.text === "string" ? b.calendar.text : null) : null;
+		if (kind === "file" && fileText === null) throw badRequest("calendar.text is required for a file");
+
+		const base = this.onboard({ ...(kind === "sample" ? {} : { modules: modules!.map((m) => m.code) }), timetableSource: kind === "sample" ? "sample" : "ics", nudgesPerDay });
+		const profile = this.requireProfile();
+		const ai = this.ai ? await this.ai.status().catch(() => null) : null;
+		this.store.saveProfile({
+			...profile,
+			...(modules ? { modules } : {}),
+			...(kind === "none" ? { timetableSource: "none" as const } : {}),
+			ai: { provider: ai?.provider ?? null, ...(ai?.provider ? { connectedAt: this.now().toISOString() } : {}) },
+		});
+		let calendar: { added: number; unmapped: number } | null = null;
+		if (link) {
+			const r = this.importIcs(link.text);
+			this.store.saveRuntime({ calendarUrl: link.url });
+			calendar = { added: r.added, unmapped: r.unmapped.length };
+		} else if (fileText !== null) {
+			const r = this.importIcs(fileText);
+			calendar = { added: r.added, unmapped: r.unmapped.length };
+		}
+		this.log("onboarding_done", { flow: "v0.1", calendar: kind, modules: (modules ?? base.profile.modules).map((m) => m.code), events: calendar?.added ?? null, ai: ai?.provider ?? null });
+		return { profile: this.requireProfile(), reads: this.reads(), calendar, firstTaste: this.firstTasteCard() };
+	}
+
+	/** The first-taste card: the bundled sample lecture (O-3). */
+	private firstTasteCard() {
+		const lecture = this.lectureById(FIRST_TASTE_LECTURE);
+		if (!lecture || !this.content.hasMaterials(lecture.id)) return null;
+		return { lectureId: lecture.id, title: lecture.title, module: lecture.module, sample: true, spec: specFor("try-now", lecture.id, this.store.profile()?.prefs) };
+	}
+
+	/** Start preparing the first taste while the student is still on the modules screen (J1′ step 2). */
+	firstTaste() {
+		const card = this.firstTasteCard();
+		if (!card) throw new CompanionError("first_taste_unavailable", 404, "the sample lecture isn't installed");
+		return { ...card, ...this.createSession(card.spec) };
 	}
 
 	// ─── timetable ──────────────────────────────────────────────────────────
@@ -344,7 +479,8 @@ export class CompanionService {
 	}
 
 	/** Subscribe to a calendar link (F-03): fetch, import, remember for refreshes. */
-	async subscribeCalendar(rawUrl: unknown) {
+	/** Validate and fetch a calendar link (https:// or webcal://) with the network guards. */
+	private async fetchCalendarLink(rawUrl: unknown): Promise<{ url: string; text: string }> {
 		if (typeof rawUrl !== "string" || rawUrl.length > 2000) throw badRequest("url is required");
 		const url = rawUrl.trim().replace(/^webcal:\/\//i, "https://");
 		let parsed: URL;
@@ -355,12 +491,16 @@ export class CompanionService {
 		}
 		if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw badRequest("calendar links start with https:// or webcal://");
 		if (!this.deps.fetchCalendar) throw new CompanionError("calendar_unavailable", 501, "calendar links are not available here");
-		let text: string;
 		try {
-			text = await this.deps.fetchCalendar(parsed.toString());
+			return { url: parsed.toString(), text: await this.deps.fetchCalendar(parsed.toString()) };
 		} catch (err) {
 			throw new CompanionError("calendar_fetch_failed", 502, err instanceof Error ? err.message : "couldn't fetch that calendar");
 		}
+	}
+
+	async subscribeCalendar(rawUrl: unknown) {
+		const { url, text } = await this.fetchCalendarLink(rawUrl);
+		const parsed = new URL(url);
 		const result = this.importIcs(text);
 		this.store.saveRuntime({ calendarUrl: parsed.toString() });
 		this.log("settings_changed", { changed: ["calendar"], source: "link", events: result.added });
@@ -607,15 +747,16 @@ export class CompanionService {
 	}
 
 	createSession(spec: SessionSpec, opts: { nudgeKey?: string; engine?: EngineName } = {}): { sessionId: string } {
-		this.requireProfile();
-		const lecture = this.store.lectures().find((l) => l.id === spec.lectureId);
+		// The first taste is prepared during onboarding, before the profile exists (J1′).
+		if (!(spec.kind === "try-now" && spec.lectureId === FIRST_TASTE_LECTURE)) this.requireProfile();
+		const lecture = this.lectureById(spec.lectureId);
 		if (!lecture) throw notFound("lecture");
 		if (spec.kind === "retest" && !(spec.missIds && spec.missIds.length > 0)) {
 			const misses = dueMissesForRetest(this.store.misses().filter((m) => m.lectureId === spec.lectureId), this.now(), true);
 			if (misses.length === 0) throw badRequest("nothing to retest for this lecture");
 			spec = { ...spec, missIds: misses.map((m) => m.id) };
 		}
-		const engine = opts.engine ?? this.store.demo().engineOverride ?? this.deps.defaultEngine;
+		const engine = opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine();
 		const session: CompanionSession = {
 			id: this.id("s"),
 			engine,
@@ -645,7 +786,7 @@ export class CompanionService {
 		const engine = this.deps.engines[session.engine];
 		try {
 			if (!engine) throw new CompanionError("engine_unavailable", 503, `engine ${session.engine} is not configured`);
-			const lecture = this.store.lectures().find((l) => l.id === session.spec.lectureId);
+			const lecture = this.lectureById(session.spec.lectureId);
 			if (!lecture) throw notFound("lecture");
 			const missIds = new Set(session.spec.missIds ?? []);
 			const misses = this.store.misses().filter((m) => missIds.has(m.id));
@@ -693,7 +834,7 @@ export class CompanionService {
 	private requireSession(id: string): { session: CompanionSession; lecture: Lecture; engine: SessionEngine } {
 		const session = this.store.session(assertSafeId(id, "session id"));
 		if (!session) throw notFound("session");
-		const lecture = this.store.lectures().find((l) => l.id === session.spec.lectureId);
+		const lecture = this.lectureById(session.spec.lectureId);
 		if (!lecture) throw notFound("lecture");
 		return { session, lecture, engine: this.engineFor(session.engine) };
 	}
@@ -921,7 +1062,7 @@ export class CompanionService {
 			clockOffsetMs: demo.clockOffsetMs,
 			participant: demo.participant ?? null,
 			engineOverride: demo.engineOverride ?? null,
-			defaultEngine: this.deps.defaultEngine,
+			defaultEngine: this.defaultEngine(),
 			onboarded: this.store.profile() !== null,
 			candidates: this.store.profile() ? this.candidates() : [],
 			banner: this.banner(),

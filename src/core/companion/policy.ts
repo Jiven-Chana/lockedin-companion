@@ -144,6 +144,14 @@ export const SESSION_COPY = {
 		`Never during a lecture, never between ${quiet.from} and ${quiet.to}.`,
 } as const;
 
+/**
+ * The first taste (spec J1′ step 3, open decision O-3, decided 23 Nov): 3
+ * questions on this bundled sample lecture, prepared while the student is
+ * still on the modules screen. It has real authored slides, so it works
+ * for any student before they add their own.
+ */
+export const FIRST_TASTE_LECTURE = "hci-w3-personas";
+
 /** The text sent as the "why" when the learner taps "Show me first" (§6.7). */
 export const SHOW_ME_THINKING = "Show me a worked example first, then ask me again.";
 export const HINT_REQUEST = "Give me a one-sentence hint for this question. Don't give the answer.";

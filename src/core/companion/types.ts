@@ -171,7 +171,8 @@ export type LockStrictness = "off" | "gentle" | "firm";
 export interface Profile {
 	createdAt: string;
 	modules: { code: string; name: string }[];
-	timetableSource: "sample" | "ics";
+	/** "none": no calendar yet, modules typed by the student (v0.1 onboarding). */
+	timetableSource: "sample" | "ics" | "none";
 	/** When the timetable was last read, and what was read (R-7). */
 	timetableRead?: { at: string; events: number; modules: string[] };
 	prefs: {
@@ -183,6 +184,8 @@ export interface Profile {
 		eveningTime: string;
 	};
 	appearance: { theme: string; accent: string; textSize: string; lineSpacing: string; reduceMotion: boolean };
+	/** The AI connection at onboarding (v0.1 F-101). The live state is GET /api/companion/ai. */
+	ai?: { provider: "chatgpt" | "anthropic" | "openai" | "openrouter" | null; connectedAt?: string };
 }
 
 export interface Lecture {
@@ -329,6 +332,11 @@ export const COMPANION_EVENT_TYPES = [
 	"settings_changed",
 	"engine_fallback",
 	"error",
+	// v0.1 F-101, F-102
+	"ai_connected",
+	"ai_disconnected",
+	"ai_error",
+	"engine_ready",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

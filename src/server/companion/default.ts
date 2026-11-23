@@ -4,8 +4,10 @@
  * module instances share one service (and one in-flight preparation map).
  *
  * Environment (see companion/seed/.env.local.example):
- *   COMPANION_ENGINE          learnharness | scripted (default: scripted, so a
- *                             fresh checkout runs with no API key)
+ *   COMPANION_ENGINE          learnharness | scripted. Unset (v0.1 F-102):
+ *                             learnharness whenever the student's AI is
+ *                             connected with all three model slots set,
+ *                             scripted otherwise (a fresh checkout, CI)
  *   COMPANION_AUTO_FALLBACK   1 = a LearnHarness prepare failure retries on scripted
  *   COMPANION_DEMO            1 = facilitator routes enabled (/api/companion/demo/*)
  *   COMPANION_READY_TIMEOUT_MS  question-1 timeout (default 60000)
@@ -25,7 +27,8 @@ import { OffsetClock } from "./clock.ts";
 import { CompanionContent } from "./content.ts";
 import { LearnHarnessEngine } from "./engines/learnharness.ts";
 import { ScriptedEngine } from "./engines/scripted.ts";
-import { createLearnHarnessPort } from "./lh-port.ts";
+import { createAiPort, createLearnHarnessPort } from "./lh-port.ts";
+import { verifyProviderKey } from "./ai.ts";
 import { fetchCalendarText } from "./calendar-fetch.ts";
 import { CompanionService, type PdfConverter } from "./service.ts";
 import { CompanionStore } from "./store.ts";
@@ -38,9 +41,15 @@ export function demoEnabled(env: Record<string, string | undefined> = process.en
 	return env.COMPANION_DEMO === "1";
 }
 
-export function configuredEngine(env: Record<string, string | undefined> = process.env): EngineName {
+/** An explicit COMPANION_ENGINE, or null when unset (then the student's AI decides, F-102). */
+export function explicitEngine(env: Record<string, string | undefined> = process.env): EngineName | null {
 	const raw = env.COMPANION_ENGINE?.trim();
-	return raw && (ENGINE_NAMES as readonly string[]).includes(raw) ? (raw as EngineName) : "scripted";
+	return raw && (ENGINE_NAMES as readonly string[]).includes(raw) ? (raw as EngineName) : null;
+}
+
+/** The engine used when the student's AI is not ready: explicit, or scripted. */
+export function configuredEngine(env: Record<string, string | undefined> = process.env): EngineName {
+	return explicitEngine(env) ?? "scripted";
 }
 
 const pdfConverter: PdfConverter = async (data) => {
@@ -84,7 +93,8 @@ export function createCompanionService(env: Record<string, string | undefined> =
 	const content = new CompanionContent(store, companionContentDir());
 	const clock = new OffsetClock(() => store.demo().clockOffsetMs);
 	const timeout = Number(env.COMPANION_READY_TIMEOUT_MS);
-	return new CompanionService({
+	const explicit = explicitEngine(env);
+	const svc = new CompanionService({
 		store,
 		content,
 		clock,
@@ -97,12 +107,17 @@ export function createCompanionService(env: Record<string, string | undefined> =
 			scripted: new ScriptedEngine((id) => content.scriptedSet(id)),
 		},
 		defaultEngine: configuredEngine(env),
+		...(explicit ? {} : { engineWhenAiReady: "learnharness" as const }),
+		ai: { port: createAiPort(), verifyKey: verifyProviderKey },
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
 		convertPdf: pdfConverter,
 		fetchCalendar: (url) => fetchCalendarText(url),
 		engineStatus: learnHarnessStatus,
 	});
+	// Learn whether the student's AI is ready before the first session is asked for.
+	void svc.ai?.status().catch(() => undefined);
+	return svc;
 }
 
 type CompanionGlobal = { __lhCompanionService?: CompanionService };

@@ -20,6 +20,16 @@ import { stores } from "../stores.ts";
 import { isTurnRunning } from "../turn-liveness.ts";
 import { turnFailure } from "../turn-runs.ts";
 import type { LhPort, LhSendResult } from "./engines/learnharness.ts";
+import { refreshWorkerRequestAdmission } from "../../agent/worker-request-admission.ts";
+import { writeSettings } from "../../store/settings.ts";
+import { deleteKey, keyStatuses, saveKey } from "../keys.ts";
+import { clampModelsLevels, modelCatalog, refreshConnectionCatalog, validateModelsSettings } from "../model-catalog.ts";
+import { parseModelsSettingsBody } from "../settings-body.ts";
+import { subscriptionRequestOrigin } from "../desktop-access.ts";
+import { webSubscriptionOwner, webSubscriptionStatus } from "../web-subscriptions.ts";
+import { KEY_PROVIDERS, PROVIDER_KEY_ID, type CatalogModel, type KeyProvider, type SlotChoices } from "../../core/companion/models.ts";
+import { MODEL_SLOTS } from "../../core/settings.ts";
+import type { AiPort } from "./ai.ts";
 
 async function readNdjsonAnswer(res: Response): Promise<string> {
 	if (!res.ok || !res.body) {
@@ -102,6 +112,89 @@ export function createLearnHarnessPort(opts: LearnHarnessPortOptions = {}): LhPo
 		},
 		deleteChat(chatId) {
 			deleteIdleChatRecord(chatId);
+		},
+	};
+}
+
+/**
+ * Connect your AI (v0.1 F-101): ChatGPT sign-in, API keys, the model
+ * catalogue and the three slots, through the same server functions the
+ * engine's own Settings uses (app/api/subscriptions, app/api/keys,
+ * app/api/models, PUT /api/settings/models).
+ */
+export function createAiPort(): AiPort {
+	const NOT_AVAILABLE = { connected: false, pending: false, allowBackgroundUse: false, email: null, error: null, available: false };
+	return {
+		async chatgptStatus() {
+			try {
+				const { chatgpt } = await webSubscriptionStatus();
+				const account = chatgpt.accounts.find((a) => a.id === chatgpt.activeId) ?? null;
+				return {
+					available: chatgpt.available,
+					pending: chatgpt.pending,
+					allowBackgroundUse: chatgpt.allowBackgroundUse,
+					connected: !!(chatgpt.available && account?.connected && account.planEnabled !== false),
+					email: account?.email ?? null,
+					error: chatgpt.error ?? null,
+				};
+			} catch {
+				// Desktop-owned mode (Electron) runs ChatGPT in the main process: F-117.
+				return NOT_AVAILABLE;
+			}
+		},
+		async chatgptControl(op, fields, req) {
+			const origin = subscriptionRequestOrigin(req);
+			if (!origin) return { error: "Open sign-in from LockedIn on this computer." };
+			const result = (await webSubscriptionOwner().control("chatgpt", { op, ...fields }, origin)) as { value?: { error?: string | null }; browserAction?: string };
+			return {
+				...(result.browserAction ? { browserAction: result.browserAction } : {}),
+				...(result.value?.error ? { error: result.value.error } : {}),
+			};
+		},
+		keysPresent() {
+			const statuses = keyStatuses();
+			const present = (p: KeyProvider) => statuses.some((k) => k.id === PROVIDER_KEY_ID[p] && k.present);
+			return Object.fromEntries(KEY_PROVIDERS.map((p) => [p, present(p)])) as Record<KeyProvider, boolean>;
+		},
+		saveKey(provider, value) {
+			const r = saveKey(PROVIDER_KEY_ID[provider], value);
+			return r.ok ? { ok: true } : { ok: false, error: r.error };
+		},
+		deleteKey(provider) {
+			deleteKey(PROVIDER_KEY_ID[provider]);
+		},
+		async catalog(): Promise<CatalogModel[]> {
+			await refreshConnectionCatalog().catch(() => undefined);
+			return modelCatalog().models.map((m) => ({
+				id: m.id,
+				name: m.name,
+				provider: m.provider,
+				input: [...m.input],
+				reasoning: m.reasoning,
+				supportedLevels: [...(m.supportedLevels ?? [])],
+				cost: m.cost && (m.cost.input > 0 || m.cost.output > 0) ? { input: m.cost.input, output: m.cost.output } : null,
+			}));
+		},
+		slots(): SlotChoices {
+			const models = readSettings()?.models ?? {};
+			const out: SlotChoices = {};
+			for (const slot of MODEL_SLOTS) {
+				const s = models[slot];
+				if (s?.model) out[slot] = { model: { provider: s.model.provider, id: s.model.id }, ...(s.thinkingLevel ? { thinkingLevel: s.thinkingLevel as never } : {}) };
+			}
+			return out;
+		},
+		writeSlots(slots) {
+			const parsed = parseModelsSettingsBody(slots ?? {});
+			if (!parsed.ok) return { ok: false, error: parsed.error };
+			const record = readSettings() ?? { version: 1 };
+			if (slots) {
+				const verdict = validateModelsSettings(parsed.settings, record.models);
+				if (!verdict.ok) return { ok: false, error: verdict.error };
+			}
+			writeSettings({ ...record, models: clampModelsLevels(parsed.settings) });
+			refreshWorkerRequestAdmission();
+			return { ok: true };
 		},
 	};
 }

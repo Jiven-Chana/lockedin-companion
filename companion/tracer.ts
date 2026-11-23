@@ -21,7 +21,7 @@ const runs = runsIdx >= 0 ? Math.max(1, Number(args[runsIdx + 1]) || 1) : 1;
 const answer = args.includes("--answer");
 
 const svc = createCompanionService({ ...process.env, COMPANION_ENGINE: "learnharness", COMPANION_AUTO_FALLBACK: "0" });
-const health = svc.health();
+const health = await svc.health();
 console.log("engine status:", JSON.stringify(health.engines));
 if (!svc.profile()) svc.onboard({ timetableSource: "sample" });
 

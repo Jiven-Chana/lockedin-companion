@@ -64,7 +64,9 @@ describe("companion HTTP routes", () => {
 		assert.equal(h.defaultEngine, "scripted");
 		assert.equal(h.onboarded, false);
 		assert.deepEqual(await json(r.due.GET(req("GET"))), { nudge: null, prepared: [] });
-		await json(r.sessions.POST(req("POST", { kind: "try-now", lectureId: "hci-w3-personas" })), 409);
+		// Only the first taste (the bundled sample lecture, J1′) may start before onboarding.
+		await json(r.sessions.POST(req("POST", { kind: "post-lecture", lectureId: "hci-w3-personas" })), 409);
+		await json(r.sessions.POST(req("POST", { kind: "try-now", lectureId: "hci-w4-fieldwork" })), 409);
 	});
 
 	it("J1: onboarding → try-now → question 1 in three calls", async () => {

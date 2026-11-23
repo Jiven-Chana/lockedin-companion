@@ -13,12 +13,27 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/health` | | `{ ok, defaultEngine, engineOverride, autoFallback, onboarded, lectures, now, engines: { learnharness: { strongModel, providerKeyPresent } } }` |
-| POST | `/onboarding` | `{ modules?: string[], timetableSource?: "sample" \| "ics", nudgesPerDay?: 1 \| 2 }` | `{ profile, reads, tryNow: { lectureId, title, module, spec } \| null }` |
+| GET | `/health` | | `{ ok, ai: { connected, provider, modelsReady, ready, blocker } \| null, defaultEngine, engineOverride, autoFallback, onboarded, lectures, now, engines: { learnharness: { strongModel, providerKeyPresent } } }`. `defaultEngine` is `learnharness` once `ai.ready` (unless `COMPANION_ENGINE` is set) |
+| POST | `/onboarding` | v0.1: `{ calendar: { kind: "sample" \| "link" \| "file" \| "none", url?, text? }, modules: [{ name, code? }], nudgesPerDay? }` (modules not needed for `sample`; a missing code is made from the name) | `{ profile, reads, calendar: { added, unmapped } \| null, firstTaste: { lectureId, title, module, sample: true, spec } \| null }`. A link is fetched before anything is saved. The v0.0 body `{ modules?: string[], timetableSource?, nudgesPerDay? }` still returns `{ profile, reads, tryNow }` |
+| POST | `/onboarding/calendar` | `{ url }` or `{ text }` | `{ events, modules: [{ code, name, events, confident }] }`. Reads a calendar without saving anything; `confident` modules start ticked |
+| POST | `/onboarding/first-taste` | | `{ sessionId, lectureId, title, module, sample, spec }`. Starts preparing the 3-question first taste on the bundled sample lecture (O-3). The only session allowed before onboarding |
 | GET | `/profile` | | `{ profile: Profile \| null }` |
 | PUT | `/profile` | `{ prefs?: { nudgesPerDay, quietHours: {from,to}, lock: "off"\|"gentle"\|"firm", defaultMode, eveningTime }, appearance?: { theme, accent, textSize, lineSpacing, reduceMotion } }` (partial) | `Profile` |
 | GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read" }` |
 | DELETE | `/data` | | `{ deleted: true }`. Deletes the student's records, sessions (and their LearnHarness chats) and the event log; lecture materials stay |
+
+## Connect your AI (v0.1 F-101)
+
+The student's AI connection and LearnHarness's three model slots (Strong, Cheap, Vision). Every call goes through the engine's own sign-in, key and settings functions (`lh-port.ts` `createAiPort`). `AiStatus` = `{ provider, chatgpt: { connected, pending, allowBackgroundUse, email, error, available }, keys: { anthropic, openai, openrouter }, slots: { strong?, cheap?, vision? }, modelsReady, ready, blocker, catalog: [{ id, name, provider, input, reasoning, supportedLevels, cost }] }`. Events: `ai_connected`, `ai_disconnected`, `ai_error`, `engine_ready`.
+
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/ai` | | `AiStatus` (refreshes the catalogue) |
+| POST | `/ai/chatgpt` | `{ op: "login" \| "cancel" \| "logout" \| "consent", enabled? }` | `{ browserAction?, error?, status: AiStatus }`. For `login`, open a tab synchronously in the click, then point it at `browserAction` (same machine only: the OpenAI callback is on 127.0.0.1). Poll `GET /ai` until `chatgpt.connected` |
+| POST | `/ai/key` | `{ provider: "anthropic" \| "openai" \| "openrouter", key }` | `AiStatus`. The key is checked with one cheap request to that provider and only saved if it works; `400 key_rejected` with a plain message otherwise |
+| PUT | `/ai/models` | `{ strong, cheap, vision }`, each `{ model: { provider, id }, thinkingLevel? }` | `AiStatus`. `400 models_invalid` with `detail` per slot (unknown model, Vision without image input) |
+| POST | `/ai/models/auto` | `{ provider? }` | "Choose for me": `AiStatus & { missing, saved }`. Slots the account can't fill are returned unsaved in `missing` |
+| DELETE | `/ai` | `?provider=` | Signs out of ChatGPT or deletes the key, and clears slots that used it → `AiStatus` |
 
 ## Timetable, lectures, materials
 

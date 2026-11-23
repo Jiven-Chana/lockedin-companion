@@ -43,6 +43,20 @@ The design is in [`v0.1-spec.md`](v0.1-spec.md). Section 3 of the spec lists whe
 | V-13 | The repository is public (AGPL-3.0, as LearnHarness). kayzisland, JishnuMukherjee, LekanAkinwale01 and RPala2703 were invited with write access | Jiven, 23 Nov | D-7 |
 | V-14 | Naming: `VERSIONS.md`, `v0.1-spec.md`, integration branch `feat/v0.1`, tags `lockedin-v0.x` | `SDLC.md` reserves `v*` tags | — |
 
+## Made during the v0.1 build (23 Nov 2026, Jiven)
+
+Taken while building stage 2 (spec §9 step 2). V-15 and V-17 change the spec; [`v0.1-spec.md`](v0.1-spec.md) F-101, J1′, §3 and §12 are updated to match.
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-15 | **The student picks a model per LearnHarness slot** (Strong = prober + teacher, Cheap = question banks, research, grading, Vision = diagrams and PDF reading), each with a thinking level, exactly as in LearnHarness's own Settings. **"Choose for me"** fills all three from a curated list (`models.ts`). The same rows are in Me → AI | Jiven: "It is crucial we have this delineation because in the LearnHarness engine they use a variety of agents to support learning." **Departs from** the Dev anti-persona ("Where do I pick the model?"); "Choose for me" keeps the no-knowledge path to one tap | F-101 "the student never sees model names"; J1′ "No model choice" |
+| V-16 | **Connecting an AI is required** on onboarding screen 1; there is no "Not now". The scripted engine remains only as the declared fallback (after disconnecting, or `COMPANION_ENGINE=scripted` for CI and no-AI demos) | Jiven: "we need the sign in for them to actually use the tool" | — |
+| V-17 | **Calendar first, modules read from it.** Onboarding: connect AI → connect a timetable (link, file, none, or the labelled sample) → confirm the modules found in its event titles (tick, rename, add) → try it now. Typing a module is the fallback when there is no calendar or one is missing. v0.0's "How often can I nudge you?" screen is dropped (1 a day by default, changed in Me) | Jiven: "if we can pick it up from the calendar why would we get the user to type it out again?" Modules came only from the sample timetable in v0.0. Birmingham's timetable (MyUoB) may not export iCal (D-10) and Canvas feeds hold deadlines, not lectures, hence the typing fallback | J1′ step 2 "Pick or type modules" |
+| O-1 | Relay: **Cloudflare Workers + D1 + Cron on a team-owned account** (someone runs `npx wrangler login` before stage 9) | The spec's proposal | spec §12 O-1 |
+| O-2 | "Choose for me", **Balanced**: ChatGPT and OpenAI Strong `gpt-6-sol` (thinking low), Cheap `gpt-6-luna`, Vision `gpt-6-sol`; Anthropic `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-sonnet-5-5`; OpenRouter the same Anthropic models. Each slot falls back down a short list when an account doesn't offer the first pick. Confirm with the checkpoint run | Cheap writes the question banks, so it runs most; Strong balances teaching quality and latency | spec §12 O-2 |
+| O-3 | The first taste is **3 questions on the bundled HCI "Personas and scenarios" lecture**, labelled as a sample, on the student's AI, prepared while they confirm their modules | Nobody has added slides at that point; it has real authored slides | spec §12 O-3 |
+| B-16 | ChatGPT **background use** is shown after sign-in as LearnHarness's toggle, **on by default**, with "LockedIn prepares your questions in the background, so this needs to be on." Off blocks sessions with a plain reason | The prober → teacher hand-off is a background turn; with background use off it is refused and question 1 never appears (`src/server/jobs.ts`, spec F-102 risk) | — |
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:
