@@ -22,6 +22,11 @@ interface RootCtx {
 
 const Ctx = createContext<RootCtx | null>(null);
 
+/** The root context, or null outside <LockedInRoot> (server rendering in tests). */
+export function useLockedInOptional(): RootCtx | null {
+	return useContext(Ctx);
+}
+
 export function useLockedIn(): RootCtx {
 	const c = useContext(Ctx);
 	if (!c) throw new Error("useLockedIn outside <LockedInRoot>");

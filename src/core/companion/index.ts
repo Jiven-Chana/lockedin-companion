@@ -22,3 +22,4 @@ export * from "./palette.ts";
 export * from "./concept-map.ts";
 export * from "./models.ts";
 export * from "./module-detect.ts";
+export * from "./prose.ts";

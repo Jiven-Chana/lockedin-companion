@@ -12,6 +12,8 @@ Modifications made for LockedIn (from 14 November 2026):
 - Added the companion start layer and session engines: src/core/companion,
   src/server/companion, app/api/companion, companion/, docs/companion and
   tests/companion-*.
+- Added LockedIn's own app: app/(lockedin)/ (its root layout, which loads
+  the KaTeX stylesheet from v0.1) and components/lockedin/.
 - Re-exported them from src/core/index.ts and src/server/index.ts, and added
   companion npm scripts to package.json.
 - Renamed the package and the app title to LockedIn, removed the package

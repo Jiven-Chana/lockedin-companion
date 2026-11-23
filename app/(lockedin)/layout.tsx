@@ -3,6 +3,7 @@ import { Atkinson_Hyperlegible, Bricolage_Grotesque } from "next/font/google";
 import { connection } from "next/server";
 import { companionService, demoEnabled } from "@/src/server";
 import { LockedInRoot } from "@/components/lockedin/root";
+import "katex/dist/katex.min.css";
 import "@/components/lockedin/lockedin.css";
 
 const display = Bricolage_Grotesque({ subsets: ["latin"], weight: ["500", "700", "800"], variable: "--font-display" });

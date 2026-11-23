@@ -144,6 +144,26 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-prose p { margin: 0 0 0.6em; }
 .li-prose p:last-child { margin-bottom: 0; }
 .li-prose ul { margin: 0 0 0.6em; padding-left: 1.2em; }
+/* v0.1 F-103: rich prose. Diagrams, maths and tables follow the Focus tokens. */
+.li-prose ol { margin: 0 0 0.6em; padding-left: 1.4em; }
+.li-prose-h { margin: 0.4em 0 0.4em; }
+.li-code { margin: 0 0 0.6em; padding: 12px 14px; border-radius: 12px; background: var(--li-surface); border: 1px solid var(--li-line); overflow-x: auto; font-size: 0.92em; }
+.li-math-block { margin: 0.4em 0 0.8em; overflow-x: auto; overflow-y: hidden; }
+.li-table-wrap { margin: 0 0 0.8em; overflow-x: auto; }
+.li-table { border-collapse: collapse; min-width: 50%; }
+.li-table th, .li-table td { padding: 6px 12px; border: 1px solid var(--li-line); text-align: left; vertical-align: top; }
+.li-table th { background: var(--li-soft); font-weight: 700; }
+.li-diagram { margin: 0 0 0.8em; }
+.li-diagram-svg { display: block; width: 100%; padding: 8px; border: 1px solid var(--li-line); border-radius: 14px; background: var(--li-surface); cursor: zoom-in; animation: li-fade-in 200ms ease-out; }
+.li-diagram-svg svg { max-width: 100%; height: auto; }
+.li-diagram-loading { min-height: 120px; display: grid; place-items: center; border: 1px dashed var(--li-line); border-radius: 14px; }
+.li-diagram-failed pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--li-surface); border: 1px solid var(--li-line); overflow-x: auto; }
+.li-diagram-overlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px; background: color-mix(in oklch, var(--li-ink) 55%, transparent); }
+.li-diagram-large { max-width: min(1100px, 100%); max-height: 80vh; overflow: auto; padding: 20px; border-radius: 18px; background: var(--li-surface); }
+.li-diagram-large svg { width: 100%; height: auto; max-width: none; }
+@keyframes li-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .li-diagram-svg { animation: none; } }
+[data-motion="reduce"] .li-diagram-svg { animation: none; }
 
 /* ── concept map ──────────────────────────────────────────────────── */
 .li-map svg { width: 100%; max-width: 100% !important; height: auto; max-height: 560px; }

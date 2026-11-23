@@ -1,56 +1,81 @@
 "use client";
 
 /**
- * Teacher prose as light Markdown (paragraphs, lists, **bold**, *em*,
- * `code`) with every "(Slide n)" turned into a chip that opens that slide.
- * Deliberately small: no HTML passthrough, so nothing in a model's text can
- * inject markup.
+ * Teacher prose, explainers and feedback (v0.1 F-103): Markdown blocks
+ * from parseProse (src/core/companion/prose.ts) rendered as React
+ * elements: paragraphs, headings, lists, tables, code, mermaid diagrams,
+ * KaTeX maths, and "(Slide n)" chips that open that slide.
+ *
+ * No HTML passthrough: every piece of the model's text is a React text
+ * node. The only injected markup is KaTeX's output (trust off, so no
+ * links or HTML commands) and mermaid's strict-mode svg (diagram.tsx).
  */
 
-import { Fragment } from "react";
+import katex from "katex";
+import { createElement, Fragment, type ReactNode } from "react";
+import { parseProse, type Inline, type ProseBlock } from "@/src/core";
+import { Diagram } from "./diagram";
 
-function inline(text: string, onSlide?: (n: number) => void, keyBase = "i"): React.ReactNode[] {
-	const out: React.ReactNode[] = [];
-	const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\(\s*Slides?\s+[\d\s,–-]+\))/g;
-	let last = 0;
-	let m: RegExpExecArray | null;
-	let k = 0;
-	while ((m = re.exec(text))) {
-		if (m.index > last) out.push(text.slice(last, m.index));
-		const tok = m[0];
-		const key = `${keyBase}-${k++}`;
-		if (tok.startsWith("**")) out.push(<b key={key}>{tok.slice(2, -2)}</b>);
-		else if (tok.startsWith("`")) out.push(<code key={key}>{tok.slice(1, -1)}</code>);
-		else if (tok.startsWith("*")) out.push(<em key={key}>{tok.slice(1, -1)}</em>);
-		else {
-			const nums = [...tok.matchAll(/\d+/g)].map((x) => Number(x[0]));
-			out.push(
-				<Fragment key={key}>
-					{nums.map((n) => (
-						<button key={n} type="button" className="li-chip" style={{ margin: "0 2px" }} onClick={() => onSlide?.(n)} aria-label={`Open slide ${n}`}>Slide {n}</button>
-					))}
-				</Fragment>,
-			);
+function maths(tex: string, display: boolean, key: string): ReactNode {
+	const html = katex.renderToString(tex, { displayMode: display, throwOnError: false, trust: false, strict: "ignore", output: "html" });
+	return createElement(display ? "div" : "span", { key, className: display ? "li-math-block" : "li-math", dangerouslySetInnerHTML: { __html: html } });
+}
+
+function inline(nodes: Inline[], onSlide: ((n: number) => void) | undefined, keyBase: string): ReactNode[] {
+	return nodes.map((n, i) => {
+		const key = `${keyBase}-${i}`;
+		switch (n.t) {
+			case "text":
+				return <Fragment key={key}>{n.v}</Fragment>;
+			case "b":
+				return <b key={key}>{inline(n.c, onSlide, key)}</b>;
+			case "em":
+				return <em key={key}>{inline(n.c, onSlide, key)}</em>;
+			case "code":
+				return <code key={key}>{n.v}</code>;
+			case "math":
+				return maths(n.v, false, key);
+			case "slides":
+				return (
+					<Fragment key={key}>
+						{n.n.map((s, j) => (
+							<button key={`${s}-${j}`} type="button" className="li-chip" style={{ margin: "0 2px" }} onClick={() => onSlide?.(s)} aria-label={`Open slide ${s}`}>Slide {s}</button>
+						))}
+					</Fragment>
+				);
 		}
-		last = m.index + tok.length;
+	});
+}
+
+function block(b: ProseBlock, i: number, onSlide?: (n: number) => void): ReactNode {
+	const k = `b${i}`;
+	switch (b.t) {
+		case "p":
+			return <p key={k}>{b.lines.map((l, j) => <Fragment key={j}>{j > 0 ? <br /> : null}{inline(l, onSlide, `${k}-${j}`)}</Fragment>)}</p>;
+		case "h":
+			return <p key={k} className="li-prose-h"><b>{inline(b.c, onSlide, k)}</b></p>;
+		case "ul":
+			return <ul key={k}>{b.items.map((it, j) => <li key={j}>{inline(it, onSlide, `${k}-${j}`)}</li>)}</ul>;
+		case "ol":
+			return <ol key={k} start={b.start}>{b.items.map((it, j) => <li key={j}>{inline(it, onSlide, `${k}-${j}`)}</li>)}</ol>;
+		case "code":
+			return <pre key={k} className="li-code"><code>{b.v}</code></pre>;
+		case "math":
+			return maths(b.v, true, k);
+		case "mermaid":
+			return <Diagram key={k} source={b.v} />;
+		case "table":
+			return (
+				<div key={k} className="li-table-wrap">
+					<table className="li-table">
+						<thead><tr>{b.head.map((c, j) => <th key={j} style={b.align[j] ? { textAlign: b.align[j]! } : undefined}>{inline(c, onSlide, `${k}-h${j}`)}</th>)}</tr></thead>
+						<tbody>{b.rows.map((r, ri) => <tr key={ri}>{r.map((c, j) => <td key={j} style={b.align[j] ? { textAlign: b.align[j]! } : undefined}>{inline(c, onSlide, `${k}-${ri}-${j}`)}</td>)}</tr>)}</tbody>
+					</table>
+				</div>
+			);
 	}
-	if (last < text.length) out.push(text.slice(last));
-	return out;
 }
 
 export function Prose({ text, onSlide }: { text: string; onSlide?: (n: number) => void }) {
-	const blocks = text.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
-	return (
-		<div className="li-prose">
-			{blocks.map((b, i) => {
-				const lines = b.split("\n");
-				if (lines.every((l) => /^\s*[-*•]\s+/.test(l))) {
-					return <ul key={i}>{lines.map((l, j) => <li key={j}>{inline(l.replace(/^\s*[-*•]\s+/, ""), onSlide, `${i}-${j}`)}</li>)}</ul>;
-				}
-				const heading = /^#{1,6}\s+(.*)$/.exec(b);
-				if (heading) return <p key={i}><b>{inline(heading[1]!, onSlide, `${i}`)}</b></p>;
-				return <p key={i}>{lines.map((l, j) => <Fragment key={j}>{j > 0 ? <br /> : null}{inline(l, onSlide, `${i}-${j}`)}</Fragment>)}</p>;
-			})}
-		</div>
-	);
+	return <div className="li-prose">{parseProse(text).map((b, i) => block(b, i, onSlide))}</div>;
 }
