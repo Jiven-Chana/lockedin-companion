@@ -595,6 +595,8 @@ export interface ScheduledNudge {
 	body: string;
 	why?: string;
 	lectureId?: string;
+	/** N-1: the module whose lecture just ended ("HCI"). */
+	module?: string;
 	opens: "session" | "checkin" | "question";
 	question?: NudgeQuestion;
 	/** The phone's "later" fires this (counted when the laptop planned it, R-5). */
@@ -637,6 +639,7 @@ export function scheduleWeek(
 			body: question ? question.stem : c.text,
 			...(c.why ? { why: c.why } : {}),
 			...(c.lectureId ? { lectureId: c.lectureId } : {}),
+			...(c.type === "N-1" && lectureModule ? { module: lectureModule } : {}),
 			opens: question ? "question" : c.opens === "checkin" ? "checkin" : "session",
 			...(question ? { question } : {}),
 			snoozeFireAt: snoozeReturnTime(sim, t).toISOString(),

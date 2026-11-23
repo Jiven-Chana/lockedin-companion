@@ -111,7 +111,7 @@ async function enablePush() {
 function nextQuestionText(s) {
 	const n = (s.nudges || []).find((x) => x.kind === "N-1" && !x.sentAt);
 	if (!n) return "Your next question comes after your next lecture.";
-	const moduleName = (n.title || "").split(" just finished")[0] || "your next lecture";
+	const moduleName = n.module || (n.title || "").split(" just finished")[0] || "your next lecture";
 	const d = new Date(n.fireAt);
 	const today = new Date();
 	const day = d.toDateString() === today.toDateString() ? "today" : `on ${DAYS[d.getDay()]}`;

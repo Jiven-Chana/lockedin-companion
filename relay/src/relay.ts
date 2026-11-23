@@ -205,7 +205,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 
 		// The phone app (/p, /p#<pairId>.<token>) and its files.
 		if (env.ASSETS && req.method === "GET") {
-			if (path === "/" || path === "/p" || path === "/p/") return env.ASSETS.fetch(new Request(new URL("/index.html", url), req));
+			// Cloudflare's asset server serves index.html at "/" (and redirects "/index.html" there).
+			if (path === "/p" || path === "/p/") return env.ASSETS.fetch(new Request(new URL("/", url), req));
 			return env.ASSETS.fetch(req);
 		}
 		return fail(404, "not found");

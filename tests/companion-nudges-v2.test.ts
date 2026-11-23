@@ -117,6 +117,7 @@ describe("the week ahead for the phone (scheduleWeek)", () => {
 		assert.equal(n1[0]!.title, "HCI just finished. One question:");
 		assert.equal(n1[0]!.body, "Question for hci-tue?");
 		assert.equal(n1[0]!.opens, "question");
+		assert.equal(n1[0]!.module, "HCI", "the phone names the module, even on the fallback");
 		assert.ok(n1[0]!.question && new Date(n1[0]!.snoozeFireAt) > new Date(n1[0]!.fireAt) && new Date(n1[0]!.expiresAt) > new Date(n1[0]!.fireAt));
 		const perDay = new Map<number, number>();
 		for (const n of week) perDay.set(new Date(n.fireAt).getDate(), (perDay.get(new Date(n.fireAt).getDate()) ?? 0) + 1);
