@@ -85,4 +85,9 @@ export class CompanionContent {
 		if (files.pdf) fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
 		return dir;
 	}
+
+	/** Delete a lecture's uploaded material (the bundled demo content in the repo is never touched). */
+	removeMaterials(lectureId: string): void {
+		fs.rmSync(/* turbopackIgnore: true */ this.store.materialsDir(lectureId), { recursive: true, force: true });
+	}
 }

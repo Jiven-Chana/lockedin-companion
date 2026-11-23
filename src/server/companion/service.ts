@@ -9,6 +9,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { activeBlock, lockDecision, validateBlocks } from "../../core/companion/blocks.ts";
 import { eventsToCsv } from "../../core/companion/csv.ts";
 import { applyRetestAnswer, mergeMisses, missFromAnswer } from "../../core/companion/misses.ts";
@@ -28,12 +30,15 @@ import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
+import { CourseMaterials, type UploadedFile } from "./materials.ts";
+import type { Generate } from "./generate.ts";
+import { checkProposal, currentWeek, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
 import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
 import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay } from "../../core/companion/time.ts";
-import { icsToLectures, materializeSampleTimetable, parseIcs, readsSummary, scenarioClock } from "../../core/companion/timetable.ts";
+import { icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
 import {
 	CLIENT_EVENT_TYPES,
 	COMPANION_EVENT_TYPES,
@@ -85,6 +90,10 @@ export interface CompanionServiceDeps {
 	engineWhenAiReady?: EngineName;
 	/** Connect your AI (F-101): engine access and the key check. */
 	ai?: { port: AiPort; verifyKey: KeyVerifier };
+	/** One-shot structured generation (spec §5.4): the course split, packs, the setup chat. */
+	generate?: Generate;
+	/** LockedIn's own generation prompts (companion/prompts). */
+	promptsDir?: string;
 	/** Is the LearnHarness engine usable (models + key)? For /health. */
 	engineStatus?: () => Record<string, unknown>;
 	newId?: (prefix: string) => string;
@@ -104,7 +113,18 @@ export class CompanionService {
 	/** Connect your AI (F-101). Null when the engine isn't wired (tests). */
 	readonly ai: CompanionAi | null;
 
+	/** Course material in any shape (F-104, V-18). */
+	readonly courseMaterials: CourseMaterials;
+
 	constructor(private readonly deps: CompanionServiceDeps) {
+		this.courseMaterials = new CourseMaterials({
+			dataDir: deps.store.dir,
+			promptsDir: deps.promptsDir ?? "companion/prompts",
+			...(deps.convertPdf ? { pdfToPages: deps.convertPdf } : {}),
+			...(deps.generate ? { generate: deps.generate } : {}),
+			aiReady: async () => (this.ai ? this.ai.ready() : false),
+			...(deps.newId ? { newId: () => deps.newId!("up") } : {}),
+		});
 		this.ai = deps.ai
 			? new CompanionAi(deps.ai.port, deps.ai.verifyKey, (type, data) => this.log(type, data), (ready) => this.noteAiReady(ready))
 			: null;
@@ -127,7 +147,7 @@ export class CompanionService {
 
 	/** A lecture by id: the timetable's, or the bundled first-taste lecture (O-3) for students who don't take it. */
 	private lectureById(id: string): Lecture | undefined {
-		const own = this.store.lectures().find((l) => l.id === id);
+		const own = this.store.allLectures().find((l) => l.id === id);
 		if (own || id !== FIRST_TASTE_LECTURE) return own;
 		const sample = this.content.sampleTimetable();
 		return materializeSampleTimetable(sample, this.now(), { hasMaterials: (lid) => this.content.hasMaterials(lid) }).find((l) => l.id === id);
@@ -370,6 +390,121 @@ export class CompanionService {
 		return { ...card, ...this.createSession(card.spec) };
 	}
 
+	// ─── course material and the module calendar (F-104, V-18) ─────────────
+
+	private requireModule(code: string) {
+		const mod = this.requireProfile().modules.find((m) => m.code === code);
+		if (!mod) throw notFound("module");
+		return mod;
+	}
+
+	/** Each module with its current teaching week and its course units. */
+	course() {
+		const profile = this.requireProfile();
+		const now = this.now();
+		const all = lecturesWithStatus(this.store.state());
+		return profile.modules.map((m) => ({
+			...m,
+			...currentWeek(m, now),
+			units: all.filter((l) => l.module === m.code && (l.hasMaterials || !isTimed(l))).sort((a, b) => (a.week || 99) - (b.week || 99) || a.order - b.order),
+		}));
+	}
+
+	/** Upload: convert the files and propose course units. Nothing is saved as material until saveMaterials. */
+	async proposeMaterials(code: string, files: UploadedFile[]) {
+		const mod = this.requireModule(code);
+		const r = await this.courseMaterials.propose(mod, files);
+		this.log("materials_uploaded", { module: code, files: r.files.map((f) => ({ pages: f.pageCount, units: f.units.length, via: f.via, noText: f.noText.length })) });
+		return r;
+	}
+
+	/** Save the confirmed units: each becomes a course unit with only its pages as slides. */
+	saveMaterials(code: string, body: unknown) {
+		this.requireModule(code);
+		const b = (body ?? {}) as { uploadId?: unknown; units?: unknown };
+		if (typeof b.uploadId !== "string") throw badRequest("uploadId is required");
+		if (!Array.isArray(b.units) || b.units.length === 0) throw badRequest("keep at least one unit");
+		const pending = this.courseMaterials.pending(b.uploadId, code);
+		const chosen = b.units.map((raw) => {
+			const u = (raw ?? {}) as { file?: unknown; title?: unknown; week?: unknown; pages?: unknown };
+			const file = typeof u.file === "number" ? pending.files[u.file] : undefined;
+			if (!file) throw badRequest("each unit needs the file it came from");
+			const unit: ProposedUnit = { title: typeof u.title === "string" ? u.title.trim() : "", week: typeof u.week === "number" ? u.week : 0, pages: Array.isArray(u.pages) ? [Number(u.pages[0]), Number(u.pages[1])] : [1, file.pages.length] };
+			return { fileIndex: u.file as number, file, unit };
+		});
+		for (const [i, f] of pending.files.entries()) {
+			const units = chosen.filter((c) => c.fileIndex === i).map((c) => c.unit);
+			const problem = units.length ? checkProposal(units, f.pages.length) : null;
+			if (problem) throw badRequest(`${f.name}: ${problem}`);
+		}
+		const all = this.store.allLectures();
+		let order = Math.max(0, ...all.filter((l) => l.module === code).map((l) => l.order));
+		const created: Lecture[] = [];
+		const firstPdfDir = new Map<number, string>();
+		for (const c of chosen) {
+			const id = this.unitId(code, c.unit.title, all.concat(created));
+			const md = CourseMaterials.unitMarkdown(c.file.pages, c.unit.pages, c.unit.title);
+			const pdf = c.file.kind === "pdf" ? pending.pdf(c.fileIndex) : null;
+			const dir = this.content.writeMaterials(id, { slidesMd: md.markdown, ...(pdf && !firstPdfDir.has(c.fileIndex) ? { pdf } : {}) });
+			// One copy of each PDF on disk: later units of the same file link to it.
+			if (pdf) {
+				const first = firstPdfDir.get(c.fileIndex);
+				if (first) linkOrCopy(path.join(first, "slides.pdf"), path.join(dir, "slides.pdf"));
+				else firstPdfDir.set(c.fileIndex, dir);
+			}
+			created.push({ id, module: code, title: c.unit.title, week: c.unit.week, order: ++order, kind: "lecture", hasMaterials: true, source: { file: c.file.name, pages: c.unit.pages } });
+		}
+		this.store.saveLectures([...all, ...created]);
+		this.courseMaterials.discard(b.uploadId);
+		this.log("materials_saved", { module: code, units: created.length, weeks: created.map((u) => u.week) });
+		return { units: created };
+	}
+
+	private unitId(code: string, title: string, taken: readonly Lecture[]): string {
+		const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "unit";
+		const base = `${code.toLowerCase().replace(/[^a-z0-9]/g, "")}-${slug}`.slice(0, 80);
+		const ids = new Set(taken.map((l) => l.id));
+		let id = base;
+		for (let n = 2; ids.has(id) || this.content.hasMaterials(id); n++) id = `${base}-${n}`;
+		return id;
+	}
+
+	/** Remove a unit (hidden, history kept) or a timetable lecture's material. */
+	removeMaterials(lectureId: string) {
+		assertSafeId(lectureId, "lecture id");
+		const l = this.store.lectures().find((x) => x.id === lectureId);
+		if (!l) throw notFound("lecture");
+		this.content.removeMaterials(lectureId);
+		const updated = this.store.updateLecture(lectureId, (x) => (isTimed(x) ? { ...x, hasMaterials: this.content.hasMaterials(x.id) } : { ...x, hasMaterials: false, archived: true }));
+		this.log("materials_removed", { lectureId, unit: !isTimed(l) });
+		return updated;
+	}
+
+	/** "This is week N" and reading weeks for one module (spec §5.5). */
+	setModuleWeek(code: string, body: unknown) {
+		const profile = this.requireProfile();
+		this.requireModule(code);
+		const b = (body ?? {}) as { week?: unknown; readingWeeks?: unknown; inReadingWeek?: unknown };
+		const week = b.week;
+		if (week !== null && (typeof week !== "number" || !Number.isInteger(week) || week < 1 || week > 52)) throw badRequest("week must be 1 to 52, or null to clear it");
+		const readingWeeks = b.readingWeeks === undefined ? undefined : Array.isArray(b.readingWeeks) && b.readingWeeks.every((w) => Number.isInteger(w) && w >= 1 && w <= 52) ? [...new Set(b.readingWeeks as number[])].sort((x, y) => x - y) : null;
+		if (readingWeeks === null) throw badRequest("readingWeeks must be teaching-week numbers");
+		const modules = profile.modules.map((m) => {
+			if (m.code !== code) return m;
+			const rw = readingWeeks ?? m.readingWeeks ?? [];
+			const { weekOneStart: _drop, ...rest } = m;
+			return {
+				...rest,
+				...(rw.length ? { readingWeeks: rw } : {}),
+				...(week === null ? {} : { weekOneStart: weekOneStartFor(this.now(), week as number, rw, b.inReadingWeek === true) }),
+			};
+		});
+		this.store.saveProfile({ ...profile, modules });
+		const mod = modules.find((m) => m.code === code)!;
+		this.log("module_week_set", { module: code, week, readingWeeks: mod.readingWeeks ?? [] });
+		return { ...mod, ...currentWeek(mod, this.now()) };
+	}
+
 	// ─── timetable ──────────────────────────────────────────────────────────
 
 	importIcs(text: string) {
@@ -377,8 +512,11 @@ export class CompanionService {
 		if (!text.includes("BEGIN:VCALENDAR")) throw badRequest("not an iCalendar file");
 		const now = this.now();
 		const events = parseIcs(text, { from: addDays(now, -28), to: addDays(now, 120) });
-		const { lectures, unmapped } = icsToLectures(events, profile.modules, (id) => this.content.hasMaterials(id));
-		this.store.saveLectures(lectures);
+		const { lectures: incoming, unmapped } = icsToLectures(events, profile.modules, (id) => this.content.hasMaterials(id));
+		// Merge, never replace: uploads, units and "I wasn't there" survive a refresh (F-104).
+		const merged = mergeTimetable(this.store.allLectures(), incoming);
+		this.store.saveLectures(merged.lectures);
+		const lectures = merged.lectures.filter((l) => !l.archived && isTimed(l));
 		this.store.saveProfile({ ...profile, timetableSource: "ics", timetableRead: { at: now.toISOString(), events: lectures.length, modules: profile.modules.map((m) => m.code) } });
 		return { added: lectures.length, unmapped: unmapped.map((e) => ({ summary: e.summary, start: e.start.toISOString(), end: e.end.toISOString() })) };
 	}
@@ -396,7 +534,8 @@ export class CompanionService {
 			const ids = new Set(searchLectures(list, query.q, (id) => this.content.slideTitles(id)).map((l) => l.id));
 			list = list.filter((l) => ids.has(l.id));
 		}
-		return list.sort((a, b) => a.start.localeCompare(b.start));
+		// Timetabled first by time, then course units in course order (V-18).
+		return list.sort((a, b) => (a.start ?? "~").localeCompare(b.start ?? "~") || a.week - b.week || a.order - b.order);
 	}
 
 	roadmap() {
@@ -1007,7 +1146,7 @@ export class CompanionService {
 		const state = this.store.state();
 		const firstRun = state.sessions.every((s) => !s.openedAt);
 		const tryNow = firstRun ? tryNowLecture(state, now) : undefined;
-		const todays = lecturesWithStatus(state).filter((l) => sameDay(l.start, now));
+		const todays = lecturesWithStatus(state).filter((l) => !!l.start && sameDay(l.start, now));
 		const nextBlock = (() => {
 			for (let i = 0; i < 8; i++) {
 				const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
@@ -1083,7 +1222,7 @@ export class CompanionService {
 		} else if (r.jump === "next-lecture-end") {
 			const next = this.store
 				.lectures()
-				.filter((l) => (l.kind ?? "lecture") === "lecture" && new Date(l.end) > now)
+				.filter((l): l is TimedLecture => isTimed(l) && (l.kind ?? "lecture") === "lecture" && new Date(l.end) > now)
 				.sort((a, b) => a.end.localeCompare(b.end))[0];
 			if (!next) throw badRequest("no lecture ends after the demo clock");
 			this.deps.clockControl.set(new Date(next.end));
@@ -1122,7 +1261,7 @@ export class CompanionService {
 		for (const id of scenario.missed ?? []) this.store.updateLecture(id, (l) => ({ ...l, attended: false }));
 		if (scenario.lastActiveDaysAgo) {
 			const then = addDays(this.now(), -scenario.lastActiveDaysAgo);
-			const lecture = tryNowLecture({ lectures: this.store.lectures().filter((l) => new Date(l.end) <= then) }, then) ?? this.store.lectures()[0];
+			const lecture = tryNowLecture({ lectures: this.store.lectures().filter((l) => isTimed(l) && new Date(l.end) <= then) }, then) ?? this.store.lectures()[0];
 			if (lecture) {
 				this.store.saveSession({
 					id: this.id("s"), engine: "scripted", spec: specFor("post-lecture", lecture.id, DEFAULT_PREFS), budget: 5, answered: 5,
@@ -1145,5 +1284,15 @@ export class CompanionService {
 		if (engine !== null && !(ENGINE_NAMES as readonly unknown[]).includes(engine)) throw badRequest(`engine must be ${ENGINE_NAMES.join(" or ")} (or null for the default)`);
 		this.store.saveDemo({ engineOverride: (engine as EngineName | null) ?? undefined });
 		return this.demoState();
+	}
+}
+
+/** Hard-link a file (one copy of a semester PDF on disk), copying where links aren't possible. */
+function linkOrCopy(from: string, to: string) {
+	try {
+		fs.rmSync(/* turbopackIgnore: true */ to, { force: true });
+		fs.linkSync(/* turbopackIgnore: true */ from, /* turbopackIgnore: true */ to);
+	} catch {
+		fs.copyFileSync(/* turbopackIgnore: true */ from, /* turbopackIgnore: true */ to);
 	}
 }

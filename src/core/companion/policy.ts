@@ -80,6 +80,19 @@ export const BLOCK_RULES = {
 	overrideMinutes: 2,
 } as const;
 
+/** Course material (F-104, V-18). */
+export const MATERIALS_RULES = {
+	/** Per file, as v0.0's upload. */
+	maxFileBytes: 25 * 1024 * 1024,
+	maxFilesPerUpload: 20,
+	/** Below this many pages a file with no week in its name stays one unit (not worth an AI call). */
+	aiSplitMinPages: 12,
+	/** Pasted text or a notes file is cut into pages of about this many characters when it has no headings. */
+	textPageChars: 2_500,
+	/** A proposal waits this long for the student to confirm it. */
+	pendingUploadHours: 24,
+} as const;
+
 /** Five days away or more earns a "welcome back" (J6, R-6). */
 export const WELCOME_BACK_DAYS = 5;
 

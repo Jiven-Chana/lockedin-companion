@@ -85,8 +85,8 @@ describe("sample timetable", () => {
 	it("puts the current teaching week on this week, earlier weeks before it, in course order", () => {
 		const ls = materializeSampleTimetable(sample, now, { hasMaterials: (id) => id !== "h1" });
 		const h2 = ls.find((l) => l.id === "h2")!;
-		assert.equal(new Date(h2.start).toISOString(), new Date(2026, 10, 17, 11).toISOString());
-		assert.equal(new Date(ls.find((l) => l.id === "h1")!.start).toISOString(), new Date(2026, 10, 10, 11).toISOString());
+		assert.equal(new Date(h2.start!).toISOString(), new Date(2026, 10, 17, 11).toISOString());
+		assert.equal(new Date(ls.find((l) => l.id === "h1")!.start!).toISOString(), new Date(2026, 10, 10, 11).toISOString());
 		assert.equal(ls.find((l) => l.id === "g2")!.start, new Date(2026, 10, 19, 9).toISOString(), "a lecture can override its slot");
 		assert.deepEqual(ls.filter((l) => l.kind === "event").map((l) => l.id).sort(), ["hci-lab-w1", "hci-lab-w2"]);
 		assert.equal(h2.order, 2);

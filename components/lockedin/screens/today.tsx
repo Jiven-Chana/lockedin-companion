@@ -107,6 +107,7 @@ export function TodayScreen() {
 						<h2 id="today-h" className="li-h2" style={{ marginBottom: 8 }}>Today</h2>
 						{lectures.length === 0 ? <p className="li-muted" style={{ margin: 0 }}>No lectures today. A good day to revisit something, or to rest.</p> : null}
 						{lectures.map((l) => {
+							if (!l.start || !l.end) return null;
 							const ended = new Date(l.end) <= now;
 							return (
 								<div key={l.id} className="li-tl">

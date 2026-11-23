@@ -43,10 +43,13 @@ function budgetLine(spec: SessionSpec): string {
 }
 
 function lectureLine(lecture: Lecture, kind: SessionSpec["kind"], now: Date): string {
+	const week = lecture.week > 0 ? ` (week ${lecture.week})` : "";
+	const missed = kind === "missed-lecture" ? " (I missed it)" : "";
+	// A course unit made from material has no time (V-18).
+	if (!lecture.start || !lecture.end) return `${lecture.title}${week}${missed}`;
 	const end = new Date(lecture.end);
 	const when = end <= now ? `ended ${formatHM(end)} ${relativeDay(end, now)}` : `on ${relativeDay(new Date(lecture.start), now).replace(/^on /, "")}`;
-	const missed = kind === "missed-lecture" ? " (I missed it)" : "";
-	return `${lecture.title} (week ${lecture.week}), ${when}${missed}`;
+	return `${lecture.title}${week}, ${when}${missed}`;
 }
 
 function revisitBlock(misses: Miss[] | undefined): string[] {

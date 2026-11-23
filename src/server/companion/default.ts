@@ -27,7 +27,7 @@ import { OffsetClock } from "./clock.ts";
 import { CompanionContent } from "./content.ts";
 import { LearnHarnessEngine } from "./engines/learnharness.ts";
 import { ScriptedEngine } from "./engines/scripted.ts";
-import { createAiPort, createLearnHarnessPort } from "./lh-port.ts";
+import { createAiPort, createLearnHarnessPort, generate } from "./lh-port.ts";
 import { verifyProviderKey } from "./ai.ts";
 import { fetchCalendarText } from "./calendar-fetch.ts";
 import { CompanionService, type PdfConverter } from "./service.ts";
@@ -109,6 +109,8 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		defaultEngine: configuredEngine(env),
 		...(explicit ? {} : { engineWhenAiReady: "learnharness" as const }),
 		ai: { port: createAiPort(), verifyKey: verifyProviderKey },
+		generate,
+		promptsDir: path.join(/* turbopackIgnore: true */ PATHS.root, "companion", "prompts"),
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
 		convertPdf: pdfConverter,

@@ -50,7 +50,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
 						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module} · Week {lecture.week}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
-						<span className="li-muted">{fmtDay(lecture.start, now)} {fmtTime(lecture.start)}–{fmtTime(lecture.end)}{lecture.attended === false ? " · you weren't there" : ""}</span>
+						<span className="li-muted">{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : lecture.week > 0 ? `Week ${lecture.week} · from your course material` : "From your course material"}{lecture.attended === false ? " · you weren't there" : ""}</span>
 					</div>
 				</header>
 				<div className="li-row">

@@ -151,12 +151,14 @@ describe("companion HTTP routes", () => {
 		for (const type of ["hint", "show_me", "keep_going", "session_stopped", "answer"]) assert.match(archived, new RegExp(`"type":"${type}"`), type);
 	});
 
-	it("facilitator routes and uploads are off unless COMPANION_DEMO=1", async () => {
+	it("facilitator routes are off unless COMPANION_DEMO=1; uploads are for everyone (F-104)", async () => {
 		process.env.COMPANION_DEMO = "0";
 		try {
 			await json(r.demoState.GET(req("GET")), 404);
 			await json(r.csv.GET(req("GET")), 404);
-			await json(r.materials.POST(new Request(URL_BASE, { method: "POST", body: new Uint8Array([1]) }), ctx({ lectureId: "hci-w3-personas" })), 404);
+			// Not the demo 404: the upload route now runs, and refuses one junk byte as an unreadable PDF.
+			const res = await r.materials.POST(new Request(URL_BASE, { method: "POST", body: new Uint8Array([1]) }), ctx({ lectureId: "hci-w3-personas" }));
+			assert.notEqual(res.status, 404);
 		} finally {
 			process.env.COMPANION_DEMO = "1";
 		}

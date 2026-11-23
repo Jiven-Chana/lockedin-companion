@@ -51,7 +51,19 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | GET | `/lectures/:id/map` | | The concept map: `{ source: "authored" \| "headings", mermaid, nodes: [{ id, title, slides, status: solid \| shaky \| revisit \| notyet, answers }], edges: [{ from, to }] }` |
 | GET | `/misses` | `?lectureId=` | Ideas to revisit (open misses): `{ misses: [{ id, lectureId, lectureTitle, module, questionText, correctLabels, explanation, reason, createdAt, nextDue }] }` |
 | GET | `/materials/:lectureId/pdf` | | the slide PDF (for the slide sheet; render page n with pdfjs) |
-| POST | `/materials/:lectureId` | **demo.** PDF bytes, or multipart `file` | `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR): caption them by hand in `slides.md` |
+| POST | `/materials/:lectureId` | PDF bytes, or multipart `file` | Replaces the material of a lecture or course unit → `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR). Open to everyone since v0.1 (F-104) |
+| DELETE | `/materials/:lectureId` | | A course unit is hidden (history kept); a timetable lecture loses its uploaded material |
+
+### Course material and the module calendar (v0.1 F-104, V-18)
+
+A **course unit** is a `Lecture` with no `start`/`end`, made from the student's material (spec §5.5). Calendar re-imports merge: units, uploads and "I wasn't there" survive, and events that vanished are archived (hidden, kept as history).
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/course` | | `[{ code, name, weekOneStart?, readingWeeks?, week, reading, units: LectureWithStatus[] }]` |
+| PUT | `/modules/:code` | `{ week: 1–52 \| null, readingWeeks?: number[], inReadingWeek?: boolean }` | "This is week N": the module with `{ week, reading }` |
+| POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to] }], via: "name" \| "ai" \| "fallback", note }] }`. Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
+| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages |
 
 ## Nudges
 

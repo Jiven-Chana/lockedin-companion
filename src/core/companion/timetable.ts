@@ -96,7 +96,7 @@ export function materializeSampleTimetable(
 			});
 		}
 	}
-	return out.sort((a, b) => a.start.localeCompare(b.start));
+	return out.sort((a, b) => a.start!.localeCompare(b.start!));
 }
 
 function pickSlot(l: Partial<SampleSlot>): Partial<SampleSlot> {
@@ -111,6 +111,16 @@ function pickSlot(l: Partial<SampleSlot>): Partial<SampleSlot> {
 export function scenarioClock(scenario: SampleScenario, now: Date): Date {
 	parseHM(scenario.clock.time);
 	return atTime(addDays(startOfWeek(now), scenario.clock.weekday - 1), scenario.clock.time);
+}
+
+// ─── timed lectures vs course units (V-18) ─────────────────────────────────
+
+/** A timetabled lecture or event: has a start and an end. */
+export type TimedLecture = Lecture & { start: string; end: string };
+
+/** True for timetable entries; false for course units made from material (spec §5.5). */
+export function isTimed(l: Lecture): l is TimedLecture {
+	return typeof l.start === "string" && typeof l.end === "string";
 }
 
 // ─── .ics import ────────────────────────────────────────────────────────────
@@ -211,15 +221,45 @@ export function icsToLectures(
 	return { lectures, unmapped };
 }
 
+/**
+ * A calendar re-import merges instead of replacing (F-104): course units
+ * (untimed) are kept; an event still in the calendar keeps its id,
+ * "I wasn't there" and its material; one that disappeared is archived
+ * (hidden, history kept); new events are added.
+ */
+export function mergeTimetable(existing: readonly Lecture[], incoming: readonly Lecture[]): { lectures: Lecture[]; added: number; kept: number; archived: number } {
+	const byId = new Map(incoming.map((l) => [l.id, l]));
+	const out: Lecture[] = [];
+	let kept = 0;
+	let archived = 0;
+	for (const old of existing) {
+		if (!isTimed(old)) {
+			out.push(old);
+			continue;
+		}
+		const fresh = byId.get(old.id);
+		if (fresh) {
+			byId.delete(old.id);
+			kept++;
+			out.push({ ...fresh, ...(old.attended !== undefined ? { attended: old.attended } : {}), hasMaterials: fresh.hasMaterials || old.hasMaterials });
+		} else {
+			if (!old.archived) archived++;
+			out.push({ ...old, archived: true });
+		}
+	}
+	const added = [...byId.values()];
+	return { lectures: [...out, ...added], added: added.length, kept, archived };
+}
+
 /** "What I read" (R-7, Q-10). Location is never read. */
 export function readsSummary(lectures: Lecture[], source: "sample" | "ics" | "none", readAt: string | undefined, via: "file" | "link" = "file") {
 	return {
 		source,
 		label: source === "sample" ? "Sample timetable" : source === "none" ? "No timetable connected" : via === "link" ? "Your calendar link" : "Your timetable (.ics)",
-		events: lectures.length,
-		lectures: lectures.filter((l) => (l.kind ?? "lecture") === "lecture").length,
+		events: lectures.filter(isTimed).length,
+		lectures: lectures.filter((l) => isTimed(l) && (l.kind ?? "lecture") === "lecture").length,
 		modules: [...new Set(lectures.map((l) => l.module).filter(Boolean))],
-		weekdays: [...new Set(lectures.map((l) => isoWeekday(new Date(l.start))))].sort(),
+		weekdays: [...new Set(lectures.filter(isTimed).map((l) => isoWeekday(new Date(l.start))))].sort(),
 		lastReadAt: readAt ?? null,
 		location: "never read" as const,
 	};

@@ -114,14 +114,20 @@ export class CompanionStore {
 		this.writeJson(FILES.profile, p);
 	}
 
+	/** Lectures and course units in use: archived ones (gone from the calendar, removed units) are hidden. */
 	lectures(): Lecture[] {
+		return this.allLectures().filter((l) => !l.archived);
+	}
+	/** Every record, archived ones included (history, merges). */
+	allLectures(): Lecture[] {
 		return this.readJson<Lecture[]>(FILES.lectures, []);
 	}
+	/** Replaces the whole list: pass allLectures()-based lists so archived records survive. */
 	saveLectures(l: Lecture[]): void {
 		this.writeJson(FILES.lectures, l);
 	}
 	updateLecture(id: string, fn: (l: Lecture) => Lecture): Lecture | null {
-		const all = this.lectures();
+		const all = this.allLectures();
 		const i = all.findIndex((l) => l.id === id);
 		if (i < 0) return null;
 		all[i] = fn(all[i]!);

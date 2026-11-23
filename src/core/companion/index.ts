@@ -23,3 +23,4 @@ export * from "./concept-map.ts";
 export * from "./models.ts";
 export * from "./module-detect.ts";
 export * from "./prose.ts";
+export * from "./units.ts";

@@ -31,6 +31,7 @@ import {
 	wakingWindow,
 	weekdayName,
 } from "./time.ts";
+import { isTimed, type TimedLecture } from "./timetable.ts";
 import type {
 	CompanionSession,
 	CompanionState,
@@ -106,6 +107,7 @@ export function blockOccursOn(block: StudyBlock, day: Date): boolean {
 export function commitmentsOn(state: Pick<CompanionState, "lectures" | "blocks">, day: Date): Commitment[] {
 	const out: Commitment[] = [];
 	for (const l of state.lectures) {
+		if (!isTimed(l)) continue;
 		const start = new Date(l.start);
 		if (sameDay(start, day)) out.push({ id: l.id, kind: l.kind ?? "lecture", start, end: new Date(l.end) });
 	}
@@ -176,14 +178,14 @@ export function isSessionReady(s: CompanionSession | undefined): boolean {
 }
 
 /** An N-1 for this lecture would make sense: it has material and the student was there. */
-function n1Eligible(l: Lecture): boolean {
-	return (l.kind ?? "lecture") === "lecture" && l.hasMaterials && l.attended !== false;
+function n1Eligible(l: Lecture): l is TimedLecture {
+	return isTimed(l) && (l.kind ?? "lecture") === "lecture" && l.hasMaterials && l.attended !== false;
 }
 
 /** The most recent lecture with material that has ended (the default focus). */
 export function latestEndedLecture(lectures: Lecture[], now: Date): Lecture | undefined {
 	return lectures
-		.filter((l) => (l.kind ?? "lecture") === "lecture" && l.hasMaterials && new Date(l.end) <= now)
+		.filter((l): l is TimedLecture => isTimed(l) && (l.kind ?? "lecture") === "lecture" && l.hasMaterials && new Date(l.end) <= now)
 		.sort((a, b) => new Date(b.end).getTime() - new Date(a.end).getTime())[0];
 }
 
@@ -191,7 +193,8 @@ export function latestEndedLecture(lectures: Lecture[], now: Date): Lecture | un
 
 function n1Candidate(state: CompanionState, l: Lecture, at?: Date): NudgeCandidate {
 	const spec = specFor("post-lecture", l.id, state.profile?.prefs);
-	const end = new Date(l.end);
+	// A forced N-1 may name an untimed course unit (V-18): it fires at `at`.
+	const end = new Date(l.end ?? at ?? 0);
 	return {
 		type: "N-1",
 		key: at ? `forced:N-1:${l.id}:${at.getTime()}` : `N-1:${l.id}`,
@@ -222,7 +225,7 @@ function n3Candidate(state: CompanionState, l: Lecture, slot: Date, forced = fal
 	return {
 		type: "N-3",
 		key: forced ? `forced:N-3:${l.id}:${slot.getTime()}` : `N-3:${l.id}`,
-		text: NUDGE_TEXT.n3(weekdayName(l.start)),
+		text: NUDGE_TEXT.n3(weekdayName(l.start ?? slot.toISOString())),
 		spec: specFor("missed-lecture", l.id, state.profile?.prefs),
 		lectureId: l.id,
 		prepareFrom: (forced ? slot : addMinutes(slot, -NUDGE_RULES.n3PrepareLeadMinutes)).toISOString(),
@@ -334,8 +337,8 @@ function missedLectureCandidates(state: CompanionState, now: Date): NudgeCandida
 	if (now >= wakingWindow(now, profile.prefs.quietHours).end) return [];
 	const lookback = addDays(now, -NUDGE_RULES.n3LookbackDays);
 	const missed = state.lectures
-		.filter((l) => {
-			if ((l.kind ?? "lecture") !== "lecture" || l.attended !== false || !l.hasMaterials) return false;
+		.filter((l): l is TimedLecture => {
+			if (!isTimed(l) || (l.kind ?? "lecture") !== "lecture" || l.attended !== false || !l.hasMaterials) return false;
 			const end = new Date(l.end);
 			if (end > now || end < lookback) return false;
 			if (firedWithKey(state, `N-3:${l.id}`)) return false;
@@ -468,10 +471,10 @@ export function forcedCandidate(
 	opts: { lectureId?: string } = {},
 ): NudgeCandidate | string {
 	const pick = (pred: (l: Lecture) => boolean) =>
-		opts.lectureId ? state.lectures.find((l) => l.id === opts.lectureId) : state.lectures.filter(pred).sort((a, b) => b.end.localeCompare(a.end))[0];
+		opts.lectureId ? state.lectures.find((l) => l.id === opts.lectureId) : state.lectures.filter((l): l is TimedLecture => isTimed(l) && pred(l)).sort((a, b) => b.end.localeCompare(a.end))[0];
 	switch (type) {
 		case "N-1": {
-			const l = pick((l) => n1Eligible(l) && new Date(l.end) <= now) ?? state.lectures.find((l) => l.hasMaterials);
+			const l = pick((l) => n1Eligible(l) && new Date(l.end!) <= now) ?? state.lectures.find((l) => l.hasMaterials);
 			return l ? n1Candidate(state, l, now) : "no lecture with materials";
 		}
 		case "N-2": {
@@ -480,7 +483,7 @@ export function forcedCandidate(
 		}
 		case "N-3": {
 			const l =
-				pick((l) => l.attended === false && l.hasMaterials && new Date(l.end) <= now) ??
+				pick((l) => l.attended === false && l.hasMaterials && new Date(l.end!) <= now) ??
 				latestEndedLecture(state.lectures, now) ??
 				state.lectures.find((l) => l.hasMaterials);
 			return l ? n3Candidate(state, l, now, true) : "no lecture with materials";

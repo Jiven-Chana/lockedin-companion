@@ -52,7 +52,7 @@ export function LibraryScreen() {
 										<span className="li-tl-time">Week {l.week}</span>
 										<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 											<Link href={`/app/library/${l.id}`}><b>{l.title}</b></Link>
-											<span className="li-small li-muted">{fmtDay(l.start, now)}{l.attended === false ? " · you weren't there" : ""}{l.hasMaterials ? "" : " · no slides yet"}</span>
+											<span className="li-small li-muted">{l.start ? fmtDay(l.start, now) : "From your course material"}{l.attended === false ? " · you weren't there" : ""}{l.hasMaterials ? "" : " · no slides yet"}</span>
 										</span>
 										{l.status === "revisit" ? <StatusTag status="revisit" /> : l.status === "answered" ? <StatusTag status="answered" /> : <StatusTag status="notyet" />}
 										<Link className="li-btn soft" href={`/app/library/${l.id}`}>Open</Link>

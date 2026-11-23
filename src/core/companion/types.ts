@@ -168,9 +168,19 @@ export interface ScriptedState {
 
 export type LockStrictness = "off" | "gentle" | "firm";
 
+/** A module and its calendar (v0.1 V-18, spec §5.5). */
+export interface ModuleInfo {
+	code: string;
+	name: string;
+	/** The Monday of teaching week 1 (YYYY-MM-DD); unset until the student says which week it is. */
+	weekOneStart?: string;
+	/** Teaching-week numbers after which a reading week falls ([6] = a reading week between weeks 6 and 7). */
+	readingWeeks?: number[];
+}
+
 export interface Profile {
 	createdAt: string;
-	modules: { code: string; name: string }[];
+	modules: ModuleInfo[];
 	/** "none": no calendar yet, modules typed by the student (v0.1 onboarding). */
 	timetableSource: "sample" | "ics" | "none";
 	/** When the timetable was last read, and what was read (R-7). */
@@ -188,18 +198,30 @@ export interface Profile {
 	ai?: { provider: "chatgpt" | "anthropic" | "openai" | "openrouter" | null; connectedAt?: string };
 }
 
+/**
+ * A timetabled lecture or event, or (v0.1 V-18) a **course unit**: the
+ * same record without a time, made from the student's material. Units are
+ * what sessions, misses, packs and the concept map key on; times are only
+ * a signal for N-1 (spec §5.5).
+ */
 export interface Lecture {
 	id: string;
 	/** Module code: "HCI". */
 	module: string;
 	title: string;
+	/** Teaching week; 0 = not known (a unit from material with no week on it). */
 	week: number;
 	/** Course order within the module, for the roadmap (INT-01-e). */
 	order: number;
-	start: string;
-	end: string;
+	/** Absent for a course unit made from material (V-18). */
+	start?: string;
+	end?: string;
 	/** "event" = a timetabled commitment with no material (lab, seminar). */
 	kind?: "lecture" | "event";
+	/** A timetable event that disappeared from the calendar: kept for its history, hidden everywhere (F-104 merge). */
+	archived?: boolean;
+	/** Where a unit's material came from (F-104). */
+	source?: { file: string; pages: [number, number] };
 	/** Set false by "I wasn't there"; undefined means assume attended. */
 	attended?: boolean;
 	hasMaterials: boolean;
@@ -337,6 +359,11 @@ export const COMPANION_EVENT_TYPES = [
 	"ai_disconnected",
 	"ai_error",
 	"engine_ready",
+	// v0.1 F-104, V-18
+	"materials_uploaded",
+	"materials_saved",
+	"materials_removed",
+	"module_week_set",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

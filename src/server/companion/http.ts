@@ -42,6 +42,25 @@ export function companionErrorResponse(err: unknown): Response {
 	return Response.json({ error: "Internal error", code: "internal" }, { status: 500 });
 }
 
+/**
+ * Files from a multipart upload ("file" fields), or pasted text ("text",
+ * with an optional "name"), for the course-material routes (F-104).
+ */
+export async function readUploads(req: Request): Promise<{ name: string; bytes: Uint8Array }[]> {
+	if (!(req.headers.get("content-type") ?? "").includes("multipart/form-data")) throw new CompanionError("bad_request", 400, "send multipart/form-data with one or more \"file\" fields");
+	const form = await req.formData();
+	const out: { name: string; bytes: Uint8Array }[] = [];
+	for (const f of form.getAll("file")) {
+		if (f instanceof Blob) out.push({ name: (f as File).name || "upload", bytes: new Uint8Array(await f.arrayBuffer()) });
+	}
+	const text = form.get("text");
+	if (typeof text === "string" && text.trim()) {
+		const name = form.get("name");
+		out.push({ name: `${typeof name === "string" && name.trim() ? name.trim() : "Pasted notes"}.md`, bytes: new TextEncoder().encode(text) });
+	}
+	return out;
+}
+
 export function companionRoute<P extends Params = Params>(
 	handler: (ctx: CompanionRouteContext<P>) => unknown,
 	opts: { demoOnly?: boolean } = {},
