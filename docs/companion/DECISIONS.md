@@ -22,7 +22,35 @@ Two lists: what the build decided (so nobody re-litigates it by accident, and an
 | B-14 | All demo slides and question sets are placeholder drafts | No real slides were in the team repo. They follow standard HCI / game theory material and cite their own slides | `companion/content/` |
 | B-15 | Upstream's desktop CI/release/website workflows and their pinning tests are removed; LockedIn has its own CI | The desktop app is not shipped; a three-OS desktop matrix per PR is wasted cost | `NOTICE` |
 
+## Made for v0.1 (23 Nov 2026, Jiven)
+
+The design is in [`v0.1-spec.md`](v0.1-spec.md). Section 3 of the spec lists where these choices depart from recorded evidence or earlier group decisions. Each departure still needs the group's sign-off and an entry in the team repo's `design-log.md` (spec O-7).
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-1 | Ship a desktop app (Electron) for the laptop and an installable web app (PWA) for the phone | 16 Nov sync: one app, the phone starts and the laptop teaches. T16 QOC: O2 (laptop only) fails B1 | plan.md §2.2 ("real phone push… simulated") |
+| V-2 | Local-first: the laptop app is the source of truth. A thin hosted relay serves the phone app, holds 7 days of prepared nudges, sends web push, and collects phone events in an append-only log that the laptop replays | ChatGPT sign-in only works on the same machine as the server; the engine is single-user; the phone must reach the student with the laptop closed | SDLC "Phone on Wi-Fi" |
+| V-3 | Connect AI (ChatGPT sign-in or an API key) on screen 1, then the first taste. LearnHarness is the default engine whenever a connection exists | Jiven's decision. Partly reverses 10 Nov "onboarding after a first taste of value" | B-2 (scripted default), D-1, D-2 |
+| V-4 | The setup chat is optional, comes after the first taste, learns routine and a weekly target, proposes and never sets toggles | Keeps 16 Nov decision 5; AE2-P14, AFF-G | — |
+| V-5 | Weekly hours: the student sets a target; the planner proposes blocks in free gaps; a Sunday check-in ("too much / about right / too little", blocks *started*) leads to a proposed change the student confirms. Never automatic, never "missed". A new hypothesis to test | X-7, option D, LIT-10, LIT-11, LIT-21, INT-05-h, R-6 | D-6 context; plan §7.7 (two fixed slots) |
+| V-6 | Uploads generate a study pack: a clickable mermaid concept map, diagram-led explainers (behind "show me first" or a tap), and a bank of three-option questions | INT-02-g, INT-01-e, Q-7; constrained by Sam, LIT-17, AE2-7 | B-14 (placeholder content), D-4 |
+| V-7 | Calendars: fixed `.ics` read with auto-refresh, routine captured through the chat, study blocks published as a subscribable `.ics` feed. No OAuth | Q-10; UI research Q4; the Birmingham timetable route is unknown | D-10 |
+| V-8 | Phone block = an honest commitment screen: optional, off by default, can be ended any time, no real blocking | X-8; SYN T-5; LIT-10, LIT-11; UI research Q2 | D-5; the simulated lock (plan §7.7) |
+| V-9 | No leaderboards or social features in v0.1 | INT-02-a, LIT-20, AFF-B, Q-11 | — |
+| V-10 | Motion is purposeful and calm by default; a Calm / Full / Off setting; the system reduced-motion setting is always respected | AE2-P10; deck slide 21; AE2-P16 | `reduceMotion` boolean |
+| V-11 | The phone notification opens the question in one tap; it is not answered on the lock screen | Web platform limits (Chrome allows 2 actions at most, iOS none) | T20 v2 R-1 and N-1 three-button form |
+| V-12 | Phase A of v0.1 is built for the Thu 26 Nov user test; phase B follows | PLAN.md test date; deck due 4 Dec | plan.md §11 dates |
+| V-13 | The repository is public (AGPL-3.0, as LearnHarness). kayzisland, JishnuMukherjee, LekanAkinwale01 and RPala2703 were invited with write access | Jiven, 23 Nov | D-7 |
+| V-14 | Naming: `VERSIONS.md`, `v0.1-spec.md`, integration branch `feat/v0.1`, tags `lockedin-v0.x` | `SDLC.md` reserves `v*` tags | — |
+
 ## Open: the group decides (plan §14)
+
+Status on 23 Nov:
+- D-1 and D-2 are superseded by V-3, with the fallback at spec O-8.
+- D-5 is superseded by V-8.
+- D-7 is answered by V-13.
+- D-10 stays open, and V-7 adds the chat path for students whose timetable can't be imported.
+- The v0.1 open questions are spec §12 (O-1 to O-14).
 
 | # | Question | Default in the build until decided |
 |---|---|---|

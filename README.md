@@ -30,6 +30,8 @@ Without `COMPANION_ENGINE` set, sessions run on the **scripted** engine, so a fr
 | [docs/companion/API.md](docs/companion/API.md) | Every `/api/companion` route |
 | [docs/companion/DECISIONS.md](docs/companion/DECISIONS.md) | Decisions made in the build, and decisions still open |
 | [docs/companion/CHECKPOINT.md](docs/companion/CHECKPOINT.md) | The engine checkpoint runbook |
+| [docs/companion/v0.1-spec.md](docs/companion/v0.1-spec.md) | The v0.1 specification: what we build next, why, and where in the repo |
+| [docs/companion/VERSIONS.md](docs/companion/VERSIONS.md) | Version history: what each version ships, how it works, what is missing |
 | [docs/companion/plan.md](docs/companion/plan.md) | The hi-fi MVP implementation plan |
 
 ## Checks
