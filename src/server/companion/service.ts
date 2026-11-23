@@ -446,7 +446,8 @@ export class CompanionService {
 	async proposeMaterials(code: string, files: UploadedFile[]) {
 		const mod = this.requireModule(code);
 		const r = await this.courseMaterials.propose(mod, files);
-		this.log("materials_uploaded", { module: code, files: r.files.map((f) => ({ pages: f.pageCount, units: f.units.length, via: f.via, noText: f.noText.length })) });
+		this.log("materials_uploaded", { module: code, uploadId: r.uploadId, files: r.files.map((f) => ({ kind: f.kind, pages: f.pageCount, noText: f.noText.length })) });
+		this.log("materials_proposed", { module: code, uploadId: r.uploadId, files: r.files.map((f) => ({ units: f.units.length, weeks: f.units.map((u) => u.week), via: f.via })) });
 		return r;
 	}
 

@@ -101,9 +101,11 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 
 	return (
 		<Ctx.Provider value={{ appearance, setAppearance, scheme, now, refreshClock, demo }}>
-			<style>{css}</style>
+			{/* Time-of-day colours depend on the clock, which can differ between server and browser (#418). */}
+			<style suppressHydrationWarning>{css}</style>
 			<div
 				className="li-root"
+				suppressHydrationWarning
 				data-scheme={scheme}
 				data-text={appearance.textSize}
 				data-loose={String(appearance.loose)}
@@ -128,7 +130,7 @@ export function Tint({ hue, className, children, style }: { hue: number; classNa
 	const cls = `li-tint-${Math.round(hue)}`;
 	return (
 		<div className={`${cls} ${className ?? ""}`} style={style}>
-			<style>{themeCss(`.${cls}`, appearance, { hue, tod: timeOfDay(now) })}</style>
+			<style suppressHydrationWarning>{themeCss(`.${cls}`, appearance, { hue, tod: timeOfDay(now) })}</style>
 			{children}
 		</div>
 	);

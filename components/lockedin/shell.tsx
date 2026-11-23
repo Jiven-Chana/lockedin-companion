@@ -86,14 +86,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 					</Link>
 				))}
 				<div className="li-rail-foot">
-					{demo ? (
-						<Link href="/app/facilitator" className="li-nav" aria-current={path?.startsWith("/app/facilitator") ? "page" : undefined}>
-							<Icon.demo /><span>Facilitator</span>
-						</Link>
-					) : null}
+					{/* The facilitator is at /app/facilitator only, never in the rail (F-119, plan §7.10). */}
 					<div className="li-clock">
-						<b>{demo ? "Demo clock" : "Now"} · {fmtTime(now)}</b>
-						<span>{now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</span>
+						{/* The server renders its own time; the browser's may differ by a minute or a time zone (React #418). The first clock refresh corrects it. */}
+						<b suppressHydrationWarning>{demo ? "Demo clock" : "Now"} · {fmtTime(now)}</b>
+						<span suppressHydrationWarning>{now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}</span>
 					</div>
 				</div>
 			</nav>
@@ -122,11 +119,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /** Page header used by every tab. */
-export function PageHead({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: React.ReactNode }) {
+/** `clock`: the eyebrow and title come from the clock, which can differ between server and browser (#418). */
+export function PageHead({ eyebrow, title, children, clock = false }: { eyebrow?: string; title: string; children?: React.ReactNode; clock?: boolean }) {
 	return (
 		<header className="li-page-head" style={{ paddingRight: 420 }}>
-			{eyebrow ? <span className="li-eyebrow">{eyebrow}</span> : null}
-			<h1 className="li-h1">{title}</h1>
+			{eyebrow ? <span className="li-eyebrow" suppressHydrationWarning={clock}>{eyebrow}</span> : null}
+			<h1 className="li-h1" suppressHydrationWarning={clock}>{title}</h1>
 			{children}
 		</header>
 	);

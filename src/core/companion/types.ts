@@ -413,6 +413,7 @@ export const COMPANION_EVENT_TYPES = [
 	"engine_ready",
 	// v0.1 F-104, V-18
 	"materials_uploaded",
+	"materials_proposed",
 	"materials_saved",
 	"materials_removed",
 	"module_week_set",

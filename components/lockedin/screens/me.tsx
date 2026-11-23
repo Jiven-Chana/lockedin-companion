@@ -12,6 +12,7 @@ import { PageHead } from "../shell";
 import { ConnectAi } from "./connect";
 import { PhoneSection } from "../phone-section";
 import { VoiceSection } from "../voice-section";
+import { RoutineSettings, StudyBlocksSettings } from "../study-settings";
 
 const SEEDS: [string, number][] = [["Lavender", 285], ["Ocean", 230], ["Moss", 150], ["Ember", 40], ["Rose", 350]];
 
@@ -69,14 +70,27 @@ export function MeScreen() {
 				<ConnectAi variant="settings" />
 			</section>
 
-			<section id="voice" className="li-card li-stack" aria-labelledby="vo-h" style={{ gap: 12 }}>
-				<h2 id="vo-h" className="li-h2">Voice</h2>
-				<VoiceSection />
-			</section>
-
 			<section id="phone" className="li-card li-stack" aria-labelledby="ph-h" style={{ gap: 12 }}>
 				<h2 id="ph-h" className="li-h2">Phone</h2>
 				<PhoneSection />
+			</section>
+
+			{profile.data ? (
+				<>
+					<section id="blocks" className="li-card li-stack" aria-labelledby="sb-h" style={{ gap: 12 }}>
+						<h2 id="sb-h" className="li-h2">Study blocks</h2>
+						<StudyBlocksSettings profile={profile.data} onSaved={setMsg} />
+					</section>
+					<section id="routine" className="li-card li-stack" aria-labelledby="rt-h" style={{ gap: 12 }}>
+						<h2 id="rt-h" className="li-h2">Routine</h2>
+						<RoutineSettings profile={profile.data} />
+					</section>
+				</>
+			) : null}
+
+			<section id="voice" className="li-card li-stack" aria-labelledby="vo-h" style={{ gap: 12 }}>
+				<h2 id="vo-h" className="li-h2">Voice</h2>
+				<VoiceSection />
 			</section>
 
 			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>

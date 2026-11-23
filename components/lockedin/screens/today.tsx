@@ -77,7 +77,7 @@ export function TodayScreen() {
 
 	return (
 		<>
-			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} />
+			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} clock />
 			{ai.data && !ai.data.ready ? (
 				<div className="li-note li-row" role="status" style={{ gap: 12 }}>
 					<span style={{ flexGrow: 1 }}>{ai.data.blocker && ai.data.provider ? ai.data.blocker : AI_COPY.fallback}</span>

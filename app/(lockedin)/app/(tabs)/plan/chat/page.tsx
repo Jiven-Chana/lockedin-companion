@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { SetupChatScreen } from "@/components/lockedin/screens/setup-chat";
 
 export default function Page() {
-	return <SetupChatScreen />;
+	return (
+		<Suspense>
+			<SetupChatScreen />
+		</Suspense>
+	);
 }

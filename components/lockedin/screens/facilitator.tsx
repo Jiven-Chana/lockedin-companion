@@ -32,7 +32,9 @@ export function FacilitatorScreen() {
 	const [msg, setMsg] = useState<string | null>(null);
 	const [participant, setParticipant] = useState("");
 	const [setAt, setSetAt] = useState("");
-	usePoll(() => { void state.reload(); void log.reload(); }, 4000, true);
+	// F-119: the phone relay's status (null when COMPANION_RELAY_URL isn't set).
+	const phone = useData(() => lockedIn.phone().catch(() => null));
+	usePoll(() => { void state.reload(); void log.reload(); void phone.reload(); }, 4000, true);
 
 	async function run(label: string, fn: () => Promise<unknown>) {
 		try {
@@ -96,6 +98,24 @@ export function FacilitatorScreen() {
 					</section>
 				</div>
 				<div className="li-stack">
+					<section className="li-card li-stack" style={{ gap: 12 }}>
+						<h2 className="li-h2">Phone relay</h2>
+						{phone.data ? (
+							<>
+								<span className="li-small">
+									{phone.data.relay} · {phone.data.reachable === false ? "unreachable (the laptop carries on alone)" : "reachable"}
+									{" · "}{phone.data.paired ? `paired${phone.data.pushReady ? ", notifications on" : phone.data.phoneSeenAt ? ", phone opened the link (no notifications yet)" : ", phone not seen yet"}` : "not paired"}
+									{phone.data.uploadedAt ? ` · week uploaded ${fmtTime(phone.data.uploadedAt)}` : ""}
+								</span>
+								<div className="li-row">
+									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Synced with the relay", () => lockedIn.syncPhone())}>Sync now</button>
+									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Pairing reset: pair again from Me → Phone", () => lockedIn.unpairPhone())}>Reset pairing</button>
+								</div>
+							</>
+						) : (
+							<span className="li-small li-muted">No relay on this laptop (COMPANION_RELAY_URL is not set). Use the phone buttons under “Fire a nudge now” to simulate it.</span>
+						)}
+					</section>
 					<section className="li-card li-stack" style={{ gap: 12 }}>
 						<h2 className="li-h2">Participant</h2>
 						<div className="li-row">

@@ -8,7 +8,7 @@
  * empty, is the plain form ("Let's do this with taps instead").
  */
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PLAN_COPY, type Routine } from "@/src/core";
 import { ApiError, lockedIn } from "../api";
@@ -98,6 +98,8 @@ const EMPTY: Draft = {};
 
 export function SetupChatScreen() {
 	const router = useRouter();
+	// Me → Routine → "Edit my routine" opens the form with the saved routine, no chat (F-119).
+	const edit = useSearchParams().get("edit") === "1";
 	const profile = useData(() => lockedIn.profile());
 	const [messages, setMessages] = useState<Msg[]>([]);
 	const [chips, setChips] = useState<string[]>([]);
@@ -134,6 +136,10 @@ export function SetupChatScreen() {
 	useEffect(() => {
 		if (started.current) return;
 		started.current = true;
+		if (edit) {
+			setForm(true);
+			return;
+		}
 		void turn([]);
 	}, []);
 
@@ -159,11 +165,15 @@ export function SetupChatScreen() {
 
 	return (
 		<>
-			<PageHead eyebrow="Week" title="Plan my week with me">
+			<PageHead eyebrow="Week" title={edit ? "Your routine" : "Plan my week with me"}>
 				<div className="li-row" style={{ gap: 8, marginTop: 12 }}>
-					<span className="li-muted" style={{ flexGrow: 1 }}>A few quick questions. Nothing is saved until you confirm.</span>
+					<span className="li-muted" style={{ flexGrow: 1 }}>{edit ? "Change anything, then confirm. Your week is re-planned around it." : "A few quick questions. Nothing is saved until you confirm."}</span>
 					{!form ? <button type="button" className="li-btn" onClick={() => setForm(true)}>That&apos;s it</button> : null}
-					<button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.skipChat().catch(() => undefined); router.push("/app/plan"); }}>Skip</button>
+					{edit ? (
+						<button type="button" className="li-btn ghost" onClick={() => router.push("/app/me#routine")}>Cancel</button>
+					) : (
+						<button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.skipChat().catch(() => undefined); router.push("/app/plan"); }}>Skip</button>
+					)}
 				</div>
 			</PageHead>
 			<div className="li-stack" style={{ gap: 10 }} aria-live="polite">
@@ -179,7 +189,7 @@ export function SetupChatScreen() {
 					</form>
 				</div>
 			) : (
-				<SummaryCard key={draft ? "chat" : "form"} initial={draft ?? EMPTY} modules={modules} onConfirm={confirm} busy={busy} error={error} />
+				edit && !profile.data ? null : <SummaryCard key={draft ? "chat" : edit ? "edit" : "form"} initial={draft ?? (edit && profile.data?.routine ? { ...profile.data.routine, weeklyTargetMinutes: profile.data.plan?.weeklyTargetMinutes ?? profile.data.routine.weeklyTargetMinutes } : EMPTY)} modules={modules} onConfirm={confirm} busy={busy} error={error} />
 			)}
 		</>
 	);

@@ -117,7 +117,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					<div className="li-grid-2">
 						<div className="li-stack">
 							<span className="li-small li-muted">✓ solid · ◐ shaky · ○ to revisit · · not yet. From your answers, never your attendance.{map.data?.source === "headings" ? " This starter map follows the slide headings; your first teaching session refines it." : ""}</span>
-							{map.data ? <ConceptMap data={map.data} selected={selected} onSelect={setSelected} /> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
+							{map.data ? <ConceptMap data={map.data} selected={selected} onSelect={(node) => { setSelected(node); void lockedIn.event("map_node_clicked", { lectureId, node }); }} /> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
 						</div>
 						<aside className="li-card" style={{ position: "sticky", top: 24 }}>
 							{node ? (
