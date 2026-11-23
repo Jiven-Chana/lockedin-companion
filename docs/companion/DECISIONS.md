@@ -78,3 +78,39 @@ Status on 23 Nov:
 | D-8 | T23 setup: laptop phone frame or real phones on a hotspot? | Both work; real phones need `-H 0.0.0.0` on a private hotspot |
 | D-9 | Session length stated as an estimate, stop or keep going, no up-front length question | As proposed |
 | D-10 | Does Birmingham's timetable export iCal? | `.ics` import is built (stretch); the sample timetable is the MVP |
+
+## Open in the v0.1 build: how course material comes in (O-15, raised 23 Nov 2026)
+
+Raised by Jiven while specifying stage 4 (F-104). **Not decided.** Recorded here with the reasoning because it shapes the data model, F-104, F-105 (study packs) and the 26 Nov test.
+
+**The problem.** F-104 as specified assumes one file per lecture, matched to a timetable lecture by the week number in its name, its slide titles, or date order. Real material doesn't arrive that way:
+
+| # | How a student's material can arrive | What F-104 as specified does with it |
+|---|---|---|
+| S1 | One PDF per lecture, labelled by week ("GT Week 3 – Nash.pdf") | Works, if there is a timetable to match to |
+| S2 | One file for the whole semester (a single deck, a reading pack, a revision guide) | Fails: it has to be split into lectures or topics first |
+| S3 | Files with no week or date on them ("Lecture slides.pdf", "notes.md") | Only date order is left, which guesses badly |
+| S4 | Canvas module pages: a summary per week, as text, with the deadlines in the calendar | Not a file at all; the Canvas calendar holds deadlines, not lectures (seen 23 Nov) |
+| S5 | No timetable at all: MyUoB doesn't appear to export iCal (D-10), so typed modules have no lectures | Nothing to match to; every upload is orphaned |
+
+**What the rest of the app needs from material:**
+- *content units* (a lecture or a topic) with their text and slide numbers, so a unit can be quizzed, cited and turned into a study pack;
+- and, separately, *when* a unit was taught, so N-1 ("HCI just finished. One question:") can fire after it.
+
+v0.0 fuses the two in one `Lecture` record: a timetable event that may have slides.
+
+**Options considered:**
+- **A. Heuristic matching only (spec F-104 as written).** Cheap and deterministic. Handles S1 with a timetable; fails S2 to S5.
+- **B. Upload on each lecture's own page.** The student picks the lecture; no guessing. Handles S1 with a timetable. Still fails S2 and S5, and it's tedious for a whole term.
+- **C. The AI proposes the structure.** The Cheap model reads the upload (per-page titles and text) and proposes units, each with a title, a page range and a week if one is found. The student confirms or edits them in one list. Units attach to timetable lectures when they line up; otherwise they stay as untimed topics. Handles S1 to S3; S4 can be pasted as text notes. It needs `lh-port.generate()` (stage 5) first, and costs one model call per upload.
+- **D. Separate content from the timetable in the data model.** A module has *topics* (from material, in course order) and *events* (from the timetable, with times). A post-lecture nudge links "the lecture that just ended" to "the next topic not yet covered". Models S1 to S5 properly, including no timetable. It is the largest change: Library, study packs, nudges and the concept map all key on lectures today.
+
+**Evidence:**
+- Q-10: 19 of 22 share slides; 21 of 22 share a timetable.
+- INT-06-e: "upload the material and the quiz is generated".
+- AE2-1: every extra setup step costs.
+- The Birmingham timetable route is unknown (D-10).
+
+We have **no evidence** on how students' material is actually split across files. That is a research gap worth a question in T23 or in Kobi's findings.
+
+**Risk to the 26 Nov test:** testers use the facilitator laptop and demo modules, so the test does not depend on solving this. The narrative does, though: "add your slides" is task T2.
