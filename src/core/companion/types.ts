@@ -3,9 +3,11 @@
  *
  * Pure types only: browser-safe, no IO. Every shape here is part of the
  * contract between the companion server code (src/server/companion), the
- * HTTP routes (app/api/companion) and the phone UI (app/m, later).
+ * HTTP routes (app/api/companion) and the LockedIn screens
+ * (components/lockedin, served at /app).
  *
- * Plan reference: hifi-mvp-implementation-plan.md §5.4 and §7.1.
+ * Design: docs/companion/plan.md §5.4 and §7.1; v0.1 changes in
+ * docs/companion/v0.1-spec.md §7.
  */
 
 // ─── sessions ───────────────────────────────────────────────────────────────

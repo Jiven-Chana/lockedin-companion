@@ -250,7 +250,7 @@ export class CompanionService {
 
 	reads() {
 		const profile = this.store.profile();
-		return readsSummary(this.store.lectures(), profile?.timetableSource ?? "sample", profile?.timetableRead?.at);
+		return readsSummary(this.store.lectures(), profile?.timetableSource ?? "sample", profile?.timetableRead?.at, this.store.runtime().calendarUrl ? "link" : "file");
 	}
 
 	lectures(query: { module?: string | null; q?: string | null } = {}) {

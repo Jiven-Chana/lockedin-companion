@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Onboarding (mvp1-plan F-02): three decisions, then "What I read", then a
+ * Onboarding (plan §7.8): three decisions, then "What I read", then a
  * real session. No account, no key, no model choice (AE2-1, AE2-P14).
  */
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue } from "@/src/core";
+import { DEFAULT_PREFS, moduleHue, SESSION_COPY } from "@/src/core";
 import { ApiError, api, lockedIn, type TodayData } from "../api";
 import { Icon, Logo } from "../icons";
 import { Tint } from "../root";
@@ -139,7 +139,7 @@ export function WelcomeScreen() {
 						{step === 3 ? (
 							<>
 								<h1 className="li-h1">How often can I nudge you?</h1>
-								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>Each nudge brings a session with a goal and question 1 ready. Never during a lecture, never between 22:00 and 08:00.</p>
+								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>Each nudge brings a session with a goal and question 1 ready. {SESSION_COPY.nudgeLimits(DEFAULT_PREFS.quietHours)}</p>
 								<div role="radiogroup" aria-label="Nudges per day" className="li-row" style={{ gap: 12 }}>
 									{([1, 2] as const).map((n) => (
 										<button key={n} type="button" role="radio" aria-checked={perDay === n} className="li-opt" style={{ width: "auto", minWidth: 240 }} onClick={() => setPerDay(n)}>
@@ -161,7 +161,7 @@ export function WelcomeScreen() {
 											<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 												<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>Try it now · {done.tryNow.module}</span>
 												<span className="li-hero-title">{done.tryNow.title}</span>
-												<span style={{ opacity: 0.9 }}>3 questions on your last lecture, about 3 minutes</span>
+												<span style={{ opacity: 0.9 }}>{SESSION_COPY.tryNow()}</span>
 											</span>
 											<span className="li-hero-cta">{busy ? "Starting…" : "Start"}</span>
 										</button>

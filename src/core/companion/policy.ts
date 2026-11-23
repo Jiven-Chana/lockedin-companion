@@ -80,7 +80,7 @@ export const BLOCK_RULES = {
 	overrideMinutes: 2,
 } as const;
 
-/** Six days away or more earns a "welcome back" (J6, R-6). */
+/** Five days away or more earns a "welcome back" (J6, R-6). */
 export const WELCOME_BACK_DAYS = 5;
 
 /** Session preparation (§6.3). */
@@ -119,6 +119,30 @@ export const DEFAULT_APPEARANCE: Profile["appearance"] = {
 	lineSpacing: "normal",
 	reduceMotion: false,
 };
+
+/**
+ * Screen copy that states a session's size (F-120). The figures always come
+ * from SESSION_BUDGETS, so changing a budget changes every screen that
+ * describes it.
+ */
+export const SESSION_COPY = {
+	/** Try-now card (J1). */
+	tryNow: () => {
+		const b = SESSION_BUDGETS["try-now"];
+		return `${b.questions} questions on your last lecture, about ${b.minutes} minutes`;
+	},
+	/** "Quiz me" on today's lecture. */
+	quizMe: () => {
+		const b = SESSION_BUDGETS["post-lecture"];
+		return `${b.questions} questions, about ${b.minutes} minutes`;
+	},
+	/** Welcome back (J6): runs a try-now-sized session. */
+	welcomeBackQuestion: () => `${SESSION_BUDGETS["try-now"].questions} questions on last week?`,
+	welcomeBack: () => `Welcome back. ${SESSION_COPY.welcomeBackQuestion()}`,
+	/** Onboarding: when nudges never arrive. */
+	nudgeLimits: (quiet: Profile["prefs"]["quietHours"]) =>
+		`Never during a lecture, never between ${quiet.from} and ${quiet.to}.`,
+} as const;
 
 /** The text sent as the "why" when the learner taps "Show me first" (§6.7). */
 export const SHOW_ME_THINKING = "Show me a worked example first, then ask me again.";

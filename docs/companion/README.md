@@ -2,7 +2,7 @@
 
 LockedIn adds a **start layer** and **session engines** around the LearnHarness teaching engine (v0.6.1, included and modified under AGPL-3.0; see `NOTICE`) for the hi-fi prototype (T21): a proactive study app that gets students into a short session at the right moment, with LearnHarness doing the teaching inside the session.
 
-This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The phone UI (`app/m/*`) is built on top of the [API](API.md) and is not part of this layer.
+This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The LockedIn screens (`components/lockedin/`, served at `/app`) are built on top of the [API](API.md) and are not part of this layer.
 
 - **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it). **Next version:** [v0.1-spec.md](v0.1-spec.md); **history:** [VERSIONS.md](VERSIONS.md)
 - **How we work:** [SDLC.md](SDLC.md) (branches, commits, PRs, definition of done, CI)

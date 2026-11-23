@@ -132,7 +132,9 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-pulse { width: 12px; height: 12px; border-radius: 999px; background: var(--li-accent); animation: li-pulse 1.2s ease-in-out infinite; }
 @keyframes li-pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
 .li-slides { background: var(--li-deep-panel); color: var(--li-deep-ink); border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 24px; }
-.li-slide { aspect-ratio: 16 / 10; background: #ffffff; color: #1d1b26; border-radius: 14px; padding: 28px 32px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3); overflow: auto; }
+.li-slide { --li-slide-ink: #1d1b26; --li-slide-muted-ink: #6a6680; aspect-ratio: 16 / 10; background: #ffffff; color: var(--li-slide-ink); border-radius: 14px; padding: 28px 32px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3); overflow: auto; }
+/* Slides are printed paper in every theme, so their muted ink is fixed too. */
+.li-slide-muted { color: var(--li-slide-muted-ink); }
 .li-slide h3 { margin: 0; font-size: 1.5em; line-height: 1.15; }
 .li-slide ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
 .li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); font-size: 18px; }

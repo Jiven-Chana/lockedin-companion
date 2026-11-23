@@ -6,7 +6,7 @@
 
 import { openMisses } from "./misses.ts";
 import { latestEndedLecture, specFor } from "./nudges.ts";
-import { WELCOME_BACK_DAYS } from "./policy.ts";
+import { SESSION_COPY, WELCOME_BACK_DAYS } from "./policy.ts";
 import { addDays, startOfWeek } from "./time.ts";
 import type { CompanionSession, CompanionState, Lecture, Miss, SessionSpec } from "./types.ts";
 
@@ -66,7 +66,7 @@ export function welcomeBack(state: CompanionState, now: Date): WelcomeBack | nul
 		candidates.filter((l) => new Date(l.start) >= lastWeekStart).sort((a, b) => b.end.localeCompare(a.end))[0] ??
 		latestEndedLecture(state.lectures, now);
 	if (!lecture) return null;
-	return { text: "Welcome back. 3 questions on last week?", spec: specFor("try-now", lecture.id, state.profile?.prefs), daysAway };
+	return { text: SESSION_COPY.welcomeBack(), spec: specFor("try-now", lecture.id, state.profile?.prefs), daysAway };
 }
 
 export interface WeekSummary {

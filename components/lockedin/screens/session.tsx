@@ -282,8 +282,8 @@ export function SessionScreen({ id }: { id: string }) {
 							<button type="button" className="li-icon-btn" aria-label="Next slide" onClick={() => setSlide(Math.min(total || 1, current + 1))} disabled={current >= total}>›</button>
 						</div>
 						<div className="li-slide">
-							<span className="li-eyebrow" style={{ color: "#6a6680" }}>{view.lecture.module} · {view.lecture.title}</span>
-							{s ? (<><h3>{s.title}</h3><Prose text={s.body} /></>) : <p style={{ margin: 0, color: "#6a6680" }}>No slides for this lecture yet. Add the PDF from the Library.</p>}
+							<span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>
+							{s ? (<><h3>{s.title}</h3><Prose text={s.body} /></>) : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this lecture yet. Add the PDF from the Library.</p>}
 						</div>
 						{total ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === current ? "true" : "false"} />)}</div> : null}
 						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>The panel follows the slide the explanation cites. Click any slide chip to open it here.</span>

@@ -212,10 +212,10 @@ export function icsToLectures(
 }
 
 /** "What I read" (R-7, Q-10). Location is never read. */
-export function readsSummary(lectures: Lecture[], source: "sample" | "ics", readAt: string | undefined) {
+export function readsSummary(lectures: Lecture[], source: "sample" | "ics", readAt: string | undefined, via: "file" | "link" = "file") {
 	return {
 		source,
-		label: source === "sample" ? "Sample timetable" : "Your timetable (.ics)",
+		label: source === "sample" ? "Sample timetable" : via === "link" ? "Your calendar link" : "Your timetable (.ics)",
 		events: lectures.length,
 		lectures: lectures.filter((l) => (l.kind ?? "lecture") === "lecture").length,
 		modules: [...new Set(lectures.map((l) => l.module).filter(Boolean))],

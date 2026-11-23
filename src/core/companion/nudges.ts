@@ -62,6 +62,24 @@ export function specFor(
 	};
 }
 
+/**
+ * The kind of session a nudge opens. N-4 returns to a session that already
+ * exists, whose own budget the session screen shows; for the Today card it
+ * counts as a post-lecture session.
+ */
+export function sessionKindForNudge(type: NudgeType): SessionKind {
+	switch (type) {
+		case "N-2":
+			return "retest";
+		case "N-3":
+			return "missed-lecture";
+		case "block":
+			return "block";
+		default:
+			return "post-lecture";
+	}
+}
+
 /** The goal line on the session screen (R-4: the goal is on screen). */
 export function goalFor(spec: SessionSpec, lecture: Pick<Lecture, "title">, budget = spec.budget.questions): string {
 	const minutes = Math.round((spec.budget.minutes * budget) / Math.max(1, spec.budget.questions));

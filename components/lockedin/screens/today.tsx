@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, type SessionSpec } from "@/src/core";
+import { moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn, type SessionView } from "../api";
 import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
@@ -59,18 +59,18 @@ export function TodayScreen() {
 	let hero: { hue: number; eyebrow: string; title: string; sub: string; cta: string; done: number; total: number; go: () => void } | null = null;
 	if (t?.banner && t.banner.sessionId) {
 		const b = t.banner;
-		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: 5, go: () => void openNudge(b.id) };
+		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
 	} else if (active && active.status !== "done") {
 		hero = { hue: moduleHue(active.lecture.module), eyebrow: `${active.lecture.module} · pick up where you left off`, title: active.lecture.title, sub: `${Math.max(0, active.budget - active.answered)} questions left`, cta: "Continue", done: active.answered, total: active.budget, go: () => router.push(`/app/session/${active.id}`) };
 	} else if (t?.welcomeBack) {
 		const wb = t.welcomeBack;
-		hero = { hue: 285, eyebrow: "Welcome back", title: "3 questions on last week?", sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: 3, go: () => void start(wb.spec) };
+		hero = { hue: 285, eyebrow: "Welcome back", title: SESSION_COPY.welcomeBackQuestion(), sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: wb.spec.budget.questions, go: () => void start(wb.spec) };
 	} else if (t?.tryNow) {
 		const tn = t.tryNow;
-		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: "3 questions on your last lecture, about 3 minutes", cta: "Try it", done: 0, total: 3, go: () => void start(tn.spec) };
+		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: SESSION_COPY.tryNow(), cta: "Try it", done: 0, total: tn.spec.budget.questions, go: () => void start(tn.spec) };
 	} else {
 		const l = lectures.find((x) => x.hasMaterials) ?? null;
-		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: "5 questions, about 10 minutes", cta: "Quiz me", done: 0, total: 5, go: () => void start({ kind: "post-lecture", lectureId: l.id }) };
+		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: "Quiz me", done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id }) };
 	}
 
 	return (
