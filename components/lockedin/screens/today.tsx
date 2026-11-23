@@ -51,7 +51,8 @@ export function TodayScreen() {
 	}
 	async function openNudge(id: string) {
 		const r = await lockedIn.nudge(id, "open");
-		if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
+		if (r.href) router.push(r.href);
+		else if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
 	}
 
 	const lectures = t?.lectures ?? [];

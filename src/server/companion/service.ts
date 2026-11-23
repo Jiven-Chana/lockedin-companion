@@ -27,13 +27,14 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { clampBlockMinutes, pacedUnits, proposeWeek } from "../../core/companion/plan-week.ts";
+import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
@@ -107,7 +108,7 @@ export interface CompanionServiceDeps {
 export interface OnboardingInput {
 	modules?: string[];
 	timetableSource?: "sample" | "ics";
-	nudgesPerDay?: 1 | 2;
+	nudgesPerDay?: 0 | 1 | 2;
 }
 
 const MODULE_CODE = /^[A-Za-z0-9 _-]{1,32}$/;
@@ -246,7 +247,7 @@ export class CompanionService {
 		const prefs = { ...current.prefs };
 		const p = patch.prefs ?? {};
 		if (p.nudgesPerDay !== undefined) {
-			if (p.nudgesPerDay !== 1 && p.nudgesPerDay !== 2) throw badRequest("nudgesPerDay must be 1 or 2");
+			if (p.nudgesPerDay !== 0 && p.nudgesPerDay !== 1 && p.nudgesPerDay !== 2) throw badRequest("nudgesPerDay must be 0, 1 or 2");
 			prefs.nudgesPerDay = p.nudgesPerDay;
 		}
 		if (p.quietHours !== undefined) {
@@ -288,7 +289,7 @@ export class CompanionService {
 		const source = input.timetableSource ?? "sample";
 		if (source !== "sample" && source !== "ics") throw badRequest("timetableSource must be sample or ics");
 		const nudgesPerDay = input.nudgesPerDay ?? DEFAULT_PREFS.nudgesPerDay;
-		if (nudgesPerDay !== 1 && nudgesPerDay !== 2) throw badRequest("nudgesPerDay must be 1 or 2");
+		if (nudgesPerDay !== 0 && nudgesPerDay !== 1 && nudgesPerDay !== 2) throw badRequest("nudgesPerDay must be 0, 1 or 2");
 		const codes = input.modules && input.modules.length > 0 ? input.modules : sample.modules.map((m) => m.code);
 		if (!codes.every((c) => typeof c === "string" && MODULE_CODE.test(c))) throw badRequest("invalid module code");
 		const modules = codes.map((code) => sample.modules.find((m) => m.code === code) ?? { code, name: code });
@@ -1079,27 +1080,48 @@ export class CompanionService {
 		return { nudge: this.banner(), prepared };
 	}
 
+	/** A bank question for a unit, as a notification shows it (N-1 v2), skipping ids already used. */
+	questionFor(lectureId: string, used: ReadonlySet<string> = new Set()): NudgeQuestion | undefined {
+		const bank = this.packs?.bank(lectureId) ?? null;
+		const q = bank?.find((x) => !used.has(x.id)) ?? bank?.[0];
+		return q ? { id: q.id, lectureId, stem: q.stem, options: q.options, correct: q.correct, explanation: q.explanation, slides: q.slides } : undefined;
+	}
+
+	/** The next 7 days of nudges for the phone relay (F-112, F-114): same rules as the live tick. */
+	schedule() {
+		const now = this.now();
+		const state = this.store.state();
+		return { now: now.toISOString(), nudges: scheduleWeek(state, now, { questionFor: (id, used) => this.questionFor(id, used) }) };
+	}
+
 	private fire(c: NudgeCandidate, forced: boolean): NudgeRecord {
-		const sessionId = c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId;
+		// N-5 opens the check-in, not a session (F-111).
+		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
+		const lecture = c.type === "N-1" ? this.store.lectures().find((l) => c.key === `N-1:${l.id}` || c.key.startsWith(`forced:N-1:${l.id}:`)) ?? this.lectureById(c.lectureId ?? "") : undefined;
+		const used = new Set(this.store.nudges().map((n) => n.questionId).filter((q): q is string => !!q));
+		const question = c.type === "N-1" && c.lectureId ? this.questionFor(c.lectureId, used) : undefined;
 		const record: NudgeRecord = {
 			id: this.id("n"),
 			type: c.type,
 			key: c.key,
 			firedAt: this.now().toISOString(),
-			text: c.text,
+			// N-1 v2 (F-114): the question is the notification; the v1 sentence is the fallback.
+			text: question ? question.stem : c.text,
+			...(question && lecture ? { title: NUDGE_TEXT.n1Title(lecture.module), questionId: question.id } : c.type === "N-5" ? { title: NUDGE_TEXT.n5Title } : {}),
+			...(c.why ? { why: c.why } : {}),
 			...(c.lectureId ? { lectureId: c.lectureId } : {}),
-			sessionId,
+			...(sessionId ? { sessionId } : {}),
 			...(c.returnOf ? { returnOf: c.returnOf } : {}),
 			...(forced ? { forced: true } : {}),
 		};
 		this.store.appendNudge(record);
-		const session = this.store.session(sessionId);
-		this.log("nudge_fired", { nudgeId: record.id, type: c.type, key: c.key, lectureId: c.lectureId ?? null, sessionId, sessionReady: isSessionReady(session ?? undefined), forced });
+		const session = sessionId ? this.store.session(sessionId) : null;
+		this.log("nudge_fired", { nudgeId: record.id, type: c.type, key: c.key, lectureId: c.lectureId ?? null, sessionId: sessionId ?? null, sessionReady: isSessionReady(session ?? undefined), forced, questionId: record.questionId ?? null, why: c.why ?? null });
 		if (c.type === "block") this.log("block_started", { nudgeId: record.id, lectureId: c.lectureId ?? null });
 		return record;
 	}
 
-	nudgeAction(nudgeId: string, action: string): { nudge: NudgeRecord; sessionId?: string; returnAt?: string } {
+	nudgeAction(nudgeId: string, action: string): { nudge: NudgeRecord; sessionId?: string; returnAt?: string; href?: string } {
 		if (!(NUDGE_ACTIONS as readonly string[]).includes(action)) throw badRequest(`action must be one of ${NUDGE_ACTIONS.join(", ")}`);
 		const nudge = this.store.nudge(nudgeId);
 		if (!nudge) throw notFound("nudge");
@@ -1114,6 +1136,11 @@ export class CompanionService {
 		const msSinceFired = now.getTime() - new Date(nudge.firedAt).getTime();
 		switch (act) {
 			case "open": {
+				if (nudge.type === "N-5") {
+					const next = nudge.outcome === "opened" ? nudge : settle("opened");
+					this.log("nudge_opened", { nudgeId, type: nudge.type, msSinceFired });
+					return { nudge: next, href: "/app/plan?checkin=1" };
+				}
 				let session = nudge.sessionId ? this.store.session(nudge.sessionId) : null;
 				if (!session || session.state === "error") {
 					const spec = session?.spec ?? specFor(nudge.type === "N-3" ? "missed-lecture" : nudge.type === "N-2" ? "retest" : nudge.type === "block" ? "block" : "post-lecture", nudge.lectureId ?? "", this.store.profile()?.prefs);
@@ -1534,14 +1561,18 @@ export class CompanionService {
 			this.deps.clockControl.set(new Date(next.end));
 		} else if (r.jump === "next-day") {
 			this.deps.clockControl.set(atTime(addDays(now, 1), "09:00"));
-		} else throw badRequest("use {set: ISO}, {advanceMinutes: n} or {jump: next-lecture-end | next-day | reset}");
+		} else if (r.jump === "sunday-evening") {
+			// The coming Sunday at the student's check-in time (F-111: "jump to Sunday 19:00").
+			const days = (7 - isoWeekday(now)) % 7;
+			this.deps.clockControl.set(atTime(addDays(now, days), this.planSettings().sundayTime));
+		} else throw badRequest("use {set: ISO}, {advanceMinutes: n} or {jump: next-lecture-end | next-day | sunday-evening | reset}");
 		return this.demoState();
 	}
 
 	demoFire(raw: unknown): NudgeRecord {
 		this.requireProfile();
 		const r = (raw ?? {}) as { type?: unknown; lectureId?: unknown };
-		const types: NudgeType[] = ["N-1", "N-2", "N-3", "N-4", "block"];
+		const types: NudgeType[] = ["N-1", "N-2", "N-3", "N-4", "N-5", "block"];
 		if (typeof r.type !== "string" || !types.includes(r.type as NudgeType)) throw badRequest(`type must be one of ${types.join(", ")}`);
 		const c = forcedCandidate(this.store.state(), this.now(), r.type as NudgeType, typeof r.lectureId === "string" ? { lectureId: r.lectureId } : {});
 		if (typeof c === "string") throw badRequest(c);

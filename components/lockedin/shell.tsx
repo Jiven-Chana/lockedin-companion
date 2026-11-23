@@ -61,7 +61,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
 	async function open(id: string) {
 		const r = await lockedIn.nudge(id, "open");
 		setBanner(null);
-		if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
+		if (r.href) router.push(r.href);
+		else if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
 	}
 	async function act(id: string, action: "snooze" | "dismiss" | "wasnt-there") {
 		setHidden(id);
@@ -99,13 +100,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
 				{showToast ? (
 					<div className="li-toast" role="status">
 						<div className="li-row li-small li-muted" style={{ gap: 8 }}>
-							<Icon.bell /><span style={{ flexGrow: 1 }}>LockedIn · {banner.ready ? "question 1 is ready" : "getting it ready"}</span>
+							<Icon.bell /><span style={{ flexGrow: 1 }}>{banner.type === "N-5" ? "LockedIn · your week" : `LockedIn · ${banner.ready ? "question 1 is ready" : "getting it ready"}`}</span>
 							<button type="button" className="li-btn ghost" aria-label="Dismiss" onClick={() => act(banner.id, "dismiss")} style={{ minHeight: 32, textDecoration: "none" }}>✕</button>
 						</div>
+						{banner.title ? <span className="li-small"><b>{banner.title}</b></span> : null}
 						<b style={{ fontSize: "1.06em", lineHeight: 1.35 }}>{banner.text}</b>
+						{banner.why ? <span className="li-small li-muted">Why now: {banner.why}</span> : null}
 						<div className="li-row" style={{ gap: 8 }}>
 							<button type="button" className="li-btn primary" onClick={() => open(banner.id)}>Open</button>
-							<button type="button" className="li-btn soft" onClick={() => act(banner.id, "snooze")}>Later</button>
+							{banner.type !== "N-5" ? <button type="button" className="li-btn soft" onClick={() => act(banner.id, "snooze")}>Later</button> : null}
 							{banner.type === "N-1" ? <button type="button" className="li-btn ghost" style={{ marginLeft: "auto" }} onClick={() => act(banner.id, "wasnt-there")}>I wasn&apos;t there</button> : null}
 						</div>
 					</div>

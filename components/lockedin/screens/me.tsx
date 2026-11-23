@@ -103,7 +103,7 @@ export function MeScreen() {
 				<section className="li-card li-stack" aria-labelledby="nd" style={{ gap: 20 }}>
 					<h2 id="nd" className="li-h2">Nudges and sessions</h2>
 					<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
-						<Seg label="Nudges a day" value={prefs.nudgesPerDay} options={[[1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
+						<Seg label="Nudges a day" value={prefs.nudgesPerDay} options={[[0, "Off"], [1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
 						<Seg label="Sessions start with" value={prefs.defaultMode} options={[["question-first", "Question me first"], ["show-first", "Show me first"]]} onChange={(v) => savePrefs({ defaultMode: v })} />
 					</div>
 					<div className="li-row" style={{ gap: 20 }}>

@@ -72,6 +72,7 @@ export function FacilitatorScreen() {
 							<button type="button" className="li-btn" onClick={() => run("+1 hour", () => lockedIn.demo.clock({ advanceMinutes: 60 }))}>+1 h</button>
 							<button type="button" className="li-btn" onClick={() => run("Jumped to the next lecture's end", () => lockedIn.demo.clock({ jump: "next-lecture-end" }))}>Next lecture end</button>
 							<button type="button" className="li-btn" onClick={() => run("Next day 09:00", () => lockedIn.demo.clock({ jump: "next-day" }))}>Next day</button>
+							<button type="button" className="li-btn" onClick={() => run("Sunday evening (check-in time)", () => lockedIn.demo.clock({ jump: "sunday-evening" }))}>Sunday evening</button>
 							<button type="button" className="li-btn ghost" onClick={() => run("Real time", () => lockedIn.demo.clock({ jump: "reset" }))}>Real time</button>
 						</div>
 						<label className="li-row">
@@ -83,7 +84,7 @@ export function FacilitatorScreen() {
 					<section className="li-card li-stack" style={{ gap: 12 }}>
 						<h2 className="li-h2">Fire a nudge now</h2>
 						<div className="li-row">
-							{["N-1", "N-2", "N-3", "N-4", "block"].map((t) => <button key={t} type="button" className="li-btn" onClick={() => run(`Fired ${t}`, () => lockedIn.demo.fire(t))}>{t}</button>)}
+							{["N-1", "N-2", "N-3", "N-4", "N-5", "block"].map((t) => <button key={t} type="button" className="li-btn" onClick={() => run(`Fired ${t}`, () => lockedIn.demo.fire(t))}>{t}</button>)}
 						</div>
 						<span className="li-small li-muted">Upcoming by the rules: {s?.candidates.length ? s.candidates.map((c) => `${c.type} at ${fmtTime(c.fireAt)}`).join(", ") : "none right now"}.</span>
 					</section>

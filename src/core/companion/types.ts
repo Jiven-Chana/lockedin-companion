@@ -188,7 +188,8 @@ export interface Profile {
 	/** When the timetable was last read, and what was read (R-7). */
 	timetableRead?: { at: string; events: number; modules: string[] };
 	prefs: {
-		nudgesPerDay: 1 | 2;
+		/** R-1, Q-9; v0.1 F-114: 0 = silent (laptop and phone); start from Today. */
+		nudgesPerDay: 0 | 1 | 2;
 		quietHours: { from: string; to: string };
 		lock: LockStrictness;
 		defaultMode: SessionMode;
@@ -272,7 +273,8 @@ export interface Routine {
 	confirmedAt: string;
 }
 
-export type NudgeType = "N-1" | "N-2" | "N-3" | "N-4" | "block";
+/** N-5 (v0.1 F-111, F-114): the Sunday check-in. */
+export type NudgeType = "N-1" | "N-2" | "N-3" | "N-4" | "N-5" | "block";
 export type NudgeAction = "open" | "snooze" | "dismiss" | "wasnt-there";
 export const NUDGE_ACTIONS: readonly NudgeAction[] = ["open", "snooze", "dismiss", "wasnt-there"];
 
@@ -289,6 +291,12 @@ export interface NudgeRecord {
 	returnOf?: string;
 	/** Fired by the facilitator, outside the rules. */
 	forced?: boolean;
+	/** v0.1 F-114: the notification title (N-1 v2: "HCI just finished. One question:"); `text` is its body. */
+	title?: string;
+	/** "Why now" (R-7): "after HCI · you're free until 15:00". */
+	why?: string;
+	/** N-1 v2: the bank question shown as the notification (its id; the payload goes to the phone, F-112). */
+	questionId?: string;
 	outcome?: "opened" | "snoozed" | "dismissed" | "wasnt-there";
 	outcomeAt?: string;
 }
@@ -309,6 +317,10 @@ export interface NudgeCandidate {
 	fireAt: string;
 	/** Fire at this time even if the session is still preparing. */
 	fireBy: string;
+	/** "Why now" (R-7, F-114). */
+	why?: string;
+	/** N-5 opens the week's check-in, not a session. */
+	opens?: "session" | "checkin";
 }
 
 export type CompanionSessionState = "preparing" | "ready" | "active" | "done" | "stopped" | "error";

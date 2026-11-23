@@ -124,6 +124,19 @@ The planner proposes blocks in free gaps. It never places one over a lecture, ev
 | GET | `/checkin` | | `{ started, minutes, text, target, nextWeek, roomMinutes, feelings }`. On a Sunday it looks back on the week ending today. It counts blocks *started*, never missed ones |
 | POST | `/checkin` | `{ feeling }`, then `{ target }` or `{ keep: true }` | A feeling only proposes a new target (±30 min, at least 30 min, at most next week's room). The target changes only on the confirm. Confirm or keep then proposes next week → `{ target, plan }` |
 
+## Nudges v2 and the week ahead (v0.1 F-114, F-111)
+
+- `prefs.nudgesPerDay` is 0, 1 or 2. 0 is silent on laptop and phone; the student starts from Today.
+- **N-1 v2:** the notification *is* the question. `title` is "HCI just finished. One question:" and `text` is a bank question's stem (`questionId` is set). With no question ready it falls back to the v1 sentence. Under V-18 it fires after any timetabled lecture the student attended, and teaches that lecture's own material, or the module's current-week unit by the pacing rule.
+- **N-5:** on Sunday at `plan.sundayTime`, once, when a weekly target is set. It counts as that day's nudge. Opening it returns `{ href: "/app/plan?checkin=1" }` instead of a session.
+- **Why now:** every nudge carries `why` (R-7), e.g. "after HCI · you're free until 15:00".
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/nudges/schedule` | | `{ now, nudges: [{ id, fireAt, kind, title, body, why?, lectureId?, opens: "question" \| "session" \| "checkin", question?: { id, lectureId, stem, options, correct, explanation, slides }, snoozeFireAt, expiresAt }] }`. The next 7 days, planned with the live rules (cap, quiet hours, priorities), for the phone relay (F-112). Ids are the nudge keys, so re-planning gives the same ids |
+
+Facilitator: `POST /demo/clock { jump: "sunday-evening" }` jumps to the coming Sunday at the check-in time; `POST /demo/fire { type: "N-5" }` fires the check-in nudge.
+
 ## Study blocks and the simulated lock
 
 | Method | Path | Body | Returns |

@@ -60,6 +60,23 @@ export const NUDGE_RULES = {
 	blockCountsTowardCap: false,
 } as const;
 
+/** "Why now" on every nudge (R-7, F-114). Short, factual, never guilt. */
+export const WHY_TEXT = {
+	afterLecture: (module: string, until: string | null) => `after ${module}${until ? ` · you're free until ${until}` : ""}`,
+	freeGap: (until: string | null) => (until ? `you're free until ${until}` : "you're free now"),
+	evening: "your evening slot",
+	snooze: "you asked me to come back",
+	block: "your study block",
+	sunday: "Sunday: planning next week",
+} as const;
+
+/** The 7-day schedule for the phone relay (F-112, F-114). */
+export const SCHEDULE_RULES = {
+	days: 7,
+	/** Simulation step. Nudges land on this grid (N-1 at end + 5 lands exactly). */
+	stepMinutes: 5,
+} as const;
+
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
 export const MISS_SPACING_DAYS = [1, 3, 7] as const;
 /** A correct answer at or above this confidence in a retest makes a miss solid. */
@@ -192,8 +209,13 @@ export const NUDGE_TEXT = {
 	n3: (weekday: string) => `Missed ${weekday}'s lecture? Here it is in three 5-minute pieces.`,
 	n4: (left: number, minutes: number) =>
 		`Picking up where you left off. ${left} ${left === 1 ? "question" : "questions"} left, about ${minutes} minutes.`,
-	// Not in behaviour-change.md §5: draft wording, confirm with the group.
+	// Not in behaviour-change.md §5: draft wording, confirm with the group (O-14: kept as the draft).
 	block: (minutes: number) => `Your study block starts now. ${minutes} minutes, at your own pace.`,
+	// v0.1 F-114 (spec Appendix A, T20 v2 N-1, N-5)
+	/** N-1 v2: the title; the body is the bank question's stem (≤ 90). `n1` above is the fallback when no question is ready. */
+	n1Title: (module: string) => `${module} just finished. One question:`,
+	n5: (lectures: number, gaps: number) => `Next week: ${lectures} ${lectures === 1 ? "lecture" : "lectures"}, ${gaps} free ${gaps === 1 ? "gap" : "gaps"}. Set your study blocks?`,
+	n5Title: "Your week",
 } as const;
 
 export const DEFAULT_PREFS: Profile["prefs"] = {

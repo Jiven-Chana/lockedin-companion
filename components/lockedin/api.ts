@@ -123,7 +123,7 @@ export const lockedIn = {
 	misses: (lectureId?: string) => api<{ misses: MissItem[] }>(`/misses${lectureId ? `?lectureId=${encodeURIComponent(lectureId)}` : ""}`).then((r) => r.misses),
 	refreshCalendar: () => api<{ added: number }>("/timetable/refresh", { method: "POST" }),
 	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
-	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
+	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string; href?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
 	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
