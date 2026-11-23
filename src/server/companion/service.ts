@@ -27,12 +27,13 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
+import { PhoneLink, RelayClient } from "./phone.ts";
 import { clampBlockMinutes, pacedUnits, proposeWeek } from "../../core/companion/plan-week.ts";
 import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
@@ -55,6 +56,7 @@ import {
 	type CompanionEventType,
 	type CompanionSession,
 	type EngineName,
+	type AnswerRecord,
 	type Lecture,
 	type NudgeAction,
 	type NudgeCandidate,
@@ -100,6 +102,8 @@ export interface CompanionServiceDeps {
 	generate?: Generate;
 	/** LockedIn's own generation prompts (companion/prompts). */
 	promptsDir?: string;
+	/** The phone relay (F-112): COMPANION_RELAY_URL. No relay, no phone; the laptop works on its own. */
+	relay?: { url: string; fetch?: typeof fetch };
 	/** Is the LearnHarness engine usable (models + key)? For /health. */
 	engineStatus?: () => Record<string, unknown>;
 	newId?: (prefix: string) => string;
@@ -123,6 +127,8 @@ export class CompanionService {
 	readonly courseMaterials: CourseMaterials;
 	/** Study packs per unit (F-105). Null without generate() (tests that don't need it). */
 	readonly packs: StudyPacks | null;
+	/** The phone link (F-112). Null without a relay URL. */
+	readonly phone: PhoneLink | null;
 
 	constructor(private readonly deps: CompanionServiceDeps) {
 		this.courseMaterials = new CourseMaterials({
@@ -144,6 +150,7 @@ export class CompanionService {
 					now: () => this.now(),
 				})
 			: null;
+		this.phone = deps.relay ? new PhoneLink(this, deps.store, new RelayClient(deps.relay.url, deps.relay.fetch)) : null;
 		this.ai = deps.ai
 			? new CompanionAi(deps.ai.port, deps.ai.verifyKey, (type, data) => this.log(type, data), (ready) => this.noteAiReady(ready))
 			: null;
@@ -937,7 +944,7 @@ export class CompanionService {
 	}
 
 	/** The Sunday check-in (F-111): last week's blocks started and minutes, the target, and next week's room. */
-	checkin() {
+	checkin(opts: { quiet?: boolean } = {}) {
 		const profile = this.requireProfile();
 		const now = this.now();
 		const summary = lastWeekSummary(this.store.blocks(), now);
@@ -947,7 +954,7 @@ export class CompanionService {
 			week: nextMonday, now, lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours,
 			targetMinutes: 0, blockMinutes: settings.blockMinutes, existing: [], lastWeek: [], focus: [], newId: (i) => `x${i}`,
 		}).roomMinutes;
-		this.log("checkin_shown", { started: summary.started, minutes: summary.minutes });
+		if (!opts.quiet) this.log("checkin_shown", { started: summary.started, minutes: summary.minutes });
 		return { ...summary, target: settings.weeklyTargetMinutes, nextWeek: dateKey(nextMonday), roomMinutes: room, feelings: PLAN_COPY.feelings };
 	}
 
@@ -1003,6 +1010,70 @@ export class CompanionService {
 			this.log("setup_chat_fallback_form", { reason: err instanceof Error ? err.message.slice(0, 200) : "error" });
 			return { fallback: true, say: "Let's do this with taps instead." };
 		}
+	}
+
+	// ─── the phone (F-112) ──────────────────────────────────────────────────
+
+	requirePhone(): PhoneLink {
+		if (!this.phone) throw new CompanionError("phone_unavailable", 501, "No phone relay is set up (COMPANION_RELAY_URL).");
+		return this.phone;
+	}
+
+	/** The phone acted on a nudge first: the laptop drops its copy (§5.2 item 5: whichever device acts first wins). */
+	phoneHandledNudge(key: string, outcome: "opened" | "snoozed" | "dismissed", at: string) {
+		const mine = [...this.store.nudges()].reverse().find((n) => n.key === key);
+		if (mine?.outcome) return;
+		if (mine) {
+			this.store.appendNudge({ ...mine, outcome, outcomeAt: at });
+			return;
+		}
+		// Fired while the laptop was asleep: record it so the laptop never fires it again (the cap holds across devices).
+		const type = key.split(":")[0] as NudgeRecord["type"];
+		this.store.appendNudge({ id: this.id("n"), type: (["N-1", "N-2", "N-3", "N-4", "N-5", "block"] as const).includes(type as never) ? type : "N-1", key, firedAt: at, text: "(on your phone)", outcome, outcomeAt: at });
+	}
+
+	/** An answer given on the phone: a wrong one becomes an idea to revisit, as on the laptop (§6.8). */
+	phoneAnswer(a: { lectureId: string; questionId: string; choice: number; correct: boolean; at: string }) {
+		const q = this.packs?.bank(a.lectureId)?.find((x) => x.id === a.questionId);
+		if (!q || a.correct) return;
+		const record: AnswerRecord = { questionId: q.id, questionText: q.stem, nodeId: q.node, graded: true, correct: false, dontKnow: false, shown: false, correctLabels: [q.options[q.correct]], explanation: q.explanation, answeredAt: a.at };
+		const miss = missFromAnswer(record, { sessionId: "phone", lectureId: a.lectureId, now: new Date(a.at) });
+		if (miss) this.store.saveMisses(mergeMisses(this.store.misses(), [miss]));
+	}
+
+	/**
+	 * "4 more on your laptop" (J2′ step 4): a post-lecture session on that unit
+	 * with question 1 recorded from the phone, ready at question 2, and a toast:
+	 * "Question 1 answered on your phone ✓ 4 more ready."
+	 */
+	startHandoff(h: { lectureId: string; questionId?: string; choice?: number; correct?: boolean; at: string; phoneEventId: string }) {
+		const key = `handoff:${h.phoneEventId}`;
+		if (this.store.nudges().some((n) => n.key === key)) return null;
+		const spec = specFor("post-lecture", h.lectureId, this.store.profile()?.prefs);
+		const q = h.questionId ? this.packs?.bank(h.lectureId)?.find((x) => x.id === h.questionId) : undefined;
+		if (h.questionId && h.choice !== undefined && h.correct !== undefined) {
+			spec.seedAnswer = { questionId: h.questionId, choice: h.choice, correct: h.correct, at: h.at, ...(q ? { stem: q.stem, choiceLabel: q.options[h.choice] ?? "" } : {}) };
+		}
+		const { sessionId } = this.createSession(spec);
+		const more = spec.seedAnswer ? spec.budget.questions - 1 : spec.budget.questions;
+		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: HANDOFF_COPY.toast(more), lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
+		return { sessionId };
+	}
+
+	/** Facilitator (F-119): play a phone answer and hand-off on the laptop, for a lab without a phone. */
+	demoPhone(raw: unknown) {
+		const r = (raw ?? {}) as { action?: unknown; correct?: unknown };
+		const n1 = [...this.store.nudges()].reverse().find((n) => n.type === "N-1" && n.lectureId && !n.key.startsWith("handoff:"));
+		const lectureId = n1?.lectureId ?? this.store.lectures().find((l) => l.hasMaterials)?.id;
+		if (!lectureId) throw badRequest("no lecture with material to answer on");
+		const q = this.questionFor(lectureId);
+		const choice = q ? (r.correct === false ? (q.correct + 1) % 3 : q.correct) : 0;
+		const at = this.now().toISOString();
+		const base = { nudgeId: n1?.key ?? `N-1:${lectureId}`, lectureId, ...(q ? { questionId: q.id, choice, correct: choice === q.correct } : {}) };
+		const events = [{ id: `sim-${this.id("e")}`, at, type: "answered", payload: base }];
+		if (r.action !== "answer") events.push({ id: `sim-${this.id("e")}`, at, type: r.action === "done" ? "done_for_now" : "handover", payload: base });
+		const link = this.phone ?? new PhoneLink(this, this.store, new RelayClient("http://offline.invalid"));
+		return { replayed: link.replay(events), simulated: true };
 	}
 
 	/** Skip a block: v0.1 blocks are dated, so skipping is removing (X-7: one tap). */
@@ -1069,6 +1140,7 @@ export class CompanionService {
 			]);
 			clearTimeout(timer);
 		}
+		this.phone?.tick();
 		const [due] = dueNudges(this.store.state(), now);
 		if (due) {
 			try {
@@ -1326,7 +1398,9 @@ export class CompanionService {
 				? { ...base, status: "error", error: session.error ?? "prepare_failed" }
 				: { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` };
 		}
-		const v = await engine.view(session, lecture);
+		const raw = await engine.view(session, lecture);
+		// A hand-off (F-112): question 1 was answered on the phone. The scripted engine counts it itself.
+		const v = session.spec.seedAnswer && session.engine === "learnharness" ? { ...raw, answered: raw.answered + 1 } : raw;
 		this.markOpened(session, now);
 		this.store.updateSession(session.id, (s) => {
 			let next: CompanionSession = { ...s, answered: v.answered };
@@ -1496,13 +1570,16 @@ export class CompanionService {
 			readyToRevisit: state.misses.filter((m) => m.status === "open").length,
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
+			phonePaired: this.phone?.paired() ?? false,
 			activeSession: state.sessions.filter((s) => s.state === "active" && s.answered < s.budget).at(-1)?.id ?? null,
 		};
 	}
 
 	// ─── data (R-7) ─────────────────────────────────────────────────────────
 
-	deleteAll(): { deleted: true } {
+	async deleteAll(): Promise<{ deleted: true }> {
+		// "Delete all my data" also deletes what the relay holds (F-112, J9).
+		await this.phone?.unpair().catch(() => undefined);
 		this.removeEngineData();
 		this.store.wipe({ keepMaterials: true });
 		return { deleted: true };

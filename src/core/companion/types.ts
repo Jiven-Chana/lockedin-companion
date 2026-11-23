@@ -36,6 +36,8 @@ export interface SessionSpec {
 	missIds?: string[];
 	/** v0.1 F-106: a session scoped to these concept-map nodes ("Quiz me on this idea"). */
 	nodes?: string[];
+	/** v0.1 F-112: question 1 was answered on the phone; the session continues at question 2. */
+	seedAnswer?: { questionId: string; choice: number; correct: boolean; at: string; stem?: string; choiceLabel?: string };
 }
 
 export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
@@ -434,6 +436,24 @@ export const COMPANION_EVENT_TYPES = [
 	"checkin_answered",
 	"target_changed",
 	"target_kept",
+	// v0.1 F-112: the phone and the relay; replayed phone events keep their own type, with source "phone"
+	"phone_paired",
+	"phone_unpaired",
+	"schedule_uploaded",
+	"relay_error",
+	"opened",
+	"answered",
+	"handover",
+	"done_for_now",
+	"snoozed",
+	"dismissed",
+	"plan_tick",
+	"plan_move",
+	"plan_remove",
+	"checkin",
+	"target_confirm",
+	"focus_start",
+	"focus_end",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

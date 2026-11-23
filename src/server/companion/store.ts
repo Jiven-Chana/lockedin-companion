@@ -39,6 +39,17 @@ export interface RuntimeState {
 	calendarUrl?: string;
 	/** When the subscribed link was last read (F-108: refreshed on open and every 6 hours). */
 	calendarRefreshedAt?: string;
+	/** The phone link (F-112, spec §7 runtime). The secrets stay on this laptop. */
+	pairId?: string;
+	laptopSecret?: string;
+	phoneToken?: string;
+	eventCursor?: number;
+	scheduleVersion?: number;
+	scheduleFingerprint?: string;
+	scheduleUploadedAt?: string;
+	eventsPulledAt?: string;
+	/** Phone event ids already replayed (dedupe, §5.2 item 3). */
+	replayedPhoneEvents?: string[];
 }
 
 const FILES = {

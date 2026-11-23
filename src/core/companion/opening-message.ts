@@ -75,6 +75,9 @@ export function buildOpeningMessage(input: OpeningMessageInput): { text: string;
 		`Budget: ${budgetLine(spec)}`,
 		`Mode: ${spec.mode === "show-first" ? "show me first" : "question me first"}.`,
 		...(spec.nodes?.length ? [`Focus: only the concept-map ideas ${spec.nodes.join(", ")}. Ask only about them and the slides that teach them.`] : []),
+		...(spec.seedAnswer
+			? [`Already answered on the phone (question 1 of ${spec.budget.questions}): "${spec.seedAnswer.stem ?? spec.seedAnswer.questionId}" → "${spec.seedAnswer.choiceLabel ?? `option ${spec.seedAnswer.choice + 1}`}" (${spec.seedAnswer.correct ? "correct" : "not correct"}). Don't ask it again${spec.seedAnswer.correct ? "" : "; repair it briefly first"}, then continue with question 2.`]
+			: []),
 		...revisitBlock(spec.kind === "retest" ? input.misses : undefined),
 		...(input.conceptMap?.trim()
 			? ["", "CONCEPT MAP (plan on these node slugs)", "```mermaid", input.conceptMap.trim(), "```"]

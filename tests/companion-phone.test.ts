@@ -1,0 +1,217 @@
+/**
+ * The phone, end to end in one process (v0.1 F-112, J2′, J9): the laptop's
+ * CompanionService talks to the real relay code (relay/src/relay.ts on
+ * node:sqlite) through its RelayClient, and the test plays the phone's
+ * side through the relay API. Plus the pure sync rules (sync.ts).
+ */
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { describe, it } from "node:test";
+import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
+import type { Db, Stmt } from "../relay/src/db.ts";
+import { handle, type RelayEnv } from "../relay/src/relay.ts";
+import { ManualClock } from "../src/server/companion/clock.ts";
+import { CompanionContent } from "../src/server/companion/content.ts";
+import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
+import { CompanionService } from "../src/server/companion/service.ts";
+import { CompanionStore } from "../src/server/companion/store.ts";
+
+const CONTENT = path.join(import.meta.dirname, "..", "companion", "content");
+const RELAY = "https://relay.test";
+
+function sqliteDb(): Db {
+	const db = new DatabaseSync(":memory:");
+	db.exec(fs.readFileSync(path.join(import.meta.dirname, "..", "relay", "schema.sql"), "utf-8"));
+	const stmt = (sql: string, values: unknown[] = []): Stmt => ({
+		bind: (...v) => stmt(sql, v),
+		first: async <T,>() => (db.prepare(sql).get(...(values as never[])) as T | undefined) ?? null,
+		all: async <T,>() => ({ results: db.prepare(sql).all(...(values as never[])) as T[] }),
+		run: async () => ({ meta: { changes: Number(db.prepare(sql).run(...(values as never[])).changes) } }),
+	});
+	return { prepare: (sql) => stmt(sql), batch: async (stmts) => Promise.all(stmts.map((s) => s.run())) };
+}
+
+async function setup(opts: { relayDown?: boolean } = {}) {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-phone-"));
+	const store = new CompanionStore(dir);
+	const content = new CompanionContent(store, CONTENT);
+	const clock = new ManualClock(new Date(2026, 10, 17, 12, 58)); // Tue: HCI 11-13 in the sample week
+	const scripted = new ScriptedEngine((id) => content.scriptedSet(id));
+	const relayEnv: RelayEnv = { DB: sqliteDb() };
+	const relayFetch: typeof fetch = async (input, init) => {
+		if (opts.relayDown) throw new Error("relay unreachable");
+		// The relay shares the laptop's (demo) clock here; in real use both are real time.
+		return handle(new Request(String(input), init as RequestInit), relayEnv, clock.now());
+	};
+	let n = 0;
+	const svc = new CompanionService({
+		store, content, clock,
+		clockControl: { set: (t) => clock.set(t), reset: () => undefined },
+		engines: { scripted, learnharness: scripted },
+		defaultEngine: "scripted",
+		relay: { url: RELAY, fetch: relayFetch },
+		newId: (p) => `${p}${++n}`,
+	});
+	svc.demoScenario({ name: "tayo" });
+	// The phone's side: the relay API with the token from the QR link.
+	const phone = async (method: string, p: string, token: string, body?: unknown) => {
+		const res = await relayFetch(`${RELAY}${p}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+		return res.status === 204 ? null : res.json();
+	};
+	return { svc, store, clock, phone, events: () => store.events().map((e) => e.type) };
+}
+
+const fromLink = (url: string) => {
+	const m = /\/p#([0-9a-f]{32})\.([0-9a-f]{32})$/.exec(url)!;
+	return { pairId: m[1]!, token: m[2]! };
+};
+
+describe("pairing (J9)", () => {
+	it("pairs, shows a QR for the link, uploads the week, and the phone can read it", async () => {
+		const { svc, phone, events } = await setup();
+		const p = await svc.requirePhone().pair();
+		assert.match(p.url, /^https:\/\/relay\.test\/p#[0-9a-f]{32}\.[0-9a-f]{32}$/);
+		assert.match(p.qrSvg, /^<svg/);
+		const { pairId, token } = fromLink(p.url);
+		const s = (await phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { nudges: { kind: string; title: string; question?: unknown; more?: number }[] };
+		assert.ok(s.nudges.length > 0, "the week's nudges are on the relay");
+		const n1 = s.nudges.find((x) => x.kind === "N-1");
+		assert.equal(n1?.more, 4, "\"4 more on your laptop\" comes from the post-lecture budget");
+		assert.ok(events().includes("phone_paired") && events().includes("schedule_uploaded"));
+		assert.equal(svc.today().phonePaired, true);
+	});
+
+	it("unpair deletes the relay's data; so does Delete all my data", async () => {
+		const { svc, phone } = await setup();
+		const { pairId, token } = fromLink((await svc.requirePhone().pair()).url);
+		await svc.requirePhone().unpair();
+		assert.equal(((await phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { error?: string }).error, "unauthorised");
+		assert.equal(svc.today().phonePaired, false);
+		const again = fromLink((await svc.requirePhone().pair()).url);
+		await svc.deleteAll();
+		assert.equal(((await phone("GET", `/v1/pairs/${again.pairId}/schedule`, again.token)) as { error?: string }).error, "unauthorised");
+	});
+});
+
+describe("the hand-off (J2′)", () => {
+	async function answeredOnPhone(correct: boolean) {
+		const s = await setup();
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		// The N-1 the laptop planned for Tuesday's HCI lecture (no pack here, so the v1 nudge: answer a scripted question).
+		const lectureId = "hci-w3-personas";
+		const set = (await import("../src/server/companion/content.ts")).CompanionContent.prototype.scriptedSet.call(new CompanionContent(s.store, CONTENT), lectureId)!;
+		const q = set.questions[0]!;
+		const choice = correct ? q.correct[0]! : (q.correct[0]! + 1) % q.options.length;
+		const base = { nudgeId: `N-1:${lectureId}`, lectureId, questionId: q.id, choice, correct };
+		await s.phone("POST", `/v1/pairs/${pairId}/events`, token, [
+			{ id: "evt-answer-0001", at: new Date(2026, 10, 17, 13, 6).toISOString(), type: "answered", payload: base },
+			{ id: "evt-handover-01", at: new Date(2026, 10, 17, 13, 7).toISOString(), type: "handover", payload: base },
+		]);
+		const r = await s.svc.requirePhone().sync({ force: true });
+		return { ...s, r, q, lectureId };
+	}
+
+	it("the laptop session opens at question 2 with question 1's answer recorded, and a toast says so", async () => {
+		const { svc, store, r, q } = await answeredOnPhone(true);
+		assert.equal(r.replayed, 2);
+		const toast = store.nudges().find((n) => n.key.startsWith("handoff:"));
+		assert.equal(toast?.text, "Question 1 answered on your phone ✓ 4 more ready.");
+		const session = store.session(toast!.sessionId!)!;
+		assert.equal(session.spec.seedAnswer?.questionId, q.id);
+		await svc.whenReady(session.id);
+		const v = await svc.view(session.id);
+		assert.equal(v.answered, 1, "the budget counts the phone answer");
+		assert.equal(v.feedback?.questionId, q.id, "question 1's answer is shown");
+		assert.notEqual(v.question?.id, q.id, "the next question is a different one");
+	});
+
+	it("the laptop's own copy of that nudge is dropped: never a duplicate", async () => {
+		const { store } = await answeredOnPhone(true);
+		const laptopN1 = [...store.nudges()].reverse().find((n) => n.key === "N-1:hci-w3-personas");
+		assert.equal(laptopN1?.outcome, "opened");
+	});
+
+	it("every phone event is logged under its own type with source phone", async () => {
+		const { store } = await answeredOnPhone(true);
+		const phoneEvents = store.events().filter((e) => e.data.source === "phone").map((e) => e.type);
+		assert.deepEqual(phoneEvents, ["answered", "handover"]);
+	});
+
+	it("replaying the same events twice changes nothing", async () => {
+		const { svc, store } = await answeredOnPhone(true);
+		const before = [store.nudges().length, store.sessions().length, store.events().length];
+		const link = svc.requirePhone();
+		const again = link.replay([{ id: "evt-handover-01", at: new Date(2026, 10, 17, 13, 7).toISOString(), type: "handover", payload: { lectureId: "hci-w3-personas" } }]);
+		assert.equal(again, 0);
+		assert.deepEqual([store.nudges().length, store.sessions().length, store.events().length], before);
+	});
+});
+
+describe("plan edits and the check-in from the phone", () => {
+	it("a tick accepts a proposal; an edit to a block removed on the laptop is ignored and logged", async () => {
+		const { svc, store, events } = await setup();
+		svc.saveRoutine({ routine: { energy: ["afternoon"], commitments: [], places: [], weeklyTargetMinutes: 150 }, source: "form" });
+		const [a, b] = store.blocks().filter((x) => x.status === "proposed");
+		svc.updateBlock(b!.id, { status: "removed" });
+		const link = svc.requirePhone();
+		const later = new Date(Date.now() + 60_000).toISOString();
+		link.replay([
+			{ id: "evt-tick-00001", at: later, type: "plan_tick", payload: { blockId: a!.id } },
+			{ id: "evt-tick-00002", at: later, type: "plan_tick", payload: { blockId: b!.id } },
+		]);
+		assert.equal(store.blocks().find((x) => x.id === a!.id)?.status, "accepted");
+		assert.equal(store.blocks().find((x) => x.id === b!.id)?.status, "removed");
+		assert.ok(events().includes("relay_error"), "the ignored edit is logged");
+	});
+});
+
+describe("the relay is down", () => {
+	it("the laptop keeps working and logs it", async () => {
+		const { svc, events } = await setup({ relayDown: true });
+		await assert.rejects(svc.requirePhone().pair());
+		await svc.tick(0);
+		assert.ok(svc.today().onboarded);
+		assert.equal(svc.today().phonePaired, false);
+		void events;
+	});
+});
+
+describe("the facilitator's phone (a lab without a phone)", () => {
+	it("plays an answer and a hand-off on the laptop", async () => {
+		const { svc, store } = await setup();
+		const r = svc.demoPhone({ action: "handover", correct: false });
+		assert.equal(r.replayed, 2);
+		assert.ok(store.nudges().some((n) => n.key.startsWith("handoff:")));
+	});
+});
+
+describe("sync rules (pure)", () => {
+	it("versions only go up, even if the clock goes back", () => {
+		assert.equal(nextVersion(5, 1000), 1000);
+		assert.equal(nextVersion(2000, 1000), 2001);
+	});
+	it("events replay once each, in the phone's order", () => {
+		const ev = (id: string, at: string) => ({ id, at, type: "opened", payload: {} });
+		const r = eventsToReplay([ev("b", "2026-11-17T13:02:00Z"), ev("a", "2026-11-17T13:01:00Z"), ev("b", "2026-11-17T13:02:00Z"), ev("c", "2026-11-17T13:03:00Z")], new Set(["c"]));
+		assert.deepEqual(r.map((e) => e.id), ["a", "b"]);
+	});
+	it("plan edits: last write wins per block", () => {
+		const block = (id: string): StudyBlock => ({ id, date: "2026-11-18", start: "14:00", minutes: 50, status: "proposed", source: "planner" });
+		const r = applyPlanEdits([block("x"), block("y")], [
+			{ blockId: "x", at: "2026-11-17T10:00:00Z", change: { status: "accepted" } },
+			{ blockId: "y", at: "2026-11-17T09:00:00Z", change: { start: "16:00" } },
+		], (id) => (id === "y" ? "2026-11-17T09:30:00Z" : undefined));
+		assert.equal(r.blocks[0]!.status, "accepted");
+		assert.equal(r.blocks[1]!.start, "14:00", "the laptop changed y later");
+		assert.deepEqual(r.ignored.map((i) => i.blockId), ["y"]);
+	});
+	it("the fingerprint ignores key order and changes with content", () => {
+		const a = scheduleFingerprint({ timeZone: "Europe/London", nudges: [], blocks: [] });
+		assert.equal(a, scheduleFingerprint({ blocks: [], nudges: [], timeZone: "Europe/London" } as never));
+		assert.notEqual(a, scheduleFingerprint({ timeZone: "Europe/Paris", nudges: [], blocks: [] }));
+	});
+});

@@ -77,6 +77,15 @@ export const SCHEDULE_RULES = {
 	stepMinutes: 5,
 } as const;
 
+/** The phone hand-off (F-112, spec Appendix A). */
+export const HANDOFF_COPY = {
+	toast: (more: number) => `Question 1 answered on your phone ✓ ${more} more ready.`,
+	title: "From your phone",
+	/** The phone's "N more on your laptop": the post-lecture budget minus the phone's question. */
+	more: () => SESSION_BUDGETS["post-lecture"].questions - 1,
+	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
+} as const;
+
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
 export const MISS_SPACING_DAYS = [1, 3, 7] as const;
 /** A correct answer at or above this confidence in a retest makes a miss solid. */

@@ -310,7 +310,7 @@ describe("data and the event log", () => {
 		assert.match(csv.split("\n")[0]!, /^t,wall,participant,type,data$/);
 		assert.match(csv, /P03,onboarding_step/);
 		fs.mkdirSync(path.join(dir, "materials", "x"), { recursive: true });
-		svc.deleteAll();
+		await svc.deleteAll();
 		assert.equal(store.profile(), null);
 		assert.deepEqual(store.events(), []);
 		assert.ok(fs.existsSync(path.join(dir, "materials", "x")));

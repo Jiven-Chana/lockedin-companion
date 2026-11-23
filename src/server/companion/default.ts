@@ -11,6 +11,8 @@
  *   COMPANION_AUTO_FALLBACK   1 = a LearnHarness prepare failure retries on scripted
  *   COMPANION_DEMO            1 = facilitator routes enabled (/api/companion/demo/*)
  *   COMPANION_READY_TIMEOUT_MS  question-1 timeout (default 60000)
+ *   COMPANION_RELAY_URL       the phone relay (v0.1 F-112), e.g.
+ *                             https://lockedin-relay.<account>.workers.dev; unset = no phone
  *
  * First run (v0.1 F-102): creating the service seeds the data directory
  * (prompt overrides, settings switches, demo materials) when it hasn't
@@ -110,6 +112,7 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		...(explicit ? {} : { engineWhenAiReady: "learnharness" as const }),
 		ai: { port: createAiPort(), verifyKey: verifyProviderKey },
 		generate,
+		...(env.COMPANION_RELAY_URL?.startsWith("http") ? { relay: { url: env.COMPANION_RELAY_URL } } : {}),
 		promptsDir: path.join(/* turbopackIgnore: true */ PATHS.root, "companion", "prompts"),
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
