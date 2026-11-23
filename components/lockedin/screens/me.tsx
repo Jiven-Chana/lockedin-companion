@@ -4,7 +4,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { Profile } from "@/src/core";
+import type { MotionChoice, Profile } from "@/src/core";
 import { ApiError, lockedIn } from "../api";
 import { useData, useLocalFlag } from "../hooks";
 import { useLockedIn } from "../root";
@@ -99,7 +99,7 @@ export function MeScreen() {
 				<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
 					<Seg label="Text size" value={appearance.textSize} options={[["normal", "Normal"], ["large", "Large"], ["xlarge", "Extra large"]]} onChange={(v) => setAppearance({ textSize: v })} />
 					<Seg label="Line spacing" value={appearance.loose ? "loose" : "normal"} options={[["normal", "Normal"], ["loose", "Loose"]]} onChange={(v) => setAppearance({ lineSpacing: v })} />
-					<Seg label="Motion" value={appearance.reduceMotion ? "reduce" : "full"} options={[["full", "Full"], ["reduce", "Reduce"]]} onChange={(v) => setAppearance({ reduceMotion: v === "reduce" })} />
+					<Seg label="Motion" value={appearance.motion} options={[["calm", "Calm"], ["full", "Full"], ["off", "Off"]]} onChange={(v) => setAppearance({ motion: v as MotionChoice })} />
 				</div>
 				<div className="li-card flat" style={{ background: "linear-gradient(160deg, var(--li-bg-a), var(--li-bg-b))" }}>
 					<span className="li-eyebrow">Preview</span>

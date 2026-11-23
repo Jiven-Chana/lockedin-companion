@@ -182,6 +182,10 @@ export interface ModuleInfo {
 	readingWeeks?: number[];
 }
 
+/** V-10, F-118: Calm (default) animates only what explains a change; Full adds page transitions and the drifting background; Off removes everything (as does the system reduced-motion setting). */
+export type MotionChoice = "calm" | "full" | "off";
+export const MOTION_CHOICES: readonly MotionChoice[] = ["calm", "full", "off"];
+
 export interface Profile {
 	createdAt: string;
 	modules: ModuleInfo[];
@@ -198,7 +202,8 @@ export interface Profile {
 		/** N-3's evening slot ("19:00"). */
 		eveningTime: string;
 	};
-	appearance: { theme: string; accent: string; textSize: string; lineSpacing: string; reduceMotion: boolean };
+	/** `motion` replaced the v0.0 `reduceMotion` boolean (F-118); `migrateAppearance` reads old profiles. */
+	appearance: { theme: string; accent: string; textSize: string; lineSpacing: string; motion: MotionChoice };
 	/** The weekly plan (F-110, F-111, V-5). */
 	plan?: { weeklyTargetMinutes: number | null; blockMinutes: number; sundayTime: string; focusScreen: boolean };
 	/** From the setup chat or the plain form (F-109). */
@@ -456,6 +461,8 @@ export const COMPANION_EVENT_TYPES = [
 	"focus_end",
 	// v0.1 F-116
 	"dictation_used",
+	// v0.1 F-118
+	"motion_changed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

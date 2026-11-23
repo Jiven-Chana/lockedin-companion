@@ -97,7 +97,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
 					</div>
 				</div>
 			</nav>
-			<main className="li-main" id="main">{children}</main>
+			{/* Full motion: each page fades and rises in (F-118); Calm and Off show it at once. */}
+			<main className="li-main" id="main"><div key={path} className="li-page">{children}</div></main>
 			<div className="li-toasts" aria-live="polite">
 				{showToast ? (
 					<div className="li-toast" role="status">
@@ -106,7 +107,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 							<button type="button" className="li-btn ghost" aria-label="Dismiss" onClick={() => act(banner.id, "dismiss")} style={{ minHeight: 32, textDecoration: "none" }}>✕</button>
 						</div>
 						{banner.title ? <span className="li-small"><b>{banner.title}</b></span> : null}
-						<b style={{ fontSize: "1.06em", lineHeight: 1.35 }}>{banner.text}</b>
+						<b style={{ fontSize: "1.06em", lineHeight: 1.35 }}>{banner.key.startsWith("handoff:") && banner.text.includes("✓") ? <>{banner.text.split("✓")[0]}<span className="li-check" style={{ animationDelay: "200ms" }}>✓</span>{banner.text.split("✓").slice(1).join("✓")}</> : banner.text}</b>
 						{banner.why ? <span className="li-small li-muted">Why now: {banner.why}</span> : null}
 						<div className="li-row" style={{ gap: 8 }}>
 							<button type="button" className="li-btn primary" onClick={() => open(banner.id)}>Open</button>

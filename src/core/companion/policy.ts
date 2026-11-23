@@ -240,8 +240,28 @@ export const DEFAULT_APPEARANCE: Profile["appearance"] = {
 	accent: "blue",
 	textSize: "medium",
 	lineSpacing: "normal",
-	reduceMotion: false,
+	motion: "calm",
 };
+
+/**
+ * Motion timings (F-118, V-10). Interactions take 150 to 300 ms; only the
+ * working indicator loops inside a session; the Full-only background drift
+ * is slow (a cycle of 20 s or more) and never runs in a session.
+ */
+export const MOTION = {
+	/** Fades, the soft check, a block sliding into its gap. */
+	shortMs: 180,
+	/** The explanation sliding in, the hand-off card, a cross-fade. */
+	mediumMs: 260,
+	/** The focus ring filling. */
+	ringMs: 300,
+	/** Map nodes and pack stages appear one after another, this far apart. */
+	staggerMs: 60,
+	/** Full only: page transitions. */
+	pageMs: 150,
+	/** Full only: one cycle of the time-of-day background drift. */
+	driftSeconds: 24,
+} as const;
 
 /**
  * Screen copy that states a session's size (F-120). The figures always come

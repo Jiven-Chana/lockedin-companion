@@ -38,7 +38,7 @@ export function FocusRing({ done, total, size = 56, stroke = "var(--li-deep-acce
 	return (
 		<svg width={size} height={size} viewBox="0 0 72 72" role="img" aria-label={label ?? `${done} of ${total} answered`}>
 			<circle cx="36" cy="36" r="30" fill="none" stroke={track} strokeWidth="7" />
-			<circle cx="36" cy="36" r="30" fill="none" stroke={stroke} strokeWidth="7" strokeLinecap="round" strokeDasharray={`${(c * frac).toFixed(1)} ${c.toFixed(1)}`} transform="rotate(-90 36 36)" style={{ transition: "stroke-dasharray 0.6s ease" }} />
+			<circle cx="36" cy="36" r="30" fill="none" stroke={stroke} strokeWidth="7" strokeLinecap="round" strokeDasharray={`${(c * frac).toFixed(1)} ${c.toFixed(1)}`} transform="rotate(-90 36 36)" className="li-ring-fill" />
 		</svg>
 	);
 }

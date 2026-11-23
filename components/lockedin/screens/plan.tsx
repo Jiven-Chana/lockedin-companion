@@ -26,7 +26,7 @@ const addDaysIso = (date: string, n: number) => {
 	return iso(d);
 };
 
-function BlockCard({ b, onDone }: { b: PlanData["blocks"][number]; onDone: () => void }) {
+function BlockCard({ b, order, onDone }: { b: PlanData["blocks"][number]; order: number; onDone: () => void }) {
 	const [moving, setMoving] = useState(false);
 	const [date, setDate] = useState(b.date);
 	const [start, setStart] = useState(b.start);
@@ -43,7 +43,7 @@ function BlockCard({ b, onDone }: { b: PlanData["blocks"][number]; onDone: () =>
 	const proposed = b.status === "proposed";
 	return (
 		<Tint hue={moduleHue(b.focus?.module ?? "study")}>
-			<div className="li-block" data-status={b.status}>
+			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
 				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : ""}</span>
 				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : "Free study"}{b.reason === "gap" ? " · catch-up" : ""}</span>
 				{moving ? (
@@ -173,13 +173,13 @@ export function PlanScreen() {
 			{msg ? <div className="li-note" role="status">{msg}</div> : null}
 
 			<div className="li-week" role="list" aria-label="This week">
-				{days.map((d) => (
+				{days.map((d, di) => (
 					<div key={d.date} className="li-day" role="listitem" data-today={d.date === iso(now) ? "true" : "false"}>
 						<b>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>
 						{[
 							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} hue={moduleHue(l.module)}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
 							...commitmentsOn(d.date).map((c, i) => ({ at: c.start, key: `c${i}`, node: <span key={`c${i}`} className="li-event" data-kind="commitment">{c.start} {c.label}</span> })),
-							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b as PlanData["blocks"][number]} onDone={() => void plan.reload()} /> })),
+							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b as PlanData["blocks"][number]} order={di} onDone={() => void plan.reload()} /> })),
 						]
 							.sort((a, b) => a.at.localeCompare(b.at))
 							.map((x) => x.node)}

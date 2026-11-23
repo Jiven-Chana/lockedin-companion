@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import { mapToMermaid, tokenHex, type NodeStatus } from "@/src/core";
+import { MOTION, mapToMermaid, tokenHex, type NodeStatus } from "@/src/core";
 import type { ConceptMapData } from "./api";
 import { StatusTag } from "./icons";
 import { useLockedIn } from "./root";
@@ -54,6 +54,34 @@ export function ConceptMap({ data, selected, onSelect }: { data: ConceptMapData;
 		})();
 		return () => { cancelled = true; };
 	}, [data, scheme, appearance.theme, appearance.hue, uid]);
+
+	// Motion (F-118): on first open the nodes appear in order; after that, a node whose status changed pulses once.
+	const shown = useRef(false);
+	const lastStatus = useRef<Map<string, NodeStatus> | null>(null);
+	const pulse = useRef(new Set<string>());
+	useEffect(() => {
+		const prev = lastStatus.current;
+		lastStatus.current = new Map(data.nodes.map((n) => [n.id, n.status]));
+		if (prev) for (const n of data.nodes) if (prev.has(n.id) && prev.get(n.id) !== n.status) pulse.current.add(n.id);
+	}, [data]);
+	useEffect(() => {
+		const el = box.current;
+		if (!svg || !el) return;
+		const nodes = [...el.querySelectorAll<SVGGElement>("g.node")];
+		if (!shown.current) {
+			shown.current = true;
+			nodes.forEach((g, i) => {
+				g.style.animationDelay = `${i * MOTION.staggerMs}ms`;
+				g.classList.add("li-node-in");
+			});
+		} else {
+			for (const g of nodes) {
+				const id = /flowchart-(.+)-\d+$/.exec(g.id)?.[1];
+				if (id && pulse.current.has(id)) g.classList.add("li-node-pulse");
+			}
+		}
+		pulse.current = new Set();
+	}, [svg]);
 
 	function onClick(e: React.MouseEvent) {
 		const g = (e.target as Element).closest("g.node");

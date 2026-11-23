@@ -208,7 +208,7 @@ export function SessionScreen({ id }: { id: string }) {
 									})}
 								</div>
 								<div className={`li-feedback ${fb.correct ? "right" : "miss"}`} aria-live="polite">
-									<span className="li-fb-title">{fb.shown ? "Here's how it works" : fb.correct ? "Right" : answered.picked === DONT_KNOW ? "Here's the answer" : "Not quite"}</span>
+									<span className="li-fb-title">{fb.correct && !fb.shown ? <><span className="li-check" aria-hidden="true">✓</span> </> : null}{fb.shown ? "Here's how it works" : fb.correct ? "Right" : answered.picked === DONT_KNOW ? "Here's the answer" : "Not quite"}</span>
 									{fb.explanation ? <Prose text={fb.explanation} onSlide={setSlide} /> : null}
 									{answered.why ? <span className="li-small"><b>Your why:</b> {answered.why}</span> : null}
 								</div>

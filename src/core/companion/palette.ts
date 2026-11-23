@@ -10,7 +10,7 @@
  *   timeOfDay(date)                 dawn | day | dusk | night (ambient layer)
  */
 
-import type { Profile } from "./types.ts";
+import { MOTION_CHOICES, type MotionChoice, type Profile } from "./types.ts";
 
 export type ColorMode = "light" | "dark";
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
@@ -121,7 +121,14 @@ export interface FocusAppearance {
 	hue: number | "auto";
 	textSize: "normal" | "large" | "xlarge";
 	loose: boolean;
-	reduceMotion: boolean;
+	motion: MotionChoice;
+}
+
+/** Old profiles (v0.0) have `reduceMotion: boolean` instead of `motion` (F-118): reduce → Off, otherwise Calm. */
+export function migrateAppearance<T extends Partial<Profile["appearance"]> & { reduceMotion?: unknown }>(a: T): Omit<T, "reduceMotion"> & { motion: MotionChoice } {
+	const { reduceMotion, ...rest } = a;
+	const motion = MOTION_CHOICES.includes(a.motion as MotionChoice) ? (a.motion as MotionChoice) : reduceMotion === true ? "off" : "calm";
+	return { ...rest, motion };
 }
 
 export function readAppearance(a: Partial<Profile["appearance"]> | null | undefined): FocusAppearance {
@@ -132,7 +139,7 @@ export function readAppearance(a: Partial<Profile["appearance"]> | null | undefi
 		hue: a?.accent && a.accent !== "auto" && Number.isFinite(n) ? wrap(n) : "auto",
 		textSize: a?.textSize === "large" || a?.textSize === "xlarge" ? a.textSize : "normal",
 		loose: a?.lineSpacing === "loose",
-		reduceMotion: a?.reduceMotion === true,
+		motion: migrateAppearance(a ?? {}).motion,
 	};
 }
 

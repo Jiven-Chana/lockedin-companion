@@ -23,6 +23,7 @@ import type {
 	StudyBlock,
 } from "../../core/companion/types.ts";
 import { badRequest } from "./errors.ts";
+import { migrateAppearance } from "../../core/companion/palette.ts";
 
 export interface DemoState {
 	/** Demo clock offset from real time. */
@@ -121,7 +122,9 @@ export class CompanionStore {
 	// ─── documents ──────────────────────────────────────────────────────────
 
 	profile(): Profile | null {
-		return this.readJson<Profile | null>(FILES.profile, null);
+		const p = this.readJson<Profile | null>(FILES.profile, null);
+		// v0.0 profiles have appearance.reduceMotion instead of motion (F-118).
+		return p ? { ...p, appearance: migrateAppearance(p.appearance ?? {}) as Profile["appearance"] } : null;
 	}
 	saveProfile(p: Profile): void {
 		this.writeJson(FILES.profile, p);

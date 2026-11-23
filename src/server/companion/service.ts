@@ -49,11 +49,13 @@ import { icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, par
 import {
 	CLIENT_EVENT_TYPES,
 	COMPANION_EVENT_TYPES,
+	MOTION_CHOICES,
 	ENGINE_NAMES,
 	NUDGE_ACTIONS,
 	SESSION_KINDS,
 	type AnswerInput,
 	type CompanionEventType,
+	type MotionChoice,
 	type CompanionSession,
 	type EngineName,
 	type AnswerRecord,
@@ -278,6 +280,7 @@ export class CompanionService {
 			if (!(k in DEFAULT_APPEARANCE)) throw badRequest(`unknown appearance setting ${k}`);
 			const expected = typeof DEFAULT_APPEARANCE[k as keyof Profile["appearance"]];
 			if (typeof v !== expected || (typeof v === "string" && v.length > 40)) throw badRequest(`appearance.${k} must be a ${expected}`);
+			if (k === "motion" && !MOTION_CHOICES.includes(v as MotionChoice)) throw badRequest("appearance.motion must be calm, full or off");
 			(appearance as Record<string, unknown>)[k] = v;
 		}
 		const next = { ...current, prefs, appearance };
@@ -287,6 +290,7 @@ export class CompanionService {
 			...Object.keys(patch.appearance ?? {}).map((k) => `appearance.${k}`),
 		];
 		if (changed.length > 0) this.log("settings_changed", { changed, prefs: next.prefs });
+		if (patch.appearance?.motion !== undefined && patch.appearance.motion !== current.appearance.motion) this.log("motion_changed", { from: current.appearance.motion, to: next.appearance.motion });
 		return next;
 	}
 

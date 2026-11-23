@@ -220,7 +220,7 @@ function PackProgress({ data, onStart, onCancel }: { data: PackData | null; onSt
 						<span key={s} className="li-pack-stage" data-state={st}>
 							{i ? " → " : ""}
 							{STAGE_LABEL[s]}
-							{mark}
+							{mark ? <span key={st} className={st === "done" || st === "skipped" ? "li-tick" : undefined}>{mark}</span> : null}
 						</span>
 					);
 				})}

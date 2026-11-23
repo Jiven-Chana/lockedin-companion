@@ -18,12 +18,44 @@ body { min-height: 100vh; }
 	font-family: var(--li-font-body);
 	font-size: var(--li-fs);
 	line-height: var(--li-lh);
-	transition: background 1.2s ease;
 }
 .li-root[data-text="large"] { --li-fs: 18.5px; }
 .li-root[data-text="xlarge"] { --li-fs: 21px; }
 .li-root[data-loose="true"] { --li-lh: 1.9; }
-.li-root[data-motion="reduce"] *, .li-root[data-motion="reduce"] { transition: none !important; animation: none !important; }
+
+/* ── Motion (v0.1 F-118, V-10) ──────────────────────────────────────────
+   Calm (default): only motion that explains a change of state. Full adds
+   page transitions and a slow background drift (never in a session).
+   Off, and the system reduced-motion setting, remove everything. The
+   timings come from MOTION in policy.ts (set on .li-root by root.tsx). */
+@property --li-bg-a { syntax: "<color>"; inherits: true; initial-value: #101018; }
+@property --li-bg-b { syntax: "<color>"; inherits: true; initial-value: #101018; }
+.li-root { transition: --li-bg-a 1.2s ease, --li-bg-b 1.2s ease; }
+/* Theme and hue changes cross-fade live (root.tsx sets data-xfade for a moment). */
+.li-root[data-xfade] * { transition: background-color var(--li-m-medium) ease, color var(--li-m-medium) ease, border-color var(--li-m-medium) ease, fill var(--li-m-medium) ease, stroke var(--li-m-medium) ease !important; }
+@keyframes li-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes li-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes li-slide-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes li-pop { 0% { opacity: 0; transform: scale(0.6); } 70% { opacity: 1; transform: scale(1.08); } 100% { transform: none; } }
+@keyframes li-node-pulse { 0%, 100% { transform: none; } 45% { transform: scale(1.07); } }
+@keyframes li-drift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+/* The focus ring fills as questions are answered. */
+.li-ring-fill { transition: stroke-dasharray var(--li-m-ring) ease; }
+/* Wrong: the explanation slides in (no shake, no red flash). Right: a soft check. */
+.li-feedback.miss { animation: li-rise var(--li-m-medium) ease-out; }
+.li-check { display: inline-block; animation: li-pop var(--li-m-medium) ease-out; }
+/* Pack stages tick through as they finish. */
+.li-tick { display: inline-block; animation: li-pop var(--li-m-short) ease-out; }
+/* Map nodes appear in order on first open (delays set per node); a changed status pulses once. */
+.li-map g.node.li-node-in { animation: li-fade-in var(--li-m-medium) ease-out both; }
+.li-map g.node.li-node-pulse > :is(rect, polygon, circle, path) { transform-box: fill-box; transform-origin: center; animation: li-node-pulse 600ms ease-out 1; }
+.li-pulse-once { display: inline-flex; animation: li-pop var(--li-m-medium) ease-out; }
+/* Full only: page transitions, and the time-of-day background slowly drifting. */
+.li-root[data-motion="full"] .li-page { animation: li-rise var(--li-m-page) ease-out; }
+.li-root[data-motion="full"]:not([data-place="session"]) { background-size: 220% 220%; animation: li-drift var(--li-m-drift) ease-in-out infinite alternate; }
+/* Off, and the system setting: nothing moves. */
+.li-root[data-motion="off"], .li-root[data-motion="off"] * { transition: none !important; animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .li-root, .li-root * { transition: none !important; animation: none !important; } }
 
 .li-root a { color: inherit; text-decoration: none; }
 .li-root button, .li-root input, .li-root textarea, .li-root select { font: inherit; color: inherit; }
@@ -52,6 +84,7 @@ body { min-height: 100vh; }
 .li-clock { padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--li-line); font-size: 13px; color: var(--li-muted); display: flex; flex-direction: column; }
 .li-clock b { color: var(--li-ink); }
 .li-main { flex: 1 1 auto; min-width: 0; padding: 40px 48px 64px; display: flex; flex-direction: column; gap: 28px; max-width: 1280px; }
+.li-main > .li-page { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
 .li-page-head { display: flex; flex-direction: column; gap: 4px; }
 .li-h1 { margin: 0; font-family: var(--li-font-display); font-size: 2.6em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
 .li-h2 { margin: 0; font-family: var(--li-font-display); font-size: 1.25em; font-weight: 700; }
@@ -92,7 +125,7 @@ button.li-chip:hover { border-color: var(--li-accent); }
 
 /* ── toast ────────────────────────────────────────────────────────── */
 .li-toasts { position: fixed; top: 20px; right: 24px; z-index: 50; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 48px)); }
-.li-toast { background: var(--li-surface); border: 1px solid var(--li-line); border-radius: 18px; padding: 16px 18px; box-shadow: 0 16px 40px var(--li-shadow); display: flex; flex-direction: column; gap: 10px; animation: li-drop 0.35s ease; }
+.li-toast { background: var(--li-surface); border: 1px solid var(--li-line); border-radius: 18px; padding: 16px 18px; box-shadow: 0 16px 40px var(--li-shadow); display: flex; flex-direction: column; gap: 10px; animation: li-drop var(--li-m-medium) ease-out; }
 @keyframes li-drop { from { transform: translateY(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ── timeline rows ────────────────────────────────────────────────── */
@@ -154,16 +187,14 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-table th, .li-table td { padding: 6px 12px; border: 1px solid var(--li-line); text-align: left; vertical-align: top; }
 .li-table th { background: var(--li-soft); font-weight: 700; }
 .li-diagram { margin: 0 0 0.8em; }
-.li-diagram-svg { display: block; width: 100%; padding: 8px; border: 1px solid var(--li-line); border-radius: 14px; background: var(--li-surface); cursor: zoom-in; animation: li-fade-in 200ms ease-out; }
+.li-diagram-svg { display: block; width: 100%; padding: 8px; border: 1px solid var(--li-line); border-radius: 14px; background: var(--li-surface); cursor: zoom-in; animation: li-fade-in var(--li-m-short) ease-out; }
 .li-diagram-svg svg { max-width: 100%; height: auto; }
 .li-diagram-loading { min-height: 120px; display: grid; place-items: center; border: 1px dashed var(--li-line); border-radius: 14px; }
 .li-diagram-failed pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--li-surface); border: 1px solid var(--li-line); overflow-x: auto; }
 .li-diagram-overlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px; background: color-mix(in oklch, var(--li-ink) 55%, transparent); }
 .li-diagram-large { max-width: min(1100px, 100%); max-height: 80vh; overflow: auto; padding: 20px; border-radius: 18px; background: var(--li-surface); }
 .li-diagram-large svg { width: 100%; height: auto; max-width: none; }
-@keyframes li-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .li-diagram-svg { animation: none; } }
-[data-motion="reduce"] .li-diagram-svg { animation: none; }
+
 
 /* ── concept map ──────────────────────────────────────────────────── */
 .li-map svg { width: 100%; max-width: 100% !important; height: auto; max-height: 560px; }
@@ -199,10 +230,12 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-day[data-today="true"] { border-color: var(--li-accent); }
 .li-event { display: block; font-size: 0.85em; padding: 6px 8px; border-radius: 10px; background: var(--li-soft); }
 .li-event[data-kind="commitment"], .li-event[data-kind="event"] { background: transparent; border: 1px dashed var(--li-line); color: var(--li-muted); }
-.li-block { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; border: 2px solid var(--li-accent); background: var(--li-surface); animation: li-fade-in 250ms ease-out; }
+.li-block { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; border: 2px solid var(--li-accent); background: var(--li-surface); }
+/* Proposed blocks slide into the gaps of the week, one after another. */
+.li-block[data-status="proposed"] { animation: li-slide-in var(--li-m-medium) ease-out both; animation-delay: calc(var(--i, 0) * var(--li-m-stagger)); }
 .li-block[data-status="proposed"] { border-style: dashed; }
 .li-block[data-status="started"] { background: var(--li-soft); }
-[data-motion="reduce"] .li-block { animation: none; }
+
 .li-bubble { max-width: 640px; padding: 12px 16px; border-radius: 18px; background: var(--li-surface); border: 1px solid var(--li-line); }
 .li-bubble[data-role="student"] { align-self: flex-end; background: var(--li-soft); border-color: transparent; }
 .li-chip[data-on="true"] { background: var(--li-accent); color: var(--li-accent-ink); }
