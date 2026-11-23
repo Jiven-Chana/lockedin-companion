@@ -6,8 +6,7 @@ LearnHarness stays the engine for the hi-fi only if all four criteria hold (plan
 
 ```bash
 cp companion/seed/.env.local.example .env.local      # put ANTHROPIC_API_KEY (or OPENROUTER_API_KEY) in it
-npm run companion:seed
-npm run dev                                           # http://localhost:3000 → Settings → Providers/Models
+npm run dev                                           # seeds data/ on first start; http://localhost:3000 → Settings → Providers/Models
 ```
 
 Pick the three model slots once in LearnHarness's own Settings (strong: a fast model with reliable tool use, thinking level low; cheap; vision). That writes valid catalogue ids into `data/settings.json`. Copy the `models` block into `companion/seed/settings.json` in a PR so every teammate's seed gets them, or set `COMPANION_MODEL_STRONG=provider/id` (and `_CHEAP`, `_VISION`) and re-run the seed.

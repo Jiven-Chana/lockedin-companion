@@ -12,7 +12,7 @@ npm ci
 npm run plugins:setup                 # once after a fresh checkout
 
 cp companion/seed/.env.local.example .env.local   # add a provider key for real teaching
-npm run companion:seed                # settings, prompt overrides, demo content → data/
+# The first start seeds data/ (settings, prompt overrides, demo content) by itself.
 
 COMPANION_DEMO=1 npm run dev          # the app: http://localhost:3000/app
 ```

@@ -9,6 +9,10 @@
  *   COMPANION_AUTO_FALLBACK   1 = a LearnHarness prepare failure retries on scripted
  *   COMPANION_DEMO            1 = facilitator routes enabled (/api/companion/demo/*)
  *   COMPANION_READY_TIMEOUT_MS  question-1 timeout (default 60000)
+ *
+ * First run (v0.1 F-102): creating the service seeds the data directory
+ * (prompt overrides, settings switches, demo materials) when it hasn't
+ * been seeded, so `npm run companion:seed` is no longer a manual step.
  */
 
 import path from "node:path";
@@ -25,6 +29,7 @@ import { createLearnHarnessPort } from "./lh-port.ts";
 import { fetchCalendarText } from "./calendar-fetch.ts";
 import { CompanionService, type PdfConverter } from "./service.ts";
 import { CompanionStore } from "./store.ts";
+import { needsSeed, seedDataDir } from "../../../companion/seed.mjs";
 
 export const companionDataDir = (): string => path.join(/* turbopackIgnore: true */ PATHS.data, "companion");
 export const companionContentDir = (): string => path.join(/* turbopackIgnore: true */ PATHS.root, "companion", "content");
@@ -54,7 +59,27 @@ function learnHarnessStatus() {
 	};
 }
 
+/**
+ * Seed the data directory on first run. Returns what was seeded, or null
+ * when it already was. A failure is logged, not thrown: the companion still
+ * runs (scripted, with the bundled content) on an unseeded directory.
+ */
+export function ensureSeeded(opts: { root?: string; dataDir?: string; env?: Record<string, string | undefined> } = {}) {
+	const root = opts.root ?? PATHS.root;
+	const dataDir = opts.dataDir ?? PATHS.data;
+	try {
+		if (!needsSeed({ root, dataDir })) return null;
+		const report = seedDataDir({ root, dataDir, env: opts.env ?? process.env });
+		console.log(`[companion] first run: seeded ${dataDir} (${report.prompts} prompt overrides, ${report.lectures} demo lectures)`);
+		return report;
+	} catch (err) {
+		console.error(`[companion] first-run seed failed: ${err instanceof Error ? err.message : String(err)}`);
+		return null;
+	}
+}
+
 export function createCompanionService(env: Record<string, string | undefined> = process.env): CompanionService {
+	ensureSeeded({ env });
 	const store = new CompanionStore(companionDataDir());
 	const content = new CompanionContent(store, companionContentDir());
 	const clock = new OffsetClock(() => store.demo().clockOffsetMs);
