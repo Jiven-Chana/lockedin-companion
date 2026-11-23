@@ -4,7 +4,7 @@ LockedIn adds a **start layer** and **session engines** around the LearnHarness 
 
 This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The phone UI (`app/m/*`) is built on top of the [API](API.md) and is not part of this layer.
 
-- **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it)
+- **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it). **Next version:** [v0.1-spec.md](v0.1-spec.md); **history:** [VERSIONS.md](VERSIONS.md)
 - **How we work:** [SDLC.md](SDLC.md) (branches, commits, PRs, definition of done, CI)
 - **HTTP API:** [API.md](API.md)
 - **Decisions made in the build, and decisions still open:** [DECISIONS.md](DECISIONS.md)
