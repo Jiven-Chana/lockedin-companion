@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AI_COPY, moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn, type SessionView } from "../api";
-import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
+import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
 import { Tint, useLockedIn } from "../root";
 import { PageHead } from "../shell";
@@ -84,6 +84,7 @@ export function TodayScreen() {
 				</div>
 			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
+			<StarterCards />
 			<div className="li-grid-2">
 				<div className="li-stack" style={{ gap: 24 }}>
 					{hero ? (
@@ -141,13 +142,13 @@ export function TodayScreen() {
 							<span style={{ display: "flex", flexDirection: "column" }}><b className="li-display" style={{ fontSize: "1.8em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><span className="li-small li-muted">questions answered</span></span>
 						</div>
 					</section>
-					<section className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
+					<Link href="/app/plan" className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
 						<span style={{ color: "var(--li-accent-text)" }}><Icon.calendar /></span>
 						<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
 							<b>Next study block</b>
-							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}` : "None set. Add one in Me."}</span>
+							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}` : "None yet. Plan your week."}</span>
 						</span>
-					</section>
+					</Link>
 					<Link href="/app/me" className="li-btn" style={{ alignSelf: "flex-start" }}>
 						<span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 999, background: "conic-gradient(oklch(0.6 0.16 0), oklch(0.6 0.16 120), oklch(0.6 0.16 240), oklch(0.6 0.16 360))" }} />
 						Make it yours
@@ -155,5 +156,33 @@ export function TodayScreen() {
 				</div>
 			</div>
 		</>
+	);
+}
+
+/**
+ * Optional next steps after the first taste (spec J1′ step 5), each one
+ * dismissible. "Get questions on your phone" joins when the phone app ships
+ * (F-112).
+ */
+function StarterCards() {
+	const [hideSlides, setHideSlides] = useLocalFlag("li-card-slides");
+	const [hidePlan, setHidePlan] = useLocalFlag("li-card-plan");
+	const cards = [
+		!hideSlides && { key: "slides", title: "Add your slides", sub: "Lectures, a week or a whole semester. I'll write the questions.", href: "/app/library", dismiss: () => setHideSlides(true) },
+		!hidePlan && { key: "plan", title: "Plan my week with me (2 min)", sub: "A few quick questions, then study blocks in your free time.", href: "/app/plan/chat", dismiss: () => setHidePlan(true) },
+	].filter(Boolean) as { key: string; title: string; sub: string; href: string; dismiss: () => void }[];
+	if (!cards.length) return null;
+	return (
+		<div className="li-row" style={{ gap: 12, alignItems: "stretch" }} aria-label="Next steps">
+			{cards.map((c) => (
+				<div key={c.key} className="li-card flat li-row" style={{ flex: "1 1 280px", gap: 10 }}>
+					<Link href={c.href} style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
+						<b>{c.title}</b>
+						<span className="li-small li-muted">{c.sub}</span>
+					</Link>
+					<button type="button" className="li-btn ghost" onClick={c.dismiss} aria-label={`Dismiss ${c.title}`}>✕</button>
+				</div>
+			))}
+		</div>
 	);
 }

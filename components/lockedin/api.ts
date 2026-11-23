@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, Routine, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -25,6 +25,18 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	return data as T;
 }
 
+export interface PlanData {
+	week: string;
+	target: number | null;
+	blockMinutes: number;
+	committedMinutes: number;
+	proposedMinutes: number;
+	blocks: (StudyBlock & { focus: { title: string; module: string } | null })[];
+	lectures: Lecture[];
+	commitments: Routine["commitments"];
+}
+export interface ChatTurnData { say: string; chips?: string[]; done?: boolean; draft?: Record<string, unknown>; fallback?: boolean }
+export interface CheckinData { started: number; minutes: number; text: string; target: number | null; nextWeek: string; roomMinutes: number; feelings: Record<string, string> }
 export interface PackData { meta: PackMeta | null; explainers: Explainer[]; questions: number; running: boolean }
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
@@ -123,6 +135,17 @@ export const lockedIn = {
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	// v0.1 the week (F-109, F-110, F-111)
+	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
+	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),
+	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
+	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
+	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),
+	saveRoutine: (body: { routine: Partial<Routine>; source: "chat" | "form"; modules?: { code: string; week?: number; readingWeeks?: number[] }[] }) => api<{ routine: Routine; plan: PlanData & { message: string | null } }>("/routine", { body }),
+	chatTurn: (messages: { role: "assistant" | "student"; text: string }[]) => api<ChatTurnData>("/setup-chat", { body: { messages } }),
+	skipChat: () => api("/setup-chat", { body: { skip: true } }),
+	checkin: () => api<CheckinData>("/checkin"),
+	answerCheckin: (body: { feeling: string } | { target: number } | { keep: true }) => api<{ proposed?: number; current?: number; ask?: string | null; keepLabel?: string; target?: number; plan?: PlanData }>("/checkin", { body }),
 	// v0.1 study packs (F-105)
 	pack: (id: string) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`),
 	startPack: (id: string, fresh = false) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`, { body: { fresh } }),

@@ -18,6 +18,7 @@ import { useLockedIn } from "./root";
 const NAV = [
 	{ href: "/app", label: "Today", icon: Icon.today },
 	{ href: "/app/library", label: "Library", icon: Icon.library },
+	{ href: "/app/plan", label: "Week", icon: Icon.calendar },
 	{ href: "/app/progress", label: "Progress", icon: Icon.progress },
 	{ href: "/app/me", label: "Me", icon: Icon.me },
 ];
