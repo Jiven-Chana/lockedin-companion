@@ -32,13 +32,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
 	const [notify] = useLocalFlag("li-notify");
 	const notified = useRef(new Set<string>());
 
+	const phonePaired = useRef(false);
 	const tick = useCallback(async () => {
 		try {
 			const t = await lockedIn.tick();
 			setBanner(t.nudge);
-			if (t.nudge && notify && !notified.current.has(t.nudge.id) && typeof Notification !== "undefined" && Notification.permission === "granted") {
+			// With a phone paired, the phone gets the OS notification; the laptop shows the card only (§5.2 item 5).
+			if (t.nudge && notify && !phonePaired.current && !notified.current.has(t.nudge.id) && typeof Notification !== "undefined" && Notification.permission === "granted") {
 				notified.current.add(t.nudge.id);
-				const n = new Notification("LockedIn", { body: t.nudge.text, tag: t.nudge.id });
+				const n = new Notification(t.nudge.title ?? "LockedIn", { body: t.nudge.text, tag: t.nudge.id });
 				n.onclick = () => {
 					window.focus();
 					void open(t.nudge!.id);
@@ -50,7 +52,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 	}, [notify]);
 
 	useEffect(() => {
-		lockedIn.today().then((t) => { if (!t.onboarded) router.replace("/app/welcome"); }).catch(() => undefined);
+		lockedIn.today().then((t) => { phonePaired.current = t.phonePaired; if (!t.onboarded) router.replace("/app/welcome"); }).catch(() => undefined);
 		void tick();
 		const onClock = () => void tick();
 		window.addEventListener("li:clock", onClock);
@@ -109,7 +111,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 						<div className="li-row" style={{ gap: 8 }}>
 							<button type="button" className="li-btn primary" onClick={() => open(banner.id)}>Open</button>
 							{banner.type !== "N-5" ? <button type="button" className="li-btn soft" onClick={() => act(banner.id, "snooze")}>Later</button> : null}
-							{banner.type === "N-1" ? <button type="button" className="li-btn ghost" style={{ marginLeft: "auto" }} onClick={() => act(banner.id, "wasnt-there")}>I wasn&apos;t there</button> : null}
+							{banner.type === "N-1" && !banner.key.startsWith("handoff:") ? <button type="button" className="li-btn ghost" style={{ marginLeft: "auto" }} onClick={() => act(banner.id, "wasnt-there")}>I wasn&apos;t there</button> : null}
 						</div>
 					</div>
 				) : null}

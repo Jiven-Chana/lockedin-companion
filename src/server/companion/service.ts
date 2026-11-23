@@ -1571,6 +1571,7 @@ export class CompanionService {
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
 			phonePaired: this.phone?.paired() ?? false,
+			phoneAvailable: this.phone !== null,
 			activeSession: state.sessions.filter((s) => s.state === "active" && s.answered < s.budget).at(-1)?.id ?? null,
 		};
 	}

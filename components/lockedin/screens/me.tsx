@@ -10,6 +10,7 @@ import { useData, useLocalFlag } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
 import { ConnectAi } from "./connect";
+import { PhoneSection } from "../phone-section";
 
 const SEEDS: [string, number][] = [["Lavender", 285], ["Ocean", 230], ["Moss", 150], ["Ember", 40], ["Rose", 350]];
 
@@ -65,6 +66,11 @@ export function MeScreen() {
 				<h2 id="ai-h" className="li-h2">Your AI</h2>
 				<span className="li-muted">The AI that teaches your sessions, and the model behind each part of the teacher.</span>
 				<ConnectAi variant="settings" />
+			</section>
+
+			<section id="phone" className="li-card li-stack" aria-labelledby="ph-h" style={{ gap: 12 }}>
+				<h2 id="ph-h" className="li-h2">Phone</h2>
+				<PhoneSection />
 			</section>
 
 			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>

@@ -25,6 +25,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	return data as T;
 }
 
+export interface PhoneStatus { paired: boolean; relay: string; phoneSeenAt?: string | null; pushReady?: boolean; uploadedAt?: string | null; holds: string; reachable?: boolean }
 export interface PlanData {
 	week: string;
 	target: number | null;
@@ -59,6 +60,9 @@ export interface TodayData {
 	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
 	banner: Banner;
 	activeSession: string | null;
+	/** F-112: a phone is paired, so the phone gets the OS notifications and the laptop shows in-app cards only. */
+	phonePaired: boolean;
+	phoneAvailable: boolean;
 }
 
 export interface ProgressData {
@@ -135,6 +139,11 @@ export const lockedIn = {
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	// v0.1 the phone (F-112)
+	phone: () => api<PhoneStatus>("/phone"),
+	pairPhone: () => api<PhoneStatus & { url: string; qrSvg: string }>("/phone/pair", { method: "POST" }),
+	unpairPhone: () => api<{ paired: false }>("/phone/unpair", { method: "POST" }),
+	syncPhone: () => api<{ uploaded: boolean; replayed: number }>("/phone/sync", { method: "POST" }),
 	// v0.1 the week (F-109, F-110, F-111)
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),

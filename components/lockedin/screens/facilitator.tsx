@@ -3,7 +3,7 @@
 /** The T23 facilitator panel (F-10): demo clock, scenarios, fire nudges, engine, event log. COMPANION_DEMO=1 only. */
 
 import { useState } from "react";
-import { ApiError, lockedIn } from "../api";
+import { ApiError, api, lockedIn } from "../api";
 import { fmtTime, useData, usePoll } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
@@ -85,6 +85,12 @@ export function FacilitatorScreen() {
 						<h2 className="li-h2">Fire a nudge now</h2>
 						<div className="li-row">
 							{["N-1", "N-2", "N-3", "N-4", "N-5", "block"].map((t) => <button key={t} type="button" className="li-btn" onClick={() => run(`Fired ${t}`, () => lockedIn.demo.fire(t))}>{t}</button>)}
+						</div>
+						<div className="li-row">
+							<b className="li-small">Phone (no phone needed):</b>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered right, then 4 more on the laptop", () => api("/demo/phone", { body: { action: "handover", correct: true } }))}>Answer + hand-off</button>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered wrong, then 4 more on the laptop", () => api("/demo/phone", { body: { action: "handover", correct: false } }))}>Wrong + hand-off</button>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered, then Done for now", () => api("/demo/phone", { body: { action: "done" } }))}>Answer + done</button>
 						</div>
 						<span className="li-small li-muted">Upcoming by the rules: {s?.candidates.length ? s.candidates.map((c) => `${c.type} at ${fmtTime(c.fireAt)}`).join(", ") : "none right now"}.</span>
 					</section>

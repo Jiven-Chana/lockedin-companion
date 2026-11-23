@@ -85,7 +85,7 @@ export function TodayScreen() {
 				</div>
 			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
-			<StarterCards />
+			<StarterCards phone={!!t?.phoneAvailable && !t.phonePaired} />
 			<div className="li-grid-2">
 				<div className="li-stack" style={{ gap: 24 }}>
 					{hero ? (
@@ -165,12 +165,14 @@ export function TodayScreen() {
  * dismissible. "Get questions on your phone" joins when the phone app ships
  * (F-112).
  */
-function StarterCards() {
+function StarterCards({ phone }: { phone: boolean }) {
 	const [hideSlides, setHideSlides] = useLocalFlag("li-card-slides");
 	const [hidePlan, setHidePlan] = useLocalFlag("li-card-plan");
+	const [hidePhone, setHidePhone] = useLocalFlag("li-card-phone");
 	const cards = [
 		!hideSlides && { key: "slides", title: "Add your slides", sub: "Lectures, a week or a whole semester. I'll write the questions.", href: "/app/library", dismiss: () => setHideSlides(true) },
 		!hidePlan && { key: "plan", title: "Plan my week with me (2 min)", sub: "A few quick questions, then study blocks in your free time.", href: "/app/plan/chat", dismiss: () => setHidePlan(true) },
+		phone && !hidePhone && { key: "phone", title: "Get questions on your phone", sub: "One question after a lecture, even with this laptop closed.", href: "/app/me#phone", dismiss: () => setHidePhone(true) },
 	].filter(Boolean) as { key: string; title: string; sub: string; href: string; dismiss: () => void }[];
 	if (!cards.length) return null;
 	return (
