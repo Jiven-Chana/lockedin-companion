@@ -96,6 +96,8 @@ export interface SessionView {
 	canHint: boolean;
 	/** status "done" because the engine stopped before the budget was used. */
 	endedEarly?: boolean;
+	/** Internal (never sent to the browser): the engine just asked the teacher for the next question (TEACHER_RULES). */
+	teacherNudged?: boolean;
 	/** Machine-readable reason when status is "error". */
 	error?: string;
 	/** Every (Slide n) referenced in prose + feedback, for the slide sheet. */
@@ -464,6 +466,8 @@ export const COMPANION_EVENT_TYPES = [
 	"dictation_used",
 	// v0.1 F-118
 	"motion_changed",
+	// v0.1 dry run: the teacher stopped before the budget and was asked to continue
+	"teacher_nudged",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

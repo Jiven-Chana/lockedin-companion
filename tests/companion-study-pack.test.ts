@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { bankToScriptedSet, checkExplainer, checkMapNodes, checkQuestion, PACK_RULES, validateScriptedSet, type BankQuestion, type Explainer } from "../src/core/companion/index.ts";
+import { bankToScriptedSet, checkExplainer, checkMapNodes, checkQuestion, PACK_RULES, stripQuestionIds, validateScriptedSet, type BankQuestion, type Explainer } from "../src/core/companion/index.ts";
 
 const ctx = { slides: new Set([1, 2, 3, 4]), nodes: new Set(["best-response", "nash"]) };
 const q = (over: Partial<BankQuestion> = {}): BankQuestion => ({
@@ -85,5 +85,18 @@ describe("the bank as the scripted engine's set", () => {
 		assert.deepEqual(set.questions[0]!.correct, [0]);
 		assert.match(set.questions[0]!.explanation, /\(Slide 2\)$/);
 		assert.equal(set.questions[1]!.workedExample, e().body);
+	});
+});
+
+describe("explainers never show internal question ids (dry run)", () => {
+	const ids = ["gt-w2-nash-q5", "gt-w2-nash-q12"];
+	it("drops a sentence naming a question id, and keeps the rest", () => {
+		assert.equal(stripQuestionIds("A Nash equilibrium is stable. Try question gt-w2-nash-q5.", ids), "A Nash equilibrium is stable.");
+		assert.equal(stripQuestionIds("First idea. Then try gt-w2-nash-q12 to check! Last idea.", ids), "First idea. Last idea.");
+		assert.equal(stripQuestionIds("Line one.\nSee gt-w2-nash-q5\nLine three.", ids), "Line one.\n\nLine three.");
+	});
+	it("leaves text without ids alone, and q1 doesn't eat q12", () => {
+		assert.equal(stripQuestionIds("Nothing to strip here (Slide 3).", ids), "Nothing to strip here (Slide 3).");
+		assert.equal(stripQuestionIds("Keep this. Try gt-w2-nash-q12.", ["gt-w2-nash-q1"]), "Keep this. Try gt-w2-nash-q12.");
 	});
 });

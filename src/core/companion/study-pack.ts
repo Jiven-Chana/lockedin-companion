@@ -136,6 +136,21 @@ export function checkExplainer(e: Partial<Explainer>, ctx: PackContext & { quest
 	return citations(e.slides, ctx);
 }
 
+/**
+ * Dry run, 23 Nov: models echo the internal question id they were given for
+ * "Try it" ("Try question hci-w3-personas-q5."). The Try it button already
+ * links it, so any sentence naming a bank question id is removed.
+ */
+export function stripQuestionIds(body: string, ids: Iterable<string>): string {
+	let out = body;
+	for (const id of ids) {
+		if (!out.includes(id)) continue;
+		const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		out = out.replace(new RegExp(`[ \\t]*[^.!?\\n]*(?<![\\w-])${esc}(?![\\w-])[^.!?\\n]*[.!?]?`, "g"), "");
+	}
+	return out.replace(/[ \t]+\n/g, "\n").trim();
+}
+
 /** The scripted engine's set from a bank (spec F-105: generated banks replace hand-authored sets). */
 export function bankToScriptedSet(lectureId: string, bank: readonly BankQuestion[], explainers: readonly Explainer[] = []): ScriptedSet {
 	const exampleFor = new Map(explainers.map((e) => [e.node, e.body]));

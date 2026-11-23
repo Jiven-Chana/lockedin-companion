@@ -324,6 +324,19 @@ describe("onboarding v0.1: calendar first, then modules (J1′)", () => {
 		assert.equal(v.lecture.id, FIRST_TASTE_LECTURE, "a student who doesn't take HCI can still open the sample");
 	});
 
+	it("dry run: back and forward on the modules screen reuses the first taste, and onboarding is logged once", async () => {
+		const { svc, events } = setup();
+		const a = svc.firstTaste();
+		const b = svc.firstTaste();
+		assert.equal(b.sessionId, a.sessionId, "not prepared twice on the student's AI");
+		await svc.onboarding({ calendar: { kind: "sample" } });
+		assert.equal(events().filter((t) => t === "onboarding_done").length, 1);
+		await svc.whenReady(a.sessionId);
+		await svc.view(a.sessionId);
+		await svc.answer(a.sessionId, { questionId: (await svc.view(a.sessionId)).question!.id, indices: [1], confidence: 50 });
+		assert.notEqual(svc.firstTaste().sessionId, a.sessionId, "once answered, a new one is made");
+	});
+
 	it("before onboarding, only the first taste may start", () => {
 		const { svc } = setup();
 		assert.throws(() => svc.createSession({ kind: "post-lecture", lectureId: FIRST_TASTE_LECTURE, mode: "question-first", budget: { questions: 5, minutes: 10 } }), (e: CompanionError) => e.status === 409);

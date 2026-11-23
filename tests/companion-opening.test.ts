@@ -27,7 +27,7 @@ describe("buildOpeningMessage", () => {
 	it("post-lecture follows the Appendix B structure exactly", () => {
 		const { text } = buildOpeningMessage({ spec: specFor("post-lecture", lecture.id, DEFAULT_PREFS), lecture, slidesMarkdown: slides, now });
 		const lines = text.split("\n");
-		assert.deepEqual(lines.slice(0, 9), [
+		assert.deepEqual(lines.slice(0, 10), [
 			"APP SESSION",
 			"Kind: post-lecture",
 			"Module: HCI",
@@ -35,10 +35,11 @@ describe("buildOpeningMessage", () => {
 			"Goal: help me recall and use the main ideas from this lecture.",
 			"Budget: 5 questions, about 10 minutes.",
 			"Mode: question me first.",
+			"The learner can't type replies here: after your feedback, ask the next question in the same turn.",
 			"Revisit: none.",
 			"",
 		]);
-		assert.equal(lines[9], 'SLIDES (cite as "(Slide n)")');
+		assert.equal(lines[10], 'SLIDES (cite as "(Slide n)")');
 		assert.match(text, /## Slide 2 — Why personas/);
 	});
 

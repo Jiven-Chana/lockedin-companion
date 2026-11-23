@@ -294,7 +294,8 @@ export class CompanionService {
 		return next;
 	}
 
-	onboard(input: OnboardingInput) {
+	/** `quiet`: the v0.1 flow calls this and logs its own onboarding_done (one per onboarding in the CSV). */
+	onboard(input: OnboardingInput, opts: { quiet?: boolean } = {}) {
 		const now = this.now();
 		const sample = this.content.sampleTimetable();
 		const source = input.timetableSource ?? "sample";
@@ -318,7 +319,7 @@ export class CompanionService {
 		};
 		this.store.saveProfile(profile);
 		this.store.saveLectures(lectures);
-		this.log("onboarding_done", { modules: codes, source, nudgesPerDay, lectures: lectures.length });
+		if (!opts.quiet) this.log("onboarding_done", { modules: codes, source, nudgesPerDay, lectures: lectures.length });
 		const tryNow = tryNowLecture({ lectures }, now);
 		return {
 			profile,
@@ -385,7 +386,7 @@ export class CompanionService {
 		const fileText = kind === "file" ? (typeof b.calendar?.text === "string" ? b.calendar.text : null) : null;
 		if (kind === "file" && fileText === null) throw badRequest("calendar.text is required for a file");
 
-		const base = this.onboard({ ...(kind === "sample" ? {} : { modules: modules!.map((m) => m.code) }), timetableSource: kind === "sample" ? "sample" : "ics", nudgesPerDay });
+		const base = this.onboard({ ...(kind === "sample" ? {} : { modules: modules!.map((m) => m.code) }), timetableSource: kind === "sample" ? "sample" : "ics", nudgesPerDay }, { quiet: true });
 		const profile = this.requireProfile();
 		const ai = this.ai ? await this.ai.status().catch(() => null) : null;
 		this.store.saveProfile({
@@ -419,7 +420,11 @@ export class CompanionService {
 	firstTaste() {
 		const card = this.firstTasteCard();
 		if (!card) throw new CompanionError("first_taste_unavailable", 404, "the sample lecture isn't installed");
-		return { ...card, ...this.createSession(card.spec) };
+		// Back and forward (or a reload) on the modules screen must not prepare it again on the student's AI.
+		const waiting = this.store.sessions().find(
+			(s) => s.spec.kind === card.spec.kind && s.spec.lectureId === card.spec.lectureId && !s.openedAt && s.answered === 0 && (s.state === "preparing" || s.state === "ready"),
+		);
+		return { ...card, ...(waiting ? { sessionId: waiting.id } : this.createSession(card.spec)) };
 	}
 
 	// ─── course material and the module calendar (F-104, V-18) ─────────────
@@ -1403,9 +1408,9 @@ export class CompanionService {
 				? { ...base, status: "error", error: session.error ?? "prepare_failed" }
 				: { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` };
 		}
-		const raw = await engine.view(session, lecture);
-		// A hand-off (F-112): question 1 was answered on the phone. The scripted engine counts it itself.
-		const v = session.spec.seedAnswer && session.engine === "learnharness" ? { ...raw, answered: raw.answered + 1 } : raw;
+		// A hand-off's phone answer (F-112) is counted by each engine itself.
+		const { teacherNudged, ...v } = await engine.view(session, lecture);
+		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
 		this.markOpened(session, now);
 		this.store.updateSession(session.id, (s) => {
 			let next: CompanionSession = { ...s, answered: v.answered };

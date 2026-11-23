@@ -49,6 +49,11 @@ export function Diagram({ source }: { source: string }) {
 						textColor: v("ink"),
 						noteBkgColor: v("soft"),
 						noteTextColor: v("ink"),
+						// Mind maps and timelines colour each branch from cScale0–11 (black by default in "base"): one calm tone instead.
+						...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [[`cScale${i}`, v("soft")], [`cScaleLabel${i}`, v("ink")], [`cScalePeer${i}`, v("accent")]]).flat()),
+						// …and its root from git0 (the accent, like a primary button).
+						git0: v("accent"),
+						gitBranchLabel0: v("accent-ink"),
 					},
 				});
 				const { svg: out } = await mermaid.render(`li-dia-${uid}-${++renders}`, source);

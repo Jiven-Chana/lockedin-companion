@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DEFAULT_PREFS, HINT_REQUEST, SHOW_ME_THINKING, keepGoingText, specFor, type CompanionSession } from "../src/core/companion/index.ts";
+import { DEFAULT_PREFS, HINT_REQUEST, SHOW_ME_THINKING, TEACHER_RULES, keepGoingText, specFor, type CompanionSession } from "../src/core/companion/index.ts";
 import type { ChatInput } from "../src/core/input-events.ts";
 import { newAnswerResult, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
 import type { QuestionAnswerData } from "../src/core/question-core.ts";
@@ -62,6 +62,8 @@ class FakePort implements LhPort {
 
 const lecture = { id: "hci-w3-personas", module: "HCI", title: "Personas", week: 3, order: 3, start: "", end: "", hasMaterials: true };
 const base = (): CompanionSession => ({ id: "s1", engine: "learnharness", spec: specFor("post-lecture", lecture.id, DEFAULT_PREFS), budget: 5, answered: 0, createdAt: "", state: "preparing" });
+
+const engine_view = (e: LearnHarnessEngine, s: CompanionSession) => e.view(s, lecture);
 
 async function started(port = new FakePort(), engine = new LearnHarnessEngine(port, { pollMs: 2, idlePollsBeforeGivingUp: 3 })) {
 	const patch = await engine.start(base(), { title: "HCI · Personas", openingMessage: "APP SESSION\n…", misses: [] });
@@ -157,6 +159,34 @@ describe("answering", () => {
 		assert.deepEqual(patch?.hintedQuestionIds, ["call_1"]);
 		const anchorMessage = port.chats.get(chatId)!.at(-1)!;
 		assert.deepEqual(port.sides[0], { chatId, anchor: anchorMessage.id, text: HINT_REQUEST });
+	});
+
+	it("dry run: a teacher that stops after feedback is asked once for the next question; a second stop ends the session", async () => {
+		const { port, engine, session: prepared, chatId } = await withQuestion();
+		const session = { ...prepared, state: "active" as const };
+		const answered = () => newAnswerResult("call_1", "quiz", { kind: "quiz", questionText: "Q", dontKnow: false, answers: [], correct: true, answeredAt: "" });
+		port.push(chatId, answered(), assistant([text("Right, but at 50% it's worth keeping the distinction sharp (Slide 3).")]));
+		const v = await engine.view(session, lecture);
+		assert.equal(v.status, "thinking");
+		assert.equal(v.teacherNudged, true);
+		assert.deepEqual(port.sent.at(-1)!.input, { type: "text", text: TEACHER_RULES.continueText });
+		port.push(chatId, assistant([text("That's all for now.")]));
+		const sent = port.sent.length;
+		const again = await engine.view(session, lecture);
+		assert.equal(again.status, "done");
+		assert.equal(again.endedEarly, true);
+		assert.equal(port.sent.length, sent, "only once");
+	});
+
+	it("a hand-off session owes the chat one question fewer: the phone answer counts", async () => {
+		const s = await started();
+		const session = { ...s.session, state: "active" as const, spec: { ...s.session.spec, seedAnswer: { questionId: "q1", choice: 0, correct: true, at: "" } }, budget: 2 };
+		s.port.push(s.chatId, ...probeDone(s.chatId), assistant([text("Next (Slide 4)."), quizCall("call_1")]));
+		const before = await engine_view(s.engine, session);
+		assert.deepEqual([before.status, before.answered, before.budget], ["question", 1, 2]);
+		s.port.push(s.chatId, newAnswerResult("call_1", "quiz", { kind: "quiz", questionText: "Q", dontKnow: false, answers: [], correct: true, answeredAt: "" }), assistant([text("Well done, that's the two.")]));
+		const after = await engine_view(s.engine, session);
+		assert.deepEqual([after.status, after.answered, after.budget], ["done", 2, 2], "done at the budget, no extra question");
 	});
 
 	it("keep going asks for more only when nothing is pending", async () => {

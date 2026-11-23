@@ -314,3 +314,14 @@ export const AI_COPY = {
 export const SHOW_ME_THINKING = "Show me a worked example first, then ask me again.";
 export const HINT_REQUEST = "Give me a one-sentence hint for this question. Don't give the answer.";
 export const keepGoingText = (n: number) => `Keep going: ${n} more questions on the same lecture.`;
+/**
+ * Keeping the real teacher going (dry run, 23 Nov): the session screen has no
+ * text reply, so the opening message says so; and if a teacher still ends its
+ * turn with feedback but no question before the budget, LockedIn sends the
+ * continuation once, as the student would in LearnHarness. A second stop ends
+ * the session.
+ */
+export const TEACHER_RULES = {
+	noRepliesLine: "The learner can't type replies here: after your feedback, ask the next question in the same turn.",
+	continueText: "Next question, please.",
+} as const;

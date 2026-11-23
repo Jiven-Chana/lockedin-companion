@@ -17,6 +17,7 @@ import { PACK_RULES } from "../../core/companion/policy.ts";
 import { parseSlides } from "../../core/companion/slides.ts";
 import {
 	checkExplainer,
+	stripQuestionIds,
 	checkMapNodes,
 	checkQuestion,
 	newPackMeta,
@@ -115,7 +116,11 @@ export class StudyPacks {
 		return read<BankQuestion[]>(this.file(lectureId, "bank.json"));
 	}
 	explainers(lectureId: string): Explainer[] | null {
-		return read<Explainer[]>(this.file(lectureId, "explainers.json"));
+		const list = read<Explainer[]>(this.file(lectureId, "explainers.json"));
+		if (!list) return null;
+		// Packs written before the dry-run fix may still name question ids in the text.
+		const ids = (this.bank(lectureId) ?? []).map((q) => q.id);
+		return list.map((e) => ({ ...e, body: stripQuestionIds(e.body, ids) }));
 	}
 	isRunning(lectureId: string) {
 		return this.running.has(lectureId);
@@ -243,7 +248,7 @@ export class StudyPacks {
 				spend(r, "explainers");
 				const out: Explainer[] = [];
 				r.value.explainers.forEach((e, i) => {
-					const item = { ...e, id: `${id}-e${i + 1}`.slice(-60) } as Explainer;
+					const item = { ...e, body: stripQuestionIds(e.body ?? "", ctx.questions), id: `${id}-e${i + 1}`.slice(-60) } as Explainer;
 					const problem = checkExplainer(item, ctx);
 					if (problem) meta.dropped.push({ stage: "explainers", id: item.id, reason: problem });
 					else out.push(item);

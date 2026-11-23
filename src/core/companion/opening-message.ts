@@ -5,7 +5,7 @@
  * overrides in the same PR if you change them.
  */
 
-import { PREPARE_RULES } from "./policy.ts";
+import { PREPARE_RULES, TEACHER_RULES } from "./policy.ts";
 import { trimSlides } from "./slides.ts";
 import { formatHM, relativeDay } from "./time.ts";
 import type { Lecture, Miss, SessionSpec } from "./types.ts";
@@ -74,6 +74,7 @@ export function buildOpeningMessage(input: OpeningMessageInput): { text: string;
 		`Goal: ${GOALS[spec.kind]}`,
 		`Budget: ${budgetLine(spec)}`,
 		`Mode: ${spec.mode === "show-first" ? "show me first" : "question me first"}.`,
+		TEACHER_RULES.noRepliesLine,
 		...(spec.nodes?.length ? [`Focus: only the concept-map ideas ${spec.nodes.join(", ")}. Ask only about them and the slides that teach them.`] : []),
 		...(spec.seedAnswer
 			? [`Already answered on the phone (question 1 of ${spec.budget.questions}): "${spec.seedAnswer.stem ?? spec.seedAnswer.questionId}" → "${spec.seedAnswer.choiceLabel ?? `option ${spec.seedAnswer.choice + 1}`}" (${spec.seedAnswer.correct ? "correct" : "not correct"}). Don't ask it again${spec.seedAnswer.correct ? "" : "; repair it briefly first"}, then continue with question 2.`]
