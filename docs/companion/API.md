@@ -111,12 +111,27 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 
 Screen logic in one line per state: **preparing**: show `activity` ("Reading your HCI slides → writing question 1"), never a bare spinner. **question**: render `prose` (Markdown, KaTeX) then `question`; show Hint only if `canHint`. **thinking**: show `feedback` for the answered question and `activity`. **done**: two-line summary from `prose`, "Keep going" → `/more`. **error**: offer Retry (`/retry`) or a new session. When `feedback.shown` is true it was a "show me first" request, not an attempt: don't render it as wrong.
 
+## The week: target, plan, routine, check-in (v0.1 F-109, F-110, F-111, V-18)
+
+The planner proposes blocks in free gaps. It never places one over a lecture, event, routine commitment or quiet hours, and puts at most 2 on a day. It prefers last week's slots, then the student's energy windows, then the gap right after a lecture. Each block's focus comes from the pacing rule (spec §5.5): keep up first, and catch-up on weak older units gets at most a third of the week (no limit in a reading week).
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/plan` | `?week=YYYY-MM-DD` (default this week) | `{ week, target, blockMinutes, committedMinutes, proposedMinutes, blocks: (StudyBlock & { focus: { title, module } \| null })[], lectures, commitments }` |
+| POST | `/plan` | `{ week? }` | Proposes blocks to meet the target, replacing that week's earlier proposals (accepted ones stay) → plan + `{ roomMinutes, fits, message }`. `message` is "Your week only has room for 3 h 20. I've planned that." when the target doesn't fit. `409 no_target` without a target |
+| PUT | `/plan/settings` | `{ weeklyTargetMinutes?, blockMinutes?, sundayTime?, focusScreen? }` | The plan settings |
+| POST | `/routine` | `{ routine: { energy, commitments, places, weeklyTargetMinutes, preferredBlockMinutes? }, source: "chat" \| "form", modules?: [{ code, week, readingWeeks? }] }` | Saves the confirmed routine (and module weeks), then proposes this week → `{ routine, plan }` |
+| GET | `/checkin` | | `{ started, minutes, text, target, nextWeek, roomMinutes, feelings }`. On a Sunday it looks back on the week ending today. It counts blocks *started*, never missed ones |
+| POST | `/checkin` | `{ feeling }`, then `{ target }` or `{ keep: true }` | A feeling only proposes a new target (±30 min, at least 30 min, at most next week's room). The target changes only on the confirm. Confirm or keep then proposes next week → `{ target, plan }` |
+
 ## Study blocks and the simulated lock
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET / PUT | `/blocks` | `StudyBlock[]` or `{ blocks }`: up to 2 of `{ id, weekday: 1–7, start: "HH:MM", minutes: 10–120, lectureId?, skippedDates: [] }` | `{ blocks }` |
-| POST | `/blocks/:id/skip` | `{ date?: "YYYY-MM-DD" }` (default: the next occurrence) | `StudyBlock` |
+| GET / PUT | `/blocks` | `StudyBlock[]` or `{ blocks }` of `{ id, date: "YYYY-MM-DD", start: "HH:MM", minutes: 10–120, status, source, lectureId? }` (v0.1: dated blocks; v0.0's weekly slots are dropped on read) | `{ blocks }` |
+| PUT | `/blocks/:id` | `{ status?: "accepted" \| "started" \| "removed", date?, start?, minutes?, source? }` | One action on a block (F-110). A move keeps its focus and chooses a proposal. Logs `plan_accepted`, `plan_moved`, `plan_removed` or `block_started` |
+| POST | `/blocks/accept` | `{ ids? }` or `{ week? }` | Accepts the listed proposals, or every proposal that week → the plan |
+| POST | `/blocks/:id/skip` | | Removes the block (one tap, X-7) → `StudyBlock` |
 | GET | `/blocks/active` | | `{ active: { block, startedAt, endsAt, minutesLeft, onBreak, phaseEndsAt } \| null, lock, simulated: true }` |
 | POST | `/blocks/app-open` | `{ app, confirmed?, reason? }` | `{ allowed: true, reason, until? }` or `{ allowed: false, prompt: "confirm" \| "why", message }`. Ask, then call again with `confirmed: true` (gentle) or `reason` (firm). There is always a way out |
 
