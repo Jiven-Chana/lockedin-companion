@@ -14,6 +14,8 @@ Modifications made for LockedIn (from 14 November 2026):
   tests/companion-*.
 - Added LockedIn's own app: app/(lockedin)/ (its root layout, which loads
   the KaTeX stylesheet from v0.1) and components/lockedin/.
+- v0.1: added relay/ (the phone relay and phone web app, a Cloudflare
+  Worker) and one import rule for it in eslint.config.mjs.
 - Re-exported them from src/core/index.ts and src/server/index.ts, and added
   companion npm scripts to package.json. v0.1 adds the ical.js dependency
   (calendar import, F-108).

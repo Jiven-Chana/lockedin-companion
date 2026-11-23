@@ -61,6 +61,12 @@ export default defineConfig([
 								"Pure core never imports IO layers (agent/server/store): adapters implement core/ports.ts, and the composition root (src/server/stores.ts) passes them in (architecture: docs/architecture.md).",
 						},
 						{
+							// LockedIn's phone relay (v0.1 F-112) runs on Cloudflare: only the pure companion core.
+							target: "./relay",
+							from: ["./src/agent", "./src/server", "./src/store", "./app", "./components"],
+							message: "relay/ runs on Cloudflare Workers and in the phone's browser: import only src/core/companion (pure, browser-safe).",
+						},
+						{
 							target: "./src/agent",
 							from: ["./src/server", "./src/store"],
 							message:

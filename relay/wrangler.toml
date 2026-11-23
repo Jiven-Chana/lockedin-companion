@@ -1,0 +1,22 @@
+# LockedIn relay (v0.1 F-112). Decision O-1: Cloudflare Workers + D1 + Cron, a team-owned account.
+# First deploy: see relay/README.md.
+name = "lockedin-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-11-01"
+
+[assets]
+directory = "web"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lockedin-relay"
+database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+VAPID_SUBJECT = "mailto:lockedin-team@example.invalid"
+# Secrets (wrangler secret put): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
