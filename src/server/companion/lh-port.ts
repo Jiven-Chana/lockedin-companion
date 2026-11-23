@@ -30,6 +30,16 @@ import { webSubscriptionOwner, webSubscriptionStatus } from "../web-subscription
 import { KEY_PROVIDERS, PROVIDER_KEY_ID, type CatalogModel, type KeyProvider, type SlotChoices } from "../../core/companion/models.ts";
 import { MODEL_SLOTS } from "../../core/settings.ts";
 import type { AiPort } from "./ai.ts";
+import { Type } from "typebox";
+import { piEngineForSpec } from "../../agent/models.ts";
+import { runSubmitAgent } from "../../agent/subagents/submit-agent.ts";
+import { isSubscriptionProvider } from "../../agent/subscription-connections.ts";
+import { modelsNotConfigured } from "../../core/settings.ts";
+import type { ModelRole } from "../../../config.ts";
+import { resolveSlot } from "../../core/settings-resolution.ts";
+import { providerKeyPresent } from "../keys.ts";
+import { EngineError } from "./errors.ts";
+import type { Generate } from "./generate.ts";
 
 async function readNdjsonAnswer(res: Response): Promise<string> {
 	if (!res.ok || !res.body) {
@@ -198,3 +208,42 @@ export function createAiPort(): AiPort {
 		},
 	};
 }
+
+/** The engine role whose prompts and limits fit each slot (ROLE_SLOT, reversed). */
+const SLOT_ROLE: Record<"strong" | "cheap" | "vision", ModelRole> = { strong: "teacher", cheap: "extractor", vision: "visualMaker" };
+
+/**
+ * One-shot structured generation (spec §5.4) on the student's slot. A
+ * user-initiated call, so a ChatGPT slot doesn't need background consent.
+ */
+export const generate: Generate = async (req) => {
+	const started = Date.now();
+	const spec = resolveSlot(readSettings()?.models?.[req.slot]);
+	if (!spec) throw new EngineError("models_not_configured", modelsNotConfigured([req.slot]).error, 503);
+	if (!providerKeyPresent(spec.provider)) throw new EngineError("provider_key_missing", `Your ${spec.provider} connection isn't available. Reconnect in Me → Your AI.`, 503);
+	if (isSubscriptionProvider(spec.provider)) await refreshConnectionCatalog(spec.provider).catch(() => undefined);
+	const engine = piEngineForSpec(spec, false);
+	let cost = 0;
+	let priced = false;
+	const value = await runSubmitAgent<unknown>({
+		role: SLOT_ROLE[req.slot],
+		toolName: req.toolName,
+		toolDescription: req.toolDescription,
+		parameters: Type.Unsafe(req.schema),
+		fill: (input) => input,
+		systemPrompt: req.system,
+		prompt: req.user,
+		engine,
+		signal: req.signal,
+		onStep: (usage) => {
+			const c = (usage as { cost?: { total?: number } }).cost?.total;
+			if (typeof c === "number") {
+				cost += c;
+				priced ||= c > 0;
+			}
+		},
+		neverSubmitted: `the model never called ${req.toolName}`,
+		...(req.validate ? { validate: req.validate } : {}),
+	});
+	return { value: value as never, model: `${spec.provider}/${spec.id}`, cost: priced ? cost : null, ms: Date.now() - started };
+};
