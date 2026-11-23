@@ -32,6 +32,7 @@ import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companio
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
+import { SetupChat } from "./setup-chat.ts";
 import { clampBlockMinutes, pacedUnits, proposeWeek } from "../../core/companion/plan-week.ts";
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
@@ -970,6 +971,37 @@ export class CompanionService {
 			return { target: b.target, plan: this.proposePlan({ week: c.nextWeek }) };
 		}
 		throw badRequest("send { feeling }, then { target } to confirm or { keep: true }");
+	}
+
+	/**
+	 * One turn of "plan my week with me" (F-109). Body: { messages: [{ role, text }] }.
+	 * Stateless: nothing is saved until the summary is confirmed (POST /routine).
+	 * A turn that still breaks the rules after the model's retry returns
+	 * { fallback: true }: the screen switches to the plain form.
+	 */
+	async setupChatTurn(body: unknown) {
+		const profile = this.requireProfile();
+		if (!this.deps.generate) throw new CompanionError("chat_unavailable", 501, "the setup chat needs the AI connection");
+		if (!this.aiReady) throw new CompanionError("not_connected", 409, "Connect your AI to plan with the chat, or use the form.");
+		const b = (body ?? {}) as { messages?: unknown; skip?: unknown };
+		if (b.skip === true) {
+			this.log("setup_chat_skipped", {});
+			return { skipped: true };
+		}
+		const messages = (Array.isArray(b.messages) ? b.messages : [])
+			.filter((m): m is { role: "assistant" | "student"; text: string } => !!m && (m.role === "assistant" || m.role === "student") && typeof m.text === "string")
+			.map((m) => ({ role: m.role, text: m.text.slice(0, 600) }))
+			.slice(-20);
+		if (messages.length === 0) this.log("setup_chat_started", {});
+		const chat = new SetupChat({ generate: this.deps.generate, promptsDir: this.deps.promptsDir ?? "companion/prompts" });
+		try {
+			const t = await chat.turn({ messages, modules: profile.modules });
+			this.log("setup_chat_turn", { turn: messages.filter((m) => m.role === "assistant").length + 1, done: t.done, chips: t.chips.length });
+			return t;
+		} catch (err) {
+			this.log("setup_chat_fallback_form", { reason: err instanceof Error ? err.message.slice(0, 200) : "error" });
+			return { fallback: true, say: "Let's do this with taps instead." };
+		}
 	}
 
 	/** Skip a block: v0.1 blocks are dated, so skipping is removing (X-7: one tap). */

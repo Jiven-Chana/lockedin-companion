@@ -128,6 +128,9 @@ export const DEFAULT_PLAN: NonNullable<Profile["plan"]> = {
 	focusScreen: false,
 };
 
+/** "Plan my week with me" (F-109, J8): about 6 turns, short turns, on a fast slot. */
+export const SETUP_CHAT_RULES = { maxTurns: 6, maxWords: 60, slot: "cheap" } as const;
+
 /** Sunday check-in (F-111, V-5): the target moves in these steps, within these bounds. */
 export const CHECKIN_RULES = { stepMinutes: 30, minTargetMinutes: 30 } as const;
 
