@@ -33,6 +33,7 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | POST | `/ai/key` | `{ provider: "anthropic" \| "openai" \| "openrouter", key }` | `AiStatus`. The key is checked with one cheap request to that provider and only saved if it works; `400 key_rejected` with a plain message otherwise |
 | PUT | `/ai/models` | `{ strong, cheap, vision }`, each `{ model: { provider, id }, thinkingLevel? }` | `AiStatus`. `400 models_invalid` with `detail` per slot (unknown model, Vision without image input) |
 | POST | `/ai/models/auto` | `{ provider? }` | "Choose for me": `AiStatus & { missing, saved }`. Slots the account can't fill are returned unsaved in `missing` |
+| POST | `/ai/voice` | `{ key: string \| null }` | Me → Voice (F-116): saves the student's own Deepgram key after checking it can mint a dictation token (Member permission), or removes it (`null`) → `AiStatus` with `voice`. `400 key_rejected` with the reason. The Speak button is shown only when `voice` is true |
 | DELETE | `/ai` | `?provider=` | Signs out of ChatGPT or deletes the key, and clears slots that used it → `AiStatus` |
 
 ## Timetable, lectures, materials
@@ -133,9 +134,24 @@ The planner proposes blocks in free gaps. It never places one over a lecture, ev
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/nudges/schedule` | | `{ now, nudges: [{ id, fireAt, kind, title, body, why?, lectureId?, opens: "question" \| "session" \| "checkin", question?: { id, lectureId, stem, options, correct, explanation, slides }, snoozeFireAt, expiresAt }] }`. The next 7 days, planned with the live rules (cap, quiet hours, priorities), for the phone relay (F-112). Ids are the nudge keys, so re-planning gives the same ids |
+| GET | `/nudges/schedule` | | `{ now, nudges: [{ id, fireAt, kind, title, body, why?, lectureId?, module?, opens: "question" \| "session" \| "checkin", question?: { id, lectureId, stem, options, correct, explanation, slides }, snoozeFireAt, expiresAt }] }`. The next 7 days, planned with the live rules (cap, quiet hours, priorities), for the phone relay (F-112). Ids are the nudge keys, so re-planning gives the same ids |
 
 Facilitator: `POST /demo/clock { jump: "sunday-evening" }` jumps to the coming Sunday at the check-in time; `POST /demo/fire { type: "N-5" }` fires the check-in nudge.
+
+## The phone (v0.1 F-112)
+
+On when `COMPANION_RELAY_URL` is set (`501` otherwise). The laptop talks to the relay (`relay/README.md`) over outbound HTTPS only; it uploads the week from `/nudges/schedule` when it changes (and at least every 30 minutes) and pulls the phone's events every minute from the tick.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/phone` | | `{ paired, relay, phoneSeenAt?, pushReady?, uploadedAt?, holds, reachable? }`. `holds` is the plain-words list of what the relay stores (R-7) |
+| POST | `/phone/pair` | | `{ url, qrSvg, ...status }`. A new pair (replacing any old one); `url` is `<relay>/p#<pairId>.<phoneToken>`, the QR is its SVG. Uploads the week at once |
+| POST | `/phone/unpair` | | `{ paired: false }`. Deletes the pair and everything the relay holds for it |
+| POST | `/phone/sync` | | `{ uploaded, replayed }`. Upload now and pull events now (Me → Phone → Sync now) |
+
+Phone events are replayed exactly once each, in order, logged under their own type with `source: "phone"`. `answered` marks the laptop's copy of that nudge handled (a wrong answer becomes an idea to revisit); `handover` creates a post-lecture session whose spec carries `seedAnswer`, so it opens at question 2, and a `handoff:<id>` nudge is the toast. Plan edits are last-write-wins; edits to blocks removed on the laptop are ignored and logged as `relay_error`.
+
+Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", correct?: boolean }` plays the phone's events on the laptop without a phone or relay.
 
 ## Study blocks and the simulated lock
 
@@ -159,7 +175,7 @@ Facilitator: `POST /demo/clock { jump: "sunday-evening" }` jumps to the coming S
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/events` | `{ type, data }` or an array (types: `onboarding_step`, `settings_changed`, `block_started`, `error`) | `{ logged }` |
+| POST | `/events` | `{ type, data }` or an array (types: `CLIENT_EVENT_TYPES` in `src/core/companion/types.ts`, e.g. `onboarding_step`, `settings_changed`, `block_started`, `explainer_opened`, `dictation_used`, `error`) | `{ logged }` |
 | GET | `/events.csv` | **demo.** | CSV: `t, wall, participant, type, data` |
 
 Server-side events are logged automatically: `onboarding_done`, `nudge_fired/opened/snoozed/dismissed`, `wasnt_there`, `session_prepare_started`, `session_prepared` (with `latencyMs`), `session_opened`, `question_shown` (with `msSinceOpen`), `answer` (correct, confidence, why length, assisted, `msOnQuestion`, miss reason), `hint`, `show_me`, `keep_going`, `session_done`, `session_stopped`, `block_started`, `app_open_blocked`, `lock_override`, `settings_changed`, `engine_fallback`, `error`.
