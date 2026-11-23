@@ -158,6 +158,8 @@ export interface AiStatus {
 	ready: boolean;
 	/** Why not ready, in plain words (null when ready). */
 	blocker: string | null;
+	/** Dictation (F-116): a Deepgram key is saved. The mic is hidden without one. */
+	voice?: boolean;
 }
 
 /** Which provider a set of slots runs on, when they all agree. */

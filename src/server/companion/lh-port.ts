@@ -194,6 +194,26 @@ export function createAiPort(): AiPort {
 			}
 			return out;
 		},
+		voiceKeyPresent() {
+			return keyStatuses().some((k) => k.id === "DEEPGRAM_API_KEY" && k.present);
+		},
+		async saveVoiceKey(value) {
+			// The exact call dictation makes (app/api/stt/token): a key without Member permission can't mint a token.
+			try {
+				const res = await fetch("https://api.deepgram.com/v1/auth/grant", { method: "POST", headers: { Authorization: `Token ${value}`, "Content-Type": "application/json" }, body: JSON.stringify({ ttl_seconds: 30 }), signal: AbortSignal.timeout(15_000) });
+				await res.body?.cancel().catch(() => {});
+				if (res.status === 401) return { ok: false, error: "Deepgram didn't accept that key. Check it and try again." };
+				if (res.status === 403) return { ok: false, error: "That key can't start dictation: in the Deepgram console, give it Member permission (or make a new Member key)." };
+				if (!res.ok) return { ok: false, error: `Deepgram answered with an error (${res.status}). Try again in a minute.` };
+			} catch {
+				return { ok: false, error: "Couldn't reach Deepgram. Check your internet connection." };
+			}
+			const r = saveKey("DEEPGRAM_API_KEY", value);
+			return r.ok ? { ok: true } : { ok: false, error: r.error };
+		},
+		deleteVoiceKey() {
+			deleteKey("DEEPGRAM_API_KEY");
+		},
 		writeSlots(slots) {
 			const parsed = parseModelsSettingsBody(slots ?? {});
 			if (!parsed.ok) return { ok: false, error: parsed.error };

@@ -14,6 +14,7 @@ import { CONFIDENCE_STOPS, moduleHue, type SessionQuestion, type SessionView } f
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
+import { MicButton, useMic } from "../mic";
 import { Prose } from "../prose";
 import { Tint } from "../root";
 
@@ -31,7 +32,11 @@ export function SessionScreen({ id }: { id: string }) {
 	const [error, setError] = useState<string | null>(null);
 	const [picked, setPicked] = useState<number | null>(null);
 	const [conf, setConf] = useState(50);
-	const [why, setWhy] = useState("");
+	const [why, setWhyState] = useState("");
+	// The submit reads the box through a ref so it sees words dictation adds as it finishes.
+	const whyRef = useRef("");
+	const setWhy = useCallback((v: string) => { whyRef.current = v; setWhyState(v); }, []);
+	const mic = useMic(useCallback((text: string) => setWhy(whyRef.current ? `${whyRef.current.trimEnd()} ${text}` : text), [setWhy]), "why");
 	const [hint, setHint] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
 	const [answered, setAnswered] = useState<Answered | null>(null);
@@ -78,6 +83,9 @@ export function SessionScreen({ id }: { id: string }) {
 		setBusy("check");
 		const q = view.question;
 		try {
+			// Speaking when you press Check: wait for the last words, so nothing said is lost.
+			await mic.dictation.finish().catch(() => undefined);
+			const why = whyRef.current.trim();
 			await lockedIn.answer(id, picked === DONT_KNOW ? { questionId: q.id, dontKnow: true, why: why || undefined } : { questionId: q.id, indices: [picked], confidence: conf, why: why || undefined });
 			setAnswered({ question: q, picked, why });
 			setSlide(null);
@@ -127,11 +135,13 @@ export function SessionScreen({ id }: { id: string }) {
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+			// Esc while speaking drops what was said (the engine's rule), not the whole session.
+			if (e.key === "Escape" && mic.dictation.active) { mic.dictation.cancel(); return; }
 			if (e.key === "Escape") { void stop(); return; }
 			if (!showQuestion || !view?.question) return;
 			const n = Number(e.key);
 			if (Number.isInteger(n) && n >= 1 && n <= view.question.options.length) setPicked(n);
-			else if (e.key === "Enter") void check();
+			else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) void check();
 			else if (e.key.toLowerCase() === "h" && view.canHint) void askHint();
 			else if (e.key.toLowerCase() === "s") void showMe();
 		};
@@ -244,8 +254,9 @@ export function SessionScreen({ id }: { id: string }) {
 								) : null}
 								<label className="li-stack" style={{ gap: 6 }}>
 									<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
-									<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Because…" />
+									<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
 								</label>
+								<MicButton mic={mic} />
 								{hint ? <div className="li-note" role="note"><b>Hint:</b> {hint}</div> : null}
 								{error ? <div className="li-note" role="alert">{error}</div> : null}
 								<div className="li-row">

@@ -38,6 +38,11 @@ export interface AiPort {
 	slots(): SlotChoices;
 	/** Replace the three slots (null clears them). Validated by the engine's own catalogue gate. */
 	writeSlots(slots: SlotChoices | null): { ok: true } | { ok: false; error: string };
+	/** Dictation (F-116, O-5: the student's own Deepgram key). */
+	voiceKeyPresent(): boolean;
+	/** Check the key can mint a dictation token (it needs Member permission), then save it. */
+	saveVoiceKey(value: string): Promise<{ ok: true } | { ok: false; error: string }>;
+	deleteVoiceKey(): void;
 }
 
 /** One cheap request with the key; resolves to an error message, or null when the key works. */
@@ -82,7 +87,7 @@ export class CompanionAi {
 		const slots = this.port.slots();
 		const readiness = aiReadiness({ chatgpt, keys, slots, catalog });
 		this.onReady(readiness.ready);
-		return { chatgpt, keys, slots, catalog, ...readiness };
+		return { chatgpt, keys, slots, catalog, ...readiness, voice: this.port.voiceKeyPresent() };
 	}
 
 	/** Cached-free readiness for the engine default and /health. */
@@ -116,6 +121,18 @@ export class CompanionAi {
 			throw new CompanionError("key_rejected", 400, saved.error);
 		}
 		this.log("ai_connected", { provider: p, via: "key" });
+		return this.status();
+	}
+
+	/** Me → Voice (F-116): save a Deepgram key, or remove it ({ key: null }). */
+	async voice(key: unknown) {
+		if (key === null) {
+			this.port.deleteVoiceKey();
+			return this.status();
+		}
+		if (typeof key !== "string" || !key.trim()) throw badRequest("paste your Deepgram key");
+		const r = await this.port.saveVoiceKey(key.trim());
+		if (!r.ok) throw new CompanionError("key_rejected", 400, r.error);
 		return this.status();
 	}
 

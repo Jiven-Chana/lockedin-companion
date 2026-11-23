@@ -454,6 +454,8 @@ export const COMPANION_EVENT_TYPES = [
 	"target_confirm",
 	"focus_start",
 	"focus_end",
+	// v0.1 F-116
+	"dictation_used",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 
@@ -465,6 +467,7 @@ export const CLIENT_EVENT_TYPES: readonly CompanionEventType[] = [
 	"error",
 	"explainer_opened",
 	"map_node_clicked",
+	"dictation_used",
 ];
 
 export interface EventLogEntry {

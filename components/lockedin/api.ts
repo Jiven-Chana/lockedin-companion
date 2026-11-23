@@ -177,6 +177,7 @@ export const lockedIn = {
 		key: (provider: KeyProvider, key: string) => api<AiFullStatus>("/ai/key", { body: { provider, key } }),
 		setModels: (slots: SlotChoices) => api<AiFullStatus>("/ai/models", { method: "PUT", body: slots }),
 		chooseForMe: (provider?: string) => api<AiFullStatus & { missing: string[]; saved: boolean }>("/ai/models/auto", { body: provider ? { provider } : {} }),
+		voice: (key: string | null) => api<AiFullStatus>("/ai/voice", { body: { key } }),
 		disconnect: (provider: string) => api<AiFullStatus>(`/ai?provider=${encodeURIComponent(provider)}`, { method: "DELETE" }),
 	},
 	demo: {

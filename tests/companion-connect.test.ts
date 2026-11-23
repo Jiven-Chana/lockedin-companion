@@ -64,6 +64,18 @@ class FakeAi implements AiPort {
 		this.stored = slots ? structuredClone(slots) : {};
 		return { ok: true as const };
 	}
+	voice = false;
+	voiceKeyPresent() {
+		return this.voice;
+	}
+	async saveVoiceKey(value: string) {
+		if (value !== "dg-member") return { ok: false as const, error: "That key can't start dictation: in the Deepgram console, give it Member permission (or make a new Member key)." };
+		this.voice = true;
+		return { ok: true as const };
+	}
+	deleteVoiceKey() {
+		this.voice = false;
+	}
 }
 
 function setup(opts: { verify?: KeyVerifier; calendar?: Record<string, string>; engineWhenAiReady?: boolean } = {}) {
@@ -186,6 +198,29 @@ describe("connect your AI (F-101)", () => {
 		assert.deepEqual(after.slots, {});
 		assert.equal(after.ready, false);
 		assert.ok(events().includes("ai_disconnected"));
+	});
+});
+
+describe("Me → Voice: the student's own Deepgram key (F-116, O-5)", () => {
+	it("no key: the mic is hidden (voice false)", async () => {
+		const { svc } = setup();
+		assert.equal((await svc.requireAi().status()).voice, false);
+	});
+	it("a key that can't start dictation is refused with the reason, and nothing is saved", async () => {
+		const { svc, ai } = setup();
+		await assert.rejects(svc.requireAi().voice("dg-read-only"), (e: CompanionError) => e.status === 400 && /Member permission/.test(e.message));
+		await assert.rejects(svc.requireAi().voice("  "), (e: CompanionError) => e.status === 400);
+		assert.equal(ai.voice, false);
+	});
+	it("a good key turns the mic on; removing it turns it off", async () => {
+		const { svc } = setup();
+		assert.equal((await svc.requireAi().voice(" dg-member ")).voice, true);
+		assert.equal((await svc.requireAi().voice(null)).voice, false);
+	});
+	it("using the mic is logged as dictation_used (T23)", () => {
+		const { svc, events } = setup();
+		svc.logClientEvents({ type: "dictation_used", data: { field: "why" } });
+		assert.ok(events().includes("dictation_used"));
 	});
 });
 
