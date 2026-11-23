@@ -79,9 +79,11 @@ Status on 23 Nov:
 | D-9 | Session length stated as an estimate, stop or keep going, no up-front length question | As proposed |
 | D-10 | Does Birmingham's timetable export iCal? | `.ics` import is built (stretch); the sample timetable is the MVP |
 
-## Open in the v0.1 build: how course material comes in (O-15, raised 23 Nov 2026)
+## How course material comes in (O-15, raised 23 Nov 2026)
 
-Raised by Jiven while specifying stage 4 (F-104). **Not decided.** Recorded here with the reasoning because it shapes the data model, F-104, F-105 (study packs) and the 26 Nov test.
+**Decided the same day: option D, built in v0.1 (V-18 below).**
+
+Raised by Jiven while specifying stage 4 (F-104). Recorded here with the reasoning because it shapes the data model, F-104, F-105 (study packs) and the 26 Nov test.
 
 **The problem.** F-104 as specified assumes one file per lecture, matched to a timetable lecture by the week number in its name, its slide titles, or date order. Real material doesn't arrive that way:
 
@@ -114,3 +116,20 @@ v0.0 fuses the two in one `Lecture` record: a timetable event that may have slid
 We have **no evidence** on how students' material is actually split across files. That is a research gap worth a question in T23 or in Kobi's findings.
 
 **Risk to the 26 Nov test:** testers use the facilitator laptop and demo modules, so the test does not depend on solving this. The narrative does, though: "add your slides" is task T2.
+
+### V-18 (23 Nov 2026, Jiven): learning separated from lectures
+
+"Just change the v0.1 spec and build the thing." Option D above, combined with C (the AI proposes how material splits into units, and the student confirms). The model is in [`v0.1-spec.md`](v0.1-spec.md) section 5.5:
+- **course units** per module, with weeks and material, from any input shape;
+- a **module calendar** (current week, reading weeks) that works without a timetable;
+- a **pacing rule**: keep up first, gap repair capped at a third of the weekly target, units more than 6 weeks back left for revision. This answers Jiven's concern that a student in week 10 must not be stuck on week 3.
+
+Lecture times become a signal for N-1, not a requirement. F-104, F-109 and F-110 in the spec are revised to match.
+
+Defaults chosen in the build, all tunable in `policy.ts` and open to the group (O-7):
+- `gapShare` = 1/3;
+- `maxGapWeeksBack` = 6;
+- "keep up" covers the current and the previous week;
+- reading weeks lift the cap.
+
+**Evidence:** none direct for the pacing numbers. LIT-16 and LIT-17 (spaced practice testing) support revisiting weak units. INT-05-h supports planning in weeks. Jiven's reasoning (23 Nov): "If we have the app notifying the user to study xyz to meet their inputted time commitment for a given week then we have a better chance at maximising objectives since we can just structure learning around weaknesses."
