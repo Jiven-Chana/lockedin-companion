@@ -51,6 +51,8 @@ export interface RuntimeState {
 	eventsPulledAt?: string;
 	/** Phone event ids already replayed (dedupe, §5.2 item 3). */
 	replayedPhoneEvents?: string[];
+	/** Facilitator "send a question to the phone now": kept in every upload until it expires (real time). */
+	phoneNowNudge?: Record<string, unknown> & { id: string; expiresAt: string };
 }
 
 const FILES = {

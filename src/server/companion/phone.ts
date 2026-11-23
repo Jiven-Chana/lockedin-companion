@@ -7,7 +7,7 @@
  */
 
 import QRCode from "qrcode";
-import { HANDOFF_COPY, PLAN_COPY } from "../../core/companion/policy.ts";
+import { HANDOFF_COPY, PHONE_RULES, PLAN_COPY } from "../../core/companion/policy.ts";
 import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type PhoneEvent, type PlanEdit, type RelaySchedule } from "../../core/companion/sync.ts";
 import { FEELINGS, proposeTarget } from "../../core/companion/checkin.ts";
 import type { ScheduledNudge } from "../../core/companion/nudges.ts";
@@ -16,7 +16,7 @@ import { CompanionError } from "./errors.ts";
 import type { CompanionService } from "./service.ts";
 import type { CompanionStore } from "./store.ts";
 
-export const PHONE_RULES = { uploadEveryMs: 30 * 60_000, pullEveryMs: 60_000, timeoutMs: 10_000, replayedMemory: 1_000 } as const;
+export { PHONE_RULES } from "../../core/companion/policy.ts";
 
 export interface Pairing {
 	pairId: string;
@@ -138,9 +138,39 @@ export class PhoneLink {
 		return { uploaded, replayed };
 	}
 
+	/**
+	 * Facilitator (T4 in a lab): the relay sends on real time, but a demo plans
+	 * on the demo clock, so this puts the next lecture question on the phone
+	 * now. It has its own id (the relay sends each id once) and stays in every
+	 * upload until it expires, so the next tick can't wipe it before the
+	 * relay's minute job sends it.
+	 */
+	async sendNow() {
+		const p = this.pairing();
+		if (!p) throw new CompanionError("phone_not_paired", 409, "Pair a phone first (Me → Phone).");
+		const { nudges } = this.svc.schedule();
+		const n1 = nudges.find((n) => n.kind === "N-1" && n.question) ?? nudges.find((n) => n.kind === "N-1");
+		if (!n1) throw new CompanionError("nothing_to_send", 409, "No lecture question to send: load Tayo, or add slides, first.");
+		const now = Date.now();
+		const nudge = {
+			...n1,
+			id: `${n1.id}:now-${now}`,
+			fireAt: new Date(now).toISOString(),
+			snoozeFireAt: new Date(now + PHONE_RULES.sendNowSnoozeMs).toISOString(),
+			expiresAt: new Date(now + PHONE_RULES.sendNowExpiresMs).toISOString(),
+			more: HANDOFF_COPY.more(),
+		};
+		this.store.saveRuntime({ phoneNowNudge: nudge });
+		await this.upload(p, true);
+		this.svc.log("phone_send_now", { nudgeId: nudge.id, lectureId: n1.lectureId ?? null, withQuestion: !!n1.question });
+		return { nudgeId: nudge.id, title: n1.title, body: n1.body, arrivesWithinSeconds: 60 };
+	}
+
 	/** What the phone gets: the week's nudges (with the hand-off count and the check-in's answers worked out here) and blocks. */
 	buildSchedule(): Omit<RelaySchedule, "version"> {
 		const { nudges } = this.svc.schedule();
+		const now = this.store.runtime().phoneNowNudge;
+		const extra = now && Date.parse(now.expiresAt) > Date.now() ? [now as unknown as RelaySchedule["nudges"][number]] : [];
 		const checkin = this.checkinPreview();
 		const plan = this.svc.plan();
 		const next = this.svc.plan(nextWeekOf(plan.week));
@@ -150,7 +180,7 @@ export class PhoneLink {
 				...n,
 				...(n.kind === "N-1" ? { more: HANDOFF_COPY.more() } : {}),
 				...(n.kind === "N-5" && checkin ? { checkin } : {}),
-			})),
+			})).concat(extra),
 			blocks: [...plan.blocks, ...next.blocks].map((b) => ({ id: b.id, date: b.date, start: b.start, minutes: b.minutes, status: b.status, focus: b.focus })),
 		};
 	}

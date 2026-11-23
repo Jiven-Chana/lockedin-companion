@@ -108,6 +108,7 @@ export function FacilitatorScreen() {
 									{phone.data.uploadedAt ? ` · week uploaded ${fmtTime(phone.data.uploadedAt)}` : ""}
 								</span>
 								<div className="li-row">
+									<button type="button" className="li-btn primary" disabled={!phone.data.paired} onClick={() => run("Sent: the phone shows the question within a minute", () => api("/demo/phone-now", { method: "POST" }))}>Send a question to the phone now</button>
 									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Synced with the relay", () => lockedIn.syncPhone())}>Sync now</button>
 									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Pairing reset: pair again from Me → Phone", () => lockedIn.unpairPhone())}>Reset pairing</button>
 								</div>

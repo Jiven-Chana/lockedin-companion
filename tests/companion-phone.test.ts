@@ -180,6 +180,25 @@ describe("the relay is down", () => {
 	});
 });
 
+describe("the facilitator's \"send a question to the phone now\" (T4 in a lab)", () => {
+	it("puts the next lecture question on the relay at real time, and it survives the next upload", async () => {
+		const { svc, phone, events } = await setup();
+		await assert.rejects(svc.requirePhone().sendNow(), /Pair a phone first/);
+		const { pairId, token } = fromLink((await svc.requirePhone().pair()).url);
+		const before = Date.now();
+		const r = await svc.requirePhone().sendNow();
+		assert.match(r.nudgeId, /^N-1:.+:now-\d+$/);
+		const read = async () => (await phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { nudges: { id: string; fireAt: string; more?: number }[] };
+		const now = (await read()).nudges.find((n) => n.id === r.nudgeId);
+		assert.ok(now, "on the relay");
+		assert.ok(Math.abs(Date.parse(now!.fireAt) - before) < 5_000, "fires at real time, not the demo clock");
+		assert.equal(now!.more, 4);
+		await svc.requirePhone().sync({ force: true });
+		assert.ok((await read()).nudges.some((n) => n.id === r.nudgeId), "a later upload keeps it until it expires");
+		assert.ok(events().includes("phone_send_now"));
+	});
+});
+
 describe("the facilitator's phone (a lab without a phone)", () => {
 	it("plays an answer and a hand-off on the laptop", async () => {
 		const { svc, store } = await setup();

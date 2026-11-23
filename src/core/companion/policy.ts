@@ -321,6 +321,17 @@ export const keepGoingText = (n: number) => `Keep going: ${n} more questions on 
  * continuation once, as the student would in LearnHarness. A second stop ends
  * the session.
  */
+/** The laptop's phone link (F-112): upload at least every 30 min, pull events every minute; the facilitator's "send now" question. */
+export const PHONE_RULES = {
+	uploadEveryMs: 30 * 60_000,
+	pullEveryMs: 60_000,
+	timeoutMs: 10_000,
+	replayedMemory: 1_000,
+	/** Facilitator "send a question now": "Later" brings it back after 10 min; it expires after an hour. */
+	sendNowSnoozeMs: 10 * 60_000,
+	sendNowExpiresMs: 60 * 60_000,
+} as const;
+
 export const TEACHER_RULES = {
 	noRepliesLine: "The learner can't type replies here: after your feedback, ask the next question in the same turn.",
 	continueText: "Next question, please.",

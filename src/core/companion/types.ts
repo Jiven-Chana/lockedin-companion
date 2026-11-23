@@ -468,6 +468,8 @@ export const COMPANION_EVENT_TYPES = [
 	"motion_changed",
 	// v0.1 dry run: the teacher stopped before the budget and was asked to continue
 	"teacher_nudged",
+	// facilitator: a question sent to the phone now (T4 in a lab)
+	"phone_send_now",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 
