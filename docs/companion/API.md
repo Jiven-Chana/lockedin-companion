@@ -18,7 +18,7 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 | POST | `/onboarding/calendar` | `{ url }` or `{ text }` | `{ events, modules: [{ code, name, events, confident }] }`. Reads a calendar without saving anything; `confident` modules start ticked |
 | POST | `/onboarding/first-taste` | | `{ sessionId, lectureId, title, module, sample, spec }`. Starts preparing the 3-question first taste on the bundled sample lecture (O-3). The only session allowed before onboarding |
 | GET | `/profile` | | `{ profile: Profile \| null }` |
-| PUT | `/profile` | `{ prefs?: { nudgesPerDay, quietHours: {from,to}, lock: "off"\|"gentle"\|"firm", defaultMode, eveningTime }, appearance?: { theme, accent, textSize, lineSpacing, reduceMotion } }` (partial) | `Profile` |
+| PUT | `/profile` | `{ prefs?: { nudgesPerDay, quietHours: {from,to}, lock: "off"\|"gentle"\|"firm", defaultMode, eveningTime }, appearance?: { theme, accent, textSize, lineSpacing, motion: "calm"\|"full"\|"off" } }` (partial) | `Profile`. A motion change logs `motion_changed` (F-118) |
 | GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read", link, refreshedAt, timeZone }`. `link` is masked (host and the end of the file name, never the private token). A subscribed link is re-read when the app opens and every 6 hours (F-108) |
 | DELETE | `/data` | | `{ deleted: true }`. Deletes the student's records, sessions (and their LearnHarness chats) and the event log; lecture materials stay |
 
