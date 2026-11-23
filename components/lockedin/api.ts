@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { CompanionSession, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -24,6 +24,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	if (!res.ok) throw new ApiError(res.status, data?.code ?? "error", data?.error ?? `Request failed (${res.status})`);
 	return data as T;
 }
+
+export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
+export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
 
 export type Banner = (NudgeRecord & { ready: boolean }) | null;
 export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "not-started"; revisit: number };
@@ -114,6 +117,19 @@ export const lockedIn = {
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
+	// v0.1 onboarding (J1′) and Connect your AI (F-101)
+	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
+	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[] }) =>
+		api<{ profile: Profile; reads: Awaited<ReturnType<typeof lockedIn.reads>>; calendar: { added: number; unmapped: number } | null; firstTaste: FirstTaste | null }>("/onboarding", { body }),
+	firstTaste: () => api<FirstTaste & { sessionId: string }>("/onboarding/first-taste", { method: "POST" }),
+	ai: {
+		status: () => api<AiFullStatus>("/ai"),
+		chatgpt: (op: "login" | "cancel" | "logout" | "consent", enabled?: boolean) => api<{ browserAction?: string; error?: string; status: AiFullStatus }>("/ai/chatgpt", { body: { op, ...(enabled !== undefined ? { enabled } : {}) } }),
+		key: (provider: KeyProvider, key: string) => api<AiFullStatus>("/ai/key", { body: { provider, key } }),
+		setModels: (slots: SlotChoices) => api<AiFullStatus>("/ai/models", { method: "PUT", body: slots }),
+		chooseForMe: (provider?: string) => api<AiFullStatus & { missing: string[]; saved: boolean }>("/ai/models/auto", { body: provider ? { provider } : {} }),
+		disconnect: (provider: string) => api<AiFullStatus>(`/ai?provider=${encodeURIComponent(provider)}`, { method: "DELETE" }),
+	},
 	demo: {
 		state: () => api<DemoState>("/demo/state"),
 		clock: (body: { set?: string; advanceMinutes?: number; jump?: string }) => api<DemoState>("/demo/clock", { body }),

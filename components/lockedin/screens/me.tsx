@@ -1,6 +1,6 @@
 "use client";
 
-/** Me (F-09): appearance with a live preview, nudges, sessions, calendar, what I read, delete. */
+/** Me (F-09; v0.1 F-119): your AI, appearance with a live preview, nudges, sessions, calendar, what I read, delete. */
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import { ApiError, lockedIn } from "../api";
 import { useData, useLocalFlag } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
+import { ConnectAi } from "./connect";
 
 const SEEDS: [string, number][] = [["Lavender", 285], ["Ocean", 230], ["Moss", 150], ["Ember", 40], ["Rose", 350]];
 
@@ -59,6 +60,12 @@ export function MeScreen() {
 		<>
 			<PageHead eyebrow="Me" title="Make it yours" />
 			{msg ? <div className="li-note" role="status">{msg}</div> : null}
+
+			<section id="ai" className="li-card li-stack" aria-labelledby="ai-h" style={{ gap: 16 }}>
+				<h2 id="ai-h" className="li-h2">Your AI</h2>
+				<span className="li-muted">The AI that teaches your sessions, and the model behind each part of the teacher.</span>
+				<ConnectAi variant="settings" />
+			</section>
 
 			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>
 				<h2 id="ap" className="li-h2">Appearance</h2>

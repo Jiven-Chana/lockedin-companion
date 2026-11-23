@@ -21,6 +21,7 @@ describe("session copy reads its figures from policy", () => {
 	const post = SESSION_BUDGETS["post-lecture"];
 	const cases: Array<[string, string, string]> = [
 		["try-now card", SESSION_COPY.tryNow(), `${tryNow.questions} questions on your last lecture, about ${tryNow.minutes} minutes`],
+		["first taste", SESSION_COPY.firstTaste(), `${tryNow.questions} questions on a sample lecture, about ${tryNow.minutes} minutes`],
 		["quiz me", SESSION_COPY.quizMe(), `${post.questions} questions, about ${post.minutes} minutes`],
 		["welcome back title", SESSION_COPY.welcomeBackQuestion(), `${tryNow.questions} questions on last week?`],
 		["welcome back line", SESSION_COPY.welcomeBack(), `Welcome back. ${tryNow.questions} questions on last week?`],

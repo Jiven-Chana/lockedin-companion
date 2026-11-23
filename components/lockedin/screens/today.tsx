@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
+import { AI_COPY, moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn, type SessionView } from "../api";
 import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
@@ -20,6 +20,7 @@ export function TodayScreen() {
 	const { now } = useLockedIn();
 	const today = useData(() => lockedIn.today());
 	const progress = useData(() => lockedIn.progress());
+	const ai = useData(() => lockedIn.ai.status());
 	const [active, setActive] = useState<SessionView | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -76,6 +77,12 @@ export function TodayScreen() {
 	return (
 		<>
 			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} />
+			{ai.data && !ai.data.ready ? (
+				<div className="li-note li-row" role="status" style={{ gap: 12 }}>
+					<span style={{ flexGrow: 1 }}>{ai.data.blocker && ai.data.provider ? ai.data.blocker : AI_COPY.fallback}</span>
+					<Link href="/app/me#ai" className="li-btn">{AI_COPY.fallbackAction}</Link>
+				</div>
+			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
 			<div className="li-grid-2">
 				<div className="li-stack" style={{ gap: 24 }}>

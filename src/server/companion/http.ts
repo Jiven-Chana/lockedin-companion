@@ -23,8 +23,19 @@ export interface CompanionRouteContext<P extends Params> {
 	json: () => Promise<unknown>;
 }
 
+/**
+ * A CompanionError from any module instance. Next gives each route its own
+ * copy of these modules while the service is shared through globalThis, so
+ * an error thrown by the service can fail `instanceof` in another route.
+ */
+function isCompanionError(err: unknown): err is CompanionError {
+	if (err instanceof CompanionError) return true;
+	const e = err as { name?: unknown; code?: unknown; status?: unknown } | null;
+	return !!e && (e.name === "CompanionError" || e.name === "EngineError") && typeof e.code === "string" && typeof e.status === "number";
+}
+
 export function companionErrorResponse(err: unknown): Response {
-	if (err instanceof CompanionError) {
+	if (isCompanionError(err)) {
 		return Response.json({ error: err.message, code: err.code, ...(err.detail !== undefined ? { detail: err.detail } : {}) }, { status: err.status });
 	}
 	console.error("[companion] unhandled error:", err);

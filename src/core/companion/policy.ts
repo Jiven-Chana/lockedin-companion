@@ -131,6 +131,11 @@ export const SESSION_COPY = {
 		const b = SESSION_BUDGETS["try-now"];
 		return `${b.questions} questions on your last lecture, about ${b.minutes} minutes`;
 	},
+	/** The first taste in onboarding (J1′, O-3): the bundled sample lecture. */
+	firstTaste: () => {
+		const b = SESSION_BUDGETS["try-now"];
+		return `${b.questions} questions on a sample lecture, about ${b.minutes} minutes`;
+	},
 	/** "Quiz me" on today's lecture. */
 	quizMe: () => {
 		const b = SESSION_BUDGETS["post-lecture"];
@@ -151,6 +156,16 @@ export const SESSION_COPY = {
  * for any student before they add their own.
  */
 export const FIRST_TASTE_LECTURE = "hci-w3-personas";
+
+/**
+ * The declared fallback (F-102, V-16, option C's condition): when the
+ * student's AI isn't ready, sessions run on the scripted engine and Today
+ * says so plainly.
+ */
+export const AI_COPY = {
+	fallback: "Not connected to your AI. Sessions use LockedIn's built-in practice questions until you reconnect.",
+	fallbackAction: "Connect",
+} as const;
 
 /** The text sent as the "why" when the learner taps "Show me first" (§6.7). */
 export const SHOW_ME_THINKING = "Show me a worked example first, then ask me again.";
