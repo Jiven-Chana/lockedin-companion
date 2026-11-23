@@ -36,6 +36,12 @@ export class ScriptedEngine implements SessionEngine {
 	private set(session: CompanionSession): ScriptedSet {
 		const set = this.loadSet(session.spec.lectureId);
 		if (!set) throw new EngineError("no_scripted_set", `no scripted questions for ${session.spec.lectureId}`, 422);
+		// "Quiz me on this idea" (F-106): only that node's questions, when it has any.
+		const nodes = session.spec.nodes;
+		if (nodes?.length) {
+			const scoped = set.questions.filter((q) => nodes.includes(q.nodeId));
+			if (scoped.length) return { ...set, questions: scoped };
+		}
 		return set;
 	}
 

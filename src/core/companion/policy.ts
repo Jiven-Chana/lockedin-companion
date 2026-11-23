@@ -80,6 +80,23 @@ export const BLOCK_RULES = {
 	overrideMinutes: 2,
 } as const;
 
+/** Study packs (F-105). Slots per stage: open decision O-13, built with the spec's proposed default. */
+export const PACK_RULES = {
+	/** A bank stem must fit a phone notification body (N-1 v2). */
+	stemMax: 90,
+	explanationMax: 140,
+	explainerWords: 120,
+	bankMin: 12,
+	bankMax: 20,
+	maxNodes: 10,
+	/** Explainers per pack: one per map node, at most this many. */
+	maxExplainers: 8,
+	/** Which of the student's model slots writes each stage (O-13). */
+	slots: { map: "strong", explainers: "strong", bank: "cheap" } as const,
+	/** Slides text sent to the model, in estimated tokens (~4 characters each). */
+	slideTokenBudget: 12_000,
+} as const;
+
 /** Course material (F-104, V-18). */
 export const MATERIALS_RULES = {
 	/** Per file, as v0.0's upload. */

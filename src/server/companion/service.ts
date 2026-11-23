@@ -31,6 +31,7 @@ import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KE
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
+import { StudyPacks } from "./study-pack.ts";
 import type { Generate } from "./generate.ts";
 import { checkProposal, currentWeek, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
@@ -115,6 +116,8 @@ export class CompanionService {
 
 	/** Course material in any shape (F-104, V-18). */
 	readonly courseMaterials: CourseMaterials;
+	/** Study packs per unit (F-105). Null without generate() (tests that don't need it). */
+	readonly packs: StudyPacks | null;
 
 	constructor(private readonly deps: CompanionServiceDeps) {
 		this.courseMaterials = new CourseMaterials({
@@ -125,6 +128,17 @@ export class CompanionService {
 			aiReady: async () => (this.ai ? this.ai.ready() : false),
 			...(deps.newId ? { newId: () => deps.newId!("up") } : {}),
 		});
+		this.packs = deps.generate
+			? new StudyPacks({
+					dir: (id) => deps.store.materialsDir(id),
+					slidesMarkdown: (id) => deps.content.slidesMarkdown(id),
+					mapSource: (id) => deps.content.conceptMapSource(id),
+					generate: deps.generate,
+					promptsDir: deps.promptsDir ?? "companion/prompts",
+					log: (type, data) => this.log(type, data),
+					now: () => this.now(),
+				})
+			: null;
 		this.ai = deps.ai
 			? new CompanionAi(deps.ai.port, deps.ai.verifyKey, (type, data) => this.log(type, data), (ready) => this.noteAiReady(ready))
 			: null;
@@ -456,6 +470,8 @@ export class CompanionService {
 		}
 		this.store.saveLectures([...all, ...created]);
 		this.courseMaterials.discard(b.uploadId);
+		// Write each unit's study pack in the background when the student's AI is ready (F-105).
+		if (this.packs && this.aiReady) for (const u of created) this.packs.start(u.id);
 		this.log("materials_saved", { module: code, units: created.length, weeks: created.map((u) => u.week) });
 		return { units: created };
 	}
@@ -467,6 +483,40 @@ export class CompanionService {
 		let id = base;
 		for (let n = 2; ids.has(id) || this.content.hasMaterials(id); n++) id = `${base}-${n}`;
 		return id;
+	}
+
+	// ─── study packs (F-105) ────────────────────────────────────────────────
+
+	private requirePacks(): StudyPacks {
+		if (!this.packs) throw new CompanionError("packs_unavailable", 501, "study packs are not available here");
+		return this.packs;
+	}
+
+	/** Progress, explainers and bank size for one unit. */
+	pack(lectureId: string) {
+		assertSafeId(lectureId, "lecture id");
+		if (!this.lectureById(lectureId)) throw notFound("lecture");
+		const packs = this.requirePacks();
+		const explainers = packs.explainers(lectureId) ?? [];
+		return { meta: packs.status(lectureId), explainers, questions: packs.bank(lectureId)?.length ?? 0, running: packs.isRunning(lectureId) };
+	}
+
+	/** Start or resume a unit's pack; `fresh` regenerates every stage. */
+	regeneratePack(lectureId: string, body: unknown) {
+		assertSafeId(lectureId, "lecture id");
+		const l = this.lectureById(lectureId);
+		if (!l) throw notFound("lecture");
+		if (!l.hasMaterials) throw badRequest("add material to this unit first");
+		if (!this.aiReady) throw new CompanionError("not_connected", 409, "Connect your AI to write study packs.");
+		const fresh = !!(body && typeof body === "object" && (body as { fresh?: unknown }).fresh === true);
+		this.requirePacks().start(lectureId, { fresh });
+		return this.pack(lectureId);
+	}
+
+	cancelPack(lectureId: string) {
+		assertSafeId(lectureId, "lecture id");
+		this.requirePacks().cancel(lectureId);
+		return this.pack(lectureId);
 	}
 
 	/** Remove a unit (hidden, history kept) or a timetable lecture's material. */
@@ -866,6 +916,10 @@ export class CompanionService {
 		if (typeof r.kind !== "string" || !(SESSION_KINDS as readonly string[]).includes(r.kind)) throw badRequest(`kind must be one of ${SESSION_KINDS.join(", ")}`);
 		if (typeof r.lectureId !== "string") throw badRequest("lectureId is required");
 		const spec = specFor(r.kind, assertSafeId(r.lectureId, "lecture id"), this.store.profile()?.prefs, Array.isArray(r.missIds) ? r.missIds.filter((m): m is string => typeof m === "string") : undefined);
+		if (r.nodes !== undefined) {
+			if (!Array.isArray(r.nodes) || r.nodes.length > 10 || !r.nodes.every((n) => typeof n === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(n))) throw badRequest("nodes must be up to 10 concept-map node ids");
+			if (r.nodes.length) spec.nodes = [...r.nodes];
+		}
 		if (r.mode !== undefined) {
 			if (r.mode !== "question-first" && r.mode !== "show-first") throw badRequest("mode must be question-first or show-first");
 			spec.mode = r.mode;

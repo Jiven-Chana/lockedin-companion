@@ -34,6 +34,8 @@ export interface SessionSpec {
 	budget: SessionBudget;
 	/** Retests: the misses this session revisits, in the order asked. */
 	missIds?: string[];
+	/** v0.1 F-106: a session scoped to these concept-map nodes ("Quiz me on this idea"). */
+	nodes?: string[];
 }
 
 export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
@@ -364,6 +366,13 @@ export const COMPANION_EVENT_TYPES = [
 	"materials_saved",
 	"materials_removed",
 	"module_week_set",
+	// v0.1 F-105, F-106
+	"pack_started",
+	"pack_stage",
+	"pack_ready",
+	"pack_failed",
+	"explainer_opened",
+	"map_node_clicked",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 
@@ -373,6 +382,8 @@ export const CLIENT_EVENT_TYPES: readonly CompanionEventType[] = [
 	"settings_changed",
 	"block_started",
 	"error",
+	"explainer_opened",
+	"map_node_clicked",
 ];
 
 export interface EventLogEntry {

@@ -54,6 +54,24 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | POST | `/materials/:lectureId` | PDF bytes, or multipart `file` | Replaces the material of a lecture or course unit → `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR). Open to everyone since v0.1 (F-104) |
 | DELETE | `/materials/:lectureId` | | A course unit is hidden (history kept); a timetable lecture loses its uploaded material |
 
+### Study packs (v0.1 F-105, F-106)
+
+When units are saved and the student's AI is ready, each unit's pack is written in the background, one unit at a time:
+1. read its slides;
+2. the concept map (`map.mmd`; an authored one is kept), on the Strong slot;
+3. 12 to 20 three-option questions (`bank.json`), on the Cheap slot;
+4. one explainer per idea (`explainers.json`): ≤ 120 words, one mermaid diagram, slide citations, and a "Try it" question from the bank. Strong slot.
+
+Every item is checked (`study-pack.ts`). The model retries while too few pass, and items that still fail are dropped and listed in `meta.dropped`. The bank is also the scripted engine's question set for that unit. Events: `pack_started`, `pack_stage`, `pack_ready`, `pack_failed`.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/lectures/:id/pack` | | `{ meta: { state, stages: { read, map, bank, explainers }, models, costUsd, ms, dropped, counts, error? } \| null, explainers, questions, running }` |
+| POST | `/lectures/:id/pack` | `{ fresh?: boolean }` | Starts or resumes (from the first unfinished stage); `fresh` regenerates everything. `409 not_connected` without a ready AI |
+| DELETE | `/lectures/:id/pack` | | Cancels; resumable |
+
+`POST /sessions` accepts `nodes: string[]` (concept-map node ids, F-106): the session asks only about those ideas.
+
 ### Course material and the module calendar (v0.1 F-104, V-18)
 
 A **course unit** is a `Lecture` with no `start`/`end`, made from the student's material (spec §5.5). Calendar re-imports merge: units, uploads and "I wasn't there" survive, and events that vanished are archived (hidden, kept as history).

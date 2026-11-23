@@ -24,3 +24,4 @@ export * from "./models.ts";
 export * from "./module-detect.ts";
 export * from "./prose.ts";
 export * from "./units.ts";
+export * from "./study-pack.ts";

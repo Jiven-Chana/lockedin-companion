@@ -74,6 +74,7 @@ export function buildOpeningMessage(input: OpeningMessageInput): { text: string;
 		`Goal: ${GOALS[spec.kind]}`,
 		`Budget: ${budgetLine(spec)}`,
 		`Mode: ${spec.mode === "show-first" ? "show me first" : "question me first"}.`,
+		...(spec.nodes?.length ? [`Focus: only the concept-map ideas ${spec.nodes.join(", ")}. Ask only about them and the slides that teach them.`] : []),
 		...revisitBlock(spec.kind === "retest" ? input.misses : undefined),
 		...(input.conceptMap?.trim()
 			? ["", "CONCEPT MAP (plan on these node slugs)", "```mermaid", input.conceptMap.trim(), "```"]
