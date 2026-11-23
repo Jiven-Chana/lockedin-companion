@@ -44,3 +44,16 @@ Read the 6 transcripts at `http://localhost:3000/chat/<chatId>` (the `chatId` is
 | 4 | Cost per session ≤ ceiling | | |
 
 After the checkpoint: save one real companion chat record (`data/chats/<chatId>.json`) as `tests/fixtures/companion/` and add it to `tests/companion-view.test.ts` (plan §12.1).
+
+## Evidence so far (23 Nov dry run, not the full checkpoint)
+
+Real engine on a ChatGPT sign-in, "Choose for me" models (strong `gpt-6-sol`, cheap `gpt-6-luna`, vision `gpt-6-sol`), production build, the bundled HCI personas lecture only:
+
+| # | What was seen | Against the criterion |
+|---|---|---|
+| 1 | First taste (3 questions) ready **20.4 s, 22.0 s, 21 s** after it started preparing (3 cold runs). It prepares during the modules screen, so by "Finish" it was already waiting (`prewarmed` timing not measured) | At or just over the 20 s cold line; one lecture only. Needs the 5-run median on two lectures |
+| 2 | Before the fix: the teacher stopped after question 1 of 3 (feedback, no next question). After the opening-message line (`TEACHER_RULES`): **3 of 3**, no `teacher_nudged` needed | 1 complete session, 3 questions, one lecture. Needs 3 × 5-question sessions on two lectures |
+| 3 | Questions cite slides; explanations name slides ("(Slide 3)"); no plan confirmation seen in 2 transcripts | Partial: 2 transcripts read, not 6 |
+| 4 | `costUsd` is null on a ChatGPT sign-in (subscription, no per-token price) | Not measurable on ChatGPT; measure on an API key if D-3 needs a number |
+
+Also seen: a study pack for the same lecture in **54 s** (7 explainers, 15 questions, 1 question dropped by the validator for a 95-character stem).
