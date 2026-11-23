@@ -15,7 +15,8 @@ Modifications made for LockedIn (from 14 November 2026):
 - Added LockedIn's own app: app/(lockedin)/ (its root layout, which loads
   the KaTeX stylesheet from v0.1) and components/lockedin/.
 - Re-exported them from src/core/index.ts and src/server/index.ts, and added
-  companion npm scripts to package.json.
+  companion npm scripts to package.json. v0.1 adds the ical.js dependency
+  (calendar import, F-108).
 - Renamed the package and the app title to LockedIn, removed the package
   homepage, and turned off provider attribution headers (src/agent/models.ts).
 - Removed the upstream release, website and CI workflows (and the tests

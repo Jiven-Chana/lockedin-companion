@@ -37,6 +37,8 @@ export interface RuntimeState {
 	lockOverrideUntil?: string;
 	/** A subscribed calendar link (F-03); stays on this laptop. */
 	calendarUrl?: string;
+	/** When the subscribed link was last read (F-108: refreshed on open and every 6 hours). */
+	calendarRefreshedAt?: string;
 }
 
 const FILES = {

@@ -196,6 +196,8 @@ export interface Profile {
 		eveningTime: string;
 	};
 	appearance: { theme: string; accent: string; textSize: string; lineSpacing: string; reduceMotion: boolean };
+	/** The student's IANA time zone, e.g. "Europe/London" (F-108): floating calendar times are read in it. */
+	timeZone?: string;
 	/** The AI connection at onboarding (v0.1 F-101). The live state is GET /api/companion/ai. */
 	ai?: { provider: "chatgpt" | "anthropic" | "openai" | "openrouter" | null; connectedAt?: string };
 }
@@ -373,6 +375,10 @@ export const COMPANION_EVENT_TYPES = [
 	"pack_failed",
 	"explainer_opened",
 	"map_node_clicked",
+	// v0.1 F-108
+	"calendar_connected",
+	"calendar_refreshed",
+	"calendar_error",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

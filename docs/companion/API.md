@@ -19,7 +19,7 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 | POST | `/onboarding/first-taste` | | `{ sessionId, lectureId, title, module, sample, spec }`. Starts preparing the 3-question first taste on the bundled sample lecture (O-3). The only session allowed before onboarding |
 | GET | `/profile` | | `{ profile: Profile \| null }` |
 | PUT | `/profile` | `{ prefs?: { nudgesPerDay, quietHours: {from,to}, lock: "off"\|"gentle"\|"firm", defaultMode, eveningTime }, appearance?: { theme, accent, textSize, lineSpacing, reduceMotion } }` (partial) | `Profile` |
-| GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read" }` |
+| GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read", link, refreshedAt, timeZone }`. `link` is masked (host and the end of the file name, never the private token). A subscribed link is re-read when the app opens and every 6 hours (F-108) |
 | DELETE | `/data` | | `{ deleted: true }`. Deletes the student's records, sessions (and their LearnHarness chats) and the event log; lecture materials stay |
 
 ## Connect your AI (v0.1 F-101)
@@ -39,7 +39,7 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| POST | `/timetable/import` | `.ics` text, or `{ ics }` | `{ added, unmapped: [{ summary, start, end }] }` |
+| POST | `/timetable/import` | `.ics` text, or `{ ics }` | `{ added, unmapped: [{ summary, start, end }] }`. Parsed with ical.js (v0.1 F-108): TZID and VTIMEZONE, RRULE, EXDATE, RECURRENCE-ID, DURATION; all-day events become busy events; floating times are read in the profile's `timeZone`. Re-imports merge (F-104) |
 | POST | `/timetable/subscribe` | `{ url }` (`https://` or `webcal://`) | Same as import. The server fetches the link with guards: http(s) only, no private/loopback addresses, no redirects, 5 s, 2 MB. The link is remembered for refreshes |
 | POST | `/timetable/refresh` | | Re-reads the subscribed link |
 | GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |

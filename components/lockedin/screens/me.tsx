@@ -122,7 +122,9 @@ export function MeScreen() {
 				<h2 id="rd" className="li-h2">Calendar and what I read</h2>
 				{reads.data ? (
 					<ul style={{ margin: 0, paddingLeft: "1.2em" }}>
-						<li>Source: {reads.data.label}</li>
+						<li>Source: {reads.data.label}{reads.data.link ? ` (${reads.data.link})` : ""}</li>
+						{reads.data.refreshedAt ? <li>Refreshed {new Date(reads.data.refreshedAt).toLocaleString("en-GB")}; it refreshes when you open the app and every 6 hours</li> : null}
+						<li>Times read in {reads.data.timeZone}</li>
 						<li>{reads.data.events} timetable events, {reads.data.lectures} lectures, modules {reads.data.modules.join(", ") || "none"}</li>
 						<li>Last read: {reads.data.lastReadAt ? new Date(reads.data.lastReadAt).toLocaleString("en-GB") : "never"}</li>
 						<li>Location: never read</li>

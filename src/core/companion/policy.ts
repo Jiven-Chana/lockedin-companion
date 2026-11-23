@@ -97,6 +97,15 @@ export const PACK_RULES = {
 	slideTokenBudget: 12_000,
 } as const;
 
+/** Calendars in (F-108). */
+export const CALENDAR_RULES = {
+	/** A subscribed link is re-read when the app opens and at least this often while it runs. */
+	refreshHours: 6,
+	/** Events read from this many days back to this many days ahead. */
+	lookbackDays: 28,
+	lookaheadDays: 120,
+} as const;
+
 /** Course material (F-104, V-18). */
 export const MATERIALS_RULES = {
 	/** Per file, as v0.0's upload. */

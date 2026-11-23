@@ -27,7 +27,7 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
@@ -322,7 +322,7 @@ export class CompanionService {
 	private calendarEvents(text: string) {
 		if (!text.includes("BEGIN:VCALENDAR")) throw badRequest("not an iCalendar file");
 		const now = this.now();
-		return parseIcs(text, { from: addDays(now, -28), to: addDays(now, 120) });
+		return parseIcs(text, { from: addDays(now, -CALENDAR_RULES.lookbackDays), to: addDays(now, CALENDAR_RULES.lookaheadDays) }, 500, { timeZone: this.timeZone() });
 	}
 
 	/** Read a calendar (link or file text) without saving anything, and propose its modules. */
@@ -341,7 +341,8 @@ export class CompanionService {
 	 * Modules are { name, code? }; a missing code is made from the name.
 	 */
 	async onboardFlow(body: unknown) {
-		const b = (body ?? {}) as { modules?: unknown; calendar?: { kind?: unknown; url?: unknown; text?: unknown }; nudgesPerDay?: unknown };
+		const b = (body ?? {}) as { modules?: unknown; calendar?: { kind?: unknown; url?: unknown; text?: unknown }; nudgesPerDay?: unknown; timeZone?: unknown };
+		const timeZone = validTimeZone(b.timeZone);
 		const kind = b.calendar?.kind;
 		if (kind !== "sample" && kind !== "link" && kind !== "file" && kind !== "none") throw badRequest("calendar.kind must be sample, link, file or none");
 		const nudgesPerDay = b.nudgesPerDay === undefined ? DEFAULT_PREFS.nudgesPerDay : b.nudgesPerDay;
@@ -375,6 +376,7 @@ export class CompanionService {
 			...profile,
 			...(modules ? { modules } : {}),
 			...(kind === "none" ? { timetableSource: "none" as const } : {}),
+			...(timeZone ? { timeZone } : {}),
 			ai: { provider: ai?.provider ?? null, ...(ai?.provider ? { connectedAt: this.now().toISOString() } : {}) },
 		});
 		let calendar: { added: number; unmapped: number } | null = null;
@@ -561,7 +563,7 @@ export class CompanionService {
 		const profile = this.requireProfile();
 		if (!text.includes("BEGIN:VCALENDAR")) throw badRequest("not an iCalendar file");
 		const now = this.now();
-		const events = parseIcs(text, { from: addDays(now, -28), to: addDays(now, 120) });
+		const events = parseIcs(text, { from: addDays(now, -CALENDAR_RULES.lookbackDays), to: addDays(now, CALENDAR_RULES.lookaheadDays) }, 500, { timeZone: this.timeZone() });
 		const { lectures: incoming, unmapped } = icsToLectures(events, profile.modules, (id) => this.content.hasMaterials(id));
 		// Merge, never replace: uploads, units and "I wasn't there" survive a refresh (F-104).
 		const merged = mergeTimetable(this.store.allLectures(), incoming);
@@ -573,7 +575,35 @@ export class CompanionService {
 
 	reads() {
 		const profile = this.store.profile();
-		return readsSummary(this.store.lectures(), profile?.timetableSource ?? "sample", profile?.timetableRead?.at, this.store.runtime().calendarUrl ? "link" : "file");
+		const runtime = this.store.runtime();
+		return {
+			...readsSummary(this.store.lectures(), profile?.timetableSource ?? "sample", profile?.timetableRead?.at, runtime.calendarUrl ? "link" : "file"),
+			link: runtime.calendarUrl ? maskLink(runtime.calendarUrl) : null,
+			refreshedAt: runtime.calendarRefreshedAt ?? null,
+			timeZone: this.timeZone(),
+		};
+	}
+
+	/** The student's zone: from the profile, else this machine's. */
+	timeZone(): string {
+		return this.store.profile()?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	}
+
+	private calendarRefreshing: Promise<unknown> | null = null;
+	private calendarCheckedThisRun = false;
+
+	/** Re-read a subscribed link when the app opens and every CALENDAR_RULES.refreshHours (F-108). Never throws. */
+	refreshCalendarIfDue(): Promise<unknown> | null {
+		const runtime = this.store.runtime();
+		if (!runtime.calendarUrl || !this.store.profile() || this.calendarRefreshing) return this.calendarRefreshing;
+		const last = runtime.calendarRefreshedAt ? new Date(runtime.calendarRefreshedAt).getTime() : 0;
+		const due = !this.calendarCheckedThisRun || Date.now() - last >= CALENDAR_RULES.refreshHours * 3_600_000;
+		if (!due) return null;
+		this.calendarCheckedThisRun = true;
+		this.calendarRefreshing = this.refreshCalendar()
+			.catch((err) => this.log("calendar_error", { where: "auto-refresh", message: err instanceof Error ? err.message : String(err) }))
+			.finally(() => { this.calendarRefreshing = null; });
+		return this.calendarRefreshing;
 	}
 
 	lectures(query: { module?: string | null; q?: string | null } = {}) {
@@ -691,8 +721,10 @@ export class CompanionService {
 		const { url, text } = await this.fetchCalendarLink(rawUrl);
 		const parsed = new URL(url);
 		const result = this.importIcs(text);
-		this.store.saveRuntime({ calendarUrl: parsed.toString() });
-		this.log("settings_changed", { changed: ["calendar"], source: "link", events: result.added });
+		const first = this.store.runtime().calendarUrl !== parsed.toString();
+		this.store.saveRuntime({ calendarUrl: parsed.toString(), calendarRefreshedAt: new Date().toISOString() });
+		this.calendarCheckedThisRun = true;
+		this.log(first ? "calendar_connected" : "calendar_refreshed", { source: "link", events: result.added, unmapped: result.unmapped.length });
 		return result;
 	}
 
@@ -1196,6 +1228,7 @@ export class CompanionService {
 	}
 
 	today() {
+		void this.refreshCalendarIfDue();
 		const now = this.now();
 		const state = this.store.state();
 		const firstRun = state.sessions.every((s) => !s.openedAt);
@@ -1348,5 +1381,27 @@ function linkOrCopy(from: string, to: string) {
 		fs.linkSync(/* turbopackIgnore: true */ from, /* turbopackIgnore: true */ to);
 	} catch {
 		fs.copyFileSync(/* turbopackIgnore: true */ from, /* turbopackIgnore: true */ to);
+	}
+}
+
+/** A calendar link for display: the host and the last path segment, never the private token in between (F-108). */
+export function maskLink(url: string): string {
+	try {
+		const u = new URL(url);
+		const last = u.pathname.split("/").filter(Boolean).at(-1) ?? "";
+		return `${u.host}/…${last.length > 24 ? `${last.slice(0, 4)}…${last.slice(-8)}` : last ? `/${last}` : ""}`;
+	} catch {
+		return "your calendar link";
+	}
+}
+
+/** An IANA zone the runtime knows ("Europe/London"), or null. */
+function validTimeZone(z: unknown): string | null {
+	if (typeof z !== "string" || !z || z.length > 64) return null;
+	try {
+		new Intl.DateTimeFormat("en-GB", { timeZone: z });
+		return z;
+	} catch {
+		return null;
 	}
 }

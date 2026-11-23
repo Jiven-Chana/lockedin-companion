@@ -86,7 +86,7 @@ export function WelcomeScreen() {
 				: source === "file" ? { kind: "file" as const, text: fileText ?? "" }
 				: { kind: "link" as const, url: link.trim() };
 			const modules = rows.filter((r) => r.on && r.name.trim()).map((r) => ({ name: r.name.trim(), ...(r.code ? { code: r.code } : {}) }));
-			const ob = await lockedIn.onboardV1({ calendar, ...(source === "sample" ? {} : { modules }) });
+			const ob = await lockedIn.onboardV1({ calendar, ...(source === "sample" ? {} : { modules }), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 			const note = ob.calendar
 				? `${ob.calendar.added} events read from your calendar${ob.calendar.unmapped ? `; ${ob.calendar.unmapped} didn't match a module` : ""}.`
 				: source === "sample"

@@ -101,7 +101,7 @@ export const lockedIn = {
 	onboard: (body: { modules: string[]; timetableSource: "sample" | "ics"; nudgesPerDay: 1 | 2 }) => api<{ profile: Profile; tryNow: TodayData["tryNow"] }>("/onboarding", { body }),
 	importIcs: (text: string) => api<{ added: number; unmapped: { summary: string }[] }>("/timetable/import", { raw: text, headers: { "content-type": "text/calendar" } }),
 	subscribe: (url: string) => api<{ added: number; unmapped: { summary: string }[] }>("/timetable/subscribe", { body: { url } }),
-	reads: () => api<{ source: string; label: string; events: number; lectures: number; modules: string[]; lastReadAt: string | null; location: string }>("/reads"),
+	reads: () => api<{ source: string; label: string; events: number; lectures: number; modules: string[]; lastReadAt: string | null; location: string; link: string | null; refreshedAt: string | null; timeZone: string }>("/reads"),
 	lectures: (q?: string) => api<{ lectures: LectureWithStatus[] }>(`/lectures${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.lectures),
 	missed: (id: string, missed = true) => api<Lecture>(`/lectures/${encodeURIComponent(id)}/missed`, { body: { missed } }),
 	roadmap: () => api<Record<string, LectureWithStatus[]>>("/roadmap"),
@@ -136,7 +136,7 @@ export const lockedIn = {
 	removeMaterials: (lectureId: string) => api(`/materials/${encodeURIComponent(lectureId)}`, { method: "DELETE" }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
-	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[] }) =>
+	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[]; timeZone?: string }) =>
 		api<{ profile: Profile; reads: Awaited<ReturnType<typeof lockedIn.reads>>; calendar: { added: number; unmapped: number } | null; firstTaste: FirstTaste | null }>("/onboarding", { body }),
 	firstTaste: () => api<FirstTaste & { sessionId: string }>("/onboarding/first-taste", { method: "POST" }),
 	ai: {

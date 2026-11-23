@@ -133,11 +133,12 @@ describe(".ics import", () => {
 		"END:VCALENDAR",
 	].join("\r\n");
 
-	it("expands weekly recurrences, skips all-day events, maps by module code", () => {
+	it("expands weekly recurrences, keeps all-day events as busy days (F-108), maps by module code", () => {
 		const events = parseIcs(ics, { from: new Date(2026, 10, 1), to: new Date(2026, 11, 31) });
-		assert.equal(events.length, 5);
+		assert.equal(events.filter((e) => !e.allDay).length, 5);
+		assert.deepEqual(events.filter((e) => e.allDay).map((e) => e.summary), ["Reading week"]);
 		const { lectures, unmapped } = icsToLectures(events, [{ code: "HCI", name: "Human-Computer Interaction" }]);
-		assert.deepEqual(unmapped.map((e) => e.summary), ["Chess club"]);
+		assert.deepEqual(unmapped.map((e) => e.summary).sort(), ["Chess club", "Reading week"]);
 		const lec = lectures.filter((l) => l.kind === "lecture");
 		assert.deepEqual(lec.map((l) => l.week), [1, 2, 3]);
 		assert.deepEqual(lec.map((l) => l.order), [1, 2, 3]);
