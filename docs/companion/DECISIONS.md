@@ -96,6 +96,19 @@ The plan is [`v1.1-plan.md`](v1.1-plan.md); the evidence is [`v1.1-research.md`]
 | V-37 | **The Week page is a timetable grid with drag and drop.** Study blocks snap to 15 minutes and can't land on a lecture, class, commitment, another block or quiet hours; the server checks the same rule. **Each block has a module**, set by the planner and changeable by the student | Jiven asked for drag and drop; dragging to a time needs a time scale. Time and growth can then be read per module | The day-columns Week view on wide screens (it stays on narrow ones) |
 | V-38 | **Progress no longer lists lectures by week.** The Library is the place for lists. The timetable's week numbers (which count from the first week the import could see, not teaching week 1) are therefore no longer shown anywhere; renumbering them waits for "Your courses" in v2.0 | His Game Theory showed 18 rows with two sets of weeks 1 to 7 | — |
 
+## Made for v2.0 (24 Nov 2026, Jiven)
+
+The direction is [`v2.0-direction.md`](v2.0-direction.md), rewritten the same day from an audit of v1.1 against the team's lo-fi v13. It is not yet a plan: its section 17 lists what is still to settle.
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-39 | **"Ideas to revisit" becomes gaps by idea.** Module, then the study pack's idea, then the questions missed on it. From an idea, "Practise this idea" has the AI write new questions around the gap, using what the student chose and why. Only ideas with a gap are listed | The flat list "will just grow into a massive list" (Jiven). Students want the weak spot directly (INT-01-d, INT-02-e); a backlog is what nearly lost INT-01 (INT-01-i). Chosen over grouping by chapter and over topics named by the AI | The lecture grouping in V-36 |
+| V-40 | **Two modes, Teach and Practise.** Teach is the engine's probe, learn, predict, check loop, on the laptop. Practise is fast multiple-choice questions mixed across a module's ideas and difficulties, with the slide beside them; the phone's question is its first question | "Having separation between the two lies at the heart of why we have differences between the phone and laptop. Phone is to onboard the user onto the laptop, laptop is to teach" (Jiven). R-8; AFF-N; X-4 | — |
+| V-41 | **No app blocking in v2.0.** The phone stays questions, the week and the check-in. The Off / Gentle / Firm rules stay on the server, unused | A web app can't see or stop another app opening; a real block needs a native app with Apple's Screen Time (UI research Q2). The lock is unresolved in the research (X-8). Chosen over building the lo-fi's simulated focus screens, a Shortcuts-based shield and a native app | — |
+| V-42 | **v2.0 is built as one release** on top of v1.1, with no separate cut for the hi-fi test | "Just build out the whole of v2.0, we have the primitives in place" (Jiven) | — |
+
+**For the group:** V-41 means the "app blocking" feature chain (23 Nov core set) ends at the lo-fi, with the hi-fi link "not built, and why". V-40's "Practise mixes topics" rests on interleaving, which has no `LIT` id yet.
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:
