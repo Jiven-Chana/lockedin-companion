@@ -180,6 +180,11 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-slide[data-page="true"] .li-page-text { border-top: 1px solid #e6e4ee; color: var(--li-slide-ink); }
 .li-slide ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
 .li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); font-size: 18px; }
+/* The set as dots: done, the one you are on, still to come. Shape as well as colour (never colour alone). */
+.li-qdots { display: inline-flex; gap: 6px; align-items: center; }
+.li-qdots i { width: 10px; height: 10px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; }
+.li-qdots i[data-state="done"] { background: var(--li-deep-accent); border-color: var(--li-deep-accent); }
+.li-qdots i[data-state="current"] { border-color: var(--li-deep-ink); width: 14px; height: 14px; }
 .li-dots { display: flex; gap: 4px; }
 .li-dots span { flex: 1; height: 6px; border-radius: 3px; background: var(--li-deep-line); }
 .li-dots span[data-on="true"] { background: var(--li-deep-accent); }

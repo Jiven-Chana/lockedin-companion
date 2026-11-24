@@ -141,3 +141,17 @@ export function mapChatToView(input: LhViewInput): SessionView {
 	if (!hasAssistant) return { ...base, status: "error", error: "no_question" };
 	return { ...base, status: "done", endedEarly: true };
 }
+
+/**
+ * Which question the student is on, for "Question 2 of 5" and the dots
+ * (lo-fi task 1). It counts the question in front of them, not the ones
+ * behind: question 1 reads 1 of 5. While the feedback for the answer just
+ * given is still on screen, it stays on that question.
+ */
+export function questionNumber(input: { answered: number; budget: number; done: boolean; reviewing: boolean }): { current: number; total: number; dots: ("done" | "current" | "todo")[] } {
+	const total = Math.max(1, input.budget);
+	const current = Math.min(total, Math.max(1, input.done || input.reviewing ? input.answered : input.answered + 1));
+	const finished = input.done ? total : input.reviewing ? current : current - 1;
+	return { current, total, dots: Array.from({ length: total }, (_, i) => (i < finished ? "done" : i === current - 1 && !input.done ? "current" : "todo")) };
+}
+

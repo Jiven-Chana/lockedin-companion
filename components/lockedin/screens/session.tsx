@@ -10,9 +10,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONFIDENCE_TAPS, MATERIALS_RULES, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { BLOCK_RULES, CONFIDENCE_TAPS, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
-import { useLocalFlag, usePoll } from "../hooks";
+import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
 import { MicButton, useMic } from "../mic";
 import { Prose } from "../prose";
@@ -46,6 +46,8 @@ export function SessionScreen({ id }: { id: string }) {
 	const [hasPdf, setHasPdf] = useState(false);
 	const [slide, setSlide] = useState<number | null>(null);
 	const [notify, setNotify] = useLocalFlag("li-notify");
+	const [onBreak, setOnBreak] = useState<number | null>(null);
+	const [breakOver, setBreakOver] = useState(false);
 	const qRef = useRef<HTMLHeadingElement>(null);
 
 	const load = useCallback(async () => {
@@ -67,10 +69,11 @@ export function SessionScreen({ id }: { id: string }) {
 
 	// The panel follows the slide the teacher cites, unless the student picked one.
 	// A unit keeps its file's page numbers (18 to 38, say), so the panel moves through those (S-1).
-	const cited = view?.feedback?.slideRefs[0] ?? view?.slideRefs[0];
-	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 	const reviewing = !!answered && !!view?.feedback && view.feedback.questionId === answered.question.id;
 	const showQuestion = view?.status === "question" && view.question && !reviewing;
+	// While a question is being answered the panel shows that question's own slide (lo-fi task 1).
+	const cited = (showQuestion ? view?.question?.slides?.[0] : undefined) ?? view?.feedback?.slideRefs[0] ?? view?.slideRefs[0];
+	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 
 	useEffect(() => {
 		if (showQuestion) {
@@ -143,6 +146,28 @@ export function SessionScreen({ id }: { id: string }) {
 			setBusy(null);
 		}
 	}
+	useEffect(() => {
+		if (onBreak === null || breakOver) return;
+		const t = setTimeout(() => endBreak(true), Math.max(0, onBreak - Date.now()));
+		return () => clearTimeout(t);
+	}, [onBreak, breakOver]);
+	// A break is offered only at the end of a set (INT-03-c, S-69). One buzz when it is over; taking longer loses nothing.
+	function startBreak() {
+		setBreakOver(false);
+		setOnBreak(Date.now() + BLOCK_RULES.breakMinutes * 60_000);
+		void lockedIn.event("break_started", { sessionId: id, minutes: BLOCK_RULES.breakMinutes });
+	}
+	function endBreak(natural: boolean) {
+		void lockedIn.event("break_ended", { sessionId: id, natural });
+		if (natural) {
+			setBreakOver(true);
+			try { navigator.vibrate?.(200); } catch { /* no buzz on this device */ }
+			if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("LockedIn", { body: SESSION_COPY.breakEnded });
+		} else {
+			setOnBreak(null);
+			setBreakOver(false);
+		}
+	}
 	async function keepGoing() {
 		setBusy("more");
 		try {
@@ -183,6 +208,7 @@ export function SessionScreen({ id }: { id: string }) {
 	const s = slides.find((x) => x.number === pos.number);
 	const fb = view.feedback;
 
+	const at = questionNumber({ answered: view.answered, budget: view.budget, done: view.status === "done", reviewing });
 	return (
 		<Tint hue={moduleHue(view.lecture.module)}>
 			<div className="li-focus">
@@ -192,8 +218,8 @@ export function SessionScreen({ id }: { id: string }) {
 						<b className="li-display" style={{ fontSize: "1.25em" }}>{view.lecture.module} · {view.lecture.title}</b>
 						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.goal}{view.engine === "scripted" ? " · scripted questions" : ""} · stop any time, nothing is lost</span>
 					</span>
-					<FocusRing done={view.answered} total={view.budget} />
-					<b style={{ fontSize: "1.1em", minWidth: 60 }}>{view.answered} of {view.budget}</b>
+					<span className="li-qdots" aria-hidden="true">{at.dots.map((d, i) => <i key={i} data-state={d} />)}</span>
+					<b style={{ fontSize: "1.1em" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : SESSION_COPY.position(at.current, at.total)}</b>
 				</div>
 
 				<div className="li-panes">
@@ -295,19 +321,37 @@ export function SessionScreen({ id }: { id: string }) {
 
 						{view.status === "done" && !reviewing ? (
 							<>
-								<span className="li-eyebrow">Session done</span>
-								<h2 className="li-q-stem">{view.answered} of {view.budget} answered{view.endedEarly ? ", and the teacher wrapped up" : ""}.</h2>
-								{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : <p className="li-muted" style={{ margin: 0 }}>Anything you missed comes back later in a short retest. Nothing is ever overdue.</p>}
-								{!notify && typeof Notification !== "undefined" && Notification.permission !== "denied" ? (
-									<div className="li-note li-row">
-										<span style={{ flexGrow: 1 }}>Want a desktop notification when the next one is ready?</span>
-										<button type="button" className="li-btn soft" onClick={async () => { const p = await Notification.requestPermission(); setNotify(p === "granted"); void lockedIn.event("settings_changed", { changed: ["notifications"], granted: p === "granted" }); }}>Turn on</button>
-									</div>
-								) : null}
-								<div className="li-row">
-									<button type="button" className="li-btn" onClick={keepGoing} disabled={!!busy}>{busy === "more" ? "Adding…" : "Keep going (+3)"}</button>
-									<Link className="li-btn primary big" href="/app">Done</Link>
-								</div>
+								{onBreak ? (
+									<>
+										<span className="li-eyebrow">On a break</span>
+										<h2 className="li-q-stem">{breakOver ? SESSION_COPY.breakEnded : SESSION_COPY.onBreak(fmtTime(new Date(onBreak)))}</h2>
+										{breakOver ? null : <p className="li-muted" style={{ margin: 0 }}>{SESSION_COPY.breakNote}</p>}
+										<div className="li-row">
+											<button type="button" className="li-btn primary big" onClick={() => endBreak(false)}>{SESSION_COPY.breakOverButton}</button>
+										</div>
+									</>
+								) : (
+									<>
+										<span className="li-eyebrow">{SESSION_COPY.setFinished}</span>
+										<h2 className="li-q-stem">{SESSION_COPY.doneTitle(view.answered, view.lecture.title)}{view.endedEarly ? " The teacher wrapped up." : ""}</h2>
+										{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : null}
+										{/* No score (R-6): what comes back, and what is next. */}
+										<p style={{ margin: 0 }}>{SESSION_COPY.comingBack(view.comingBack ?? [])}</p>
+										{view.nextBlockAt ? <p className="li-note" style={{ margin: 0 }}>{SESSION_COPY.nextBlock(`${fmtDay(view.nextBlockAt, new Date())} ${fmtTime(view.nextBlockAt)}`)}</p> : null}
+										<p className="li-small li-muted" style={{ margin: 0 }}>{SESSION_COPY.noScore} {SESSION_COPY.breakRule}</p>
+										{!notify && typeof Notification !== "undefined" && Notification.permission !== "denied" ? (
+											<div className="li-note li-row">
+												<span style={{ flexGrow: 1 }}>Want a desktop notification when the next one is ready?</span>
+												<button type="button" className="li-btn soft" onClick={async () => { const p = await Notification.requestPermission(); setNotify(p === "granted"); void lockedIn.event("settings_changed", { changed: ["notifications"], granted: p === "granted" }); }}>Turn on</button>
+											</div>
+										) : null}
+										<div className="li-row" style={{ flexWrap: "wrap" }}>
+											<button type="button" className="li-btn" onClick={startBreak}>{SESSION_COPY.takeBreak(BLOCK_RULES.breakMinutes)}</button>
+											<button type="button" className="li-btn" onClick={keepGoing} disabled={!!busy}>{busy === "more" ? "Adding…" : SESSION_COPY.moreQuestions(KEEP_GOING_QUESTIONS)}</button>
+											<Link className="li-btn primary big" href="/app">{SESSION_COPY.finish}</Link>
+										</div>
+									</>
+								)}
 							</>
 						) : null}
 					</section>

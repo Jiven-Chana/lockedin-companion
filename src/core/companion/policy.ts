@@ -79,8 +79,11 @@ export const SCHEDULE_RULES = {
 
 /** The phone hand-off (F-112, spec Appendix A). */
 export const HANDOFF_COPY = {
-	toast: (more: number) => `Question 1 answered on your phone ✓ ${more} more ready.`,
+	/** The laptop says how question 1 went on the phone (lo-fi task 1; AFF-H). */
+	toast: (more: number, correct = true) => (correct ? `Question 1 answered on your phone ✓ ${more} more ready.` : `Question 1: not quite. It comes back in your next Practise. ${more} more ready.`),
 	title: "From your phone",
+	/** Today's card for a session that is waiting: which question it opens on. */
+	ready: (question: number) => (question > 1 ? `Ready now · picks up at question ${question}` : "Ready now · question 1 is waiting"),
 	/** The phone's "N more on your laptop": the post-lecture budget minus the phone's question. */
 	more: () => SESSION_BUDGETS["post-lecture"].questions - 1,
 	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
@@ -507,6 +510,24 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** Where you are in the set: the question you are on, not how many are behind you (lo-fi task 1). */
+	position: (n: number, total: number) => `Question ${n} of ${total}`,
+	/** The done screen (R-6; design log 23 Nov): no score. It names what comes back, and the next block. */
+	doneTitle: (n: number, title: string) => `Done: ${n} ${n === 1 ? "question" : "questions"} on ${title}.`,
+	comingBack: (ideas: readonly string[]) => (ideas.length ? `Coming back in your next Practise: ${ideas.join(", ")}.` : "Nothing to come back to from this one."),
+	noScore: "No streak, no score to keep up.",
+	nextBlock: (when: string) => `Next: ${when} block, already in your week.`,
+	/** The end of a set (INT-03-c, S-69): a break is offered here and never mid-question. */
+	setFinished: "Set finished. Good place to stop for a bit.",
+	setFinishedShort: "Set finished",
+	breakRule: "Breaks only come at the end of a set, never mid-question.",
+	takeBreak: (minutes: number) => `Take a ${minutes}-min break`,
+	moreQuestions: (n: number) => `${n} more questions`,
+	finish: "Finish for today",
+	onBreak: (until: string) => `On a break until ${until}.`,
+	breakNote: "One buzz when it's over, and nothing is lost if you take longer.",
+	breakOverButton: "Break's over",
+	breakEnded: "Break's over. Ready when you are.",
 	/** Leaving a session (R-5): where it was saved, on Today's card. */
 	savedAt: (question: number) => `Saved at question ${question}. Pick up any time. Nothing is marked missed.`,
 	left: (questions: number, minutes: number) => `${questions} ${questions === 1 ? "question" : "questions"} left, about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`,

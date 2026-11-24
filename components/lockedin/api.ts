@@ -52,7 +52,7 @@ export interface MaterialProposal {
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
 
-export type Banner = (NudgeRecord & { ready: boolean }) | null;
+export type Banner = (NudgeRecord & { ready: boolean; startsAt: number }) | null;
 export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "not-started"; revisit: number };
 
 export interface TodayData {

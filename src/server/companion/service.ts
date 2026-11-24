@@ -1261,7 +1261,7 @@ export class CompanionService {
 		}
 		const { sessionId } = this.createSession(spec);
 		const more = spec.seedAnswer ? spec.budget.questions - 1 : spec.budget.questions;
-		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: HANDOFF_COPY.toast(more), lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
+		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: HANDOFF_COPY.toast(more, spec.seedAnswer?.correct ?? true), lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
 		return { sessionId };
 	}
 
@@ -1311,12 +1311,13 @@ export class CompanionService {
 	// ─── nudges (§7.6) ──────────────────────────────────────────────────────
 
 	/** The nudge on screen: the newest fired today with no outcome yet, within its TTL. */
-	banner(): (NudgeRecord & { ready: boolean }) | null {
+	banner(): (NudgeRecord & { ready: boolean; startsAt: number }) | null {
 		const now = this.now();
 		const n = [...this.store.nudges()].reverse().find((x) => !x.outcome && sameDay(x.firedAt, now));
 		if (!n || addMinutes(new Date(n.firedAt), NUDGE_RULES.bannerTtlMinutes) < now) return null;
 		const session = n.sessionId ? this.store.session(n.sessionId) : null;
-		return { ...n, ready: isSessionReady(session ?? undefined) };
+		// A hand-off from the phone picks up at question 2: question 1 was answered there (R-8).
+		return { ...n, ready: isSessionReady(session ?? undefined), startsAt: session?.spec.seedAnswer ? 2 : 1 };
 	}
 
 	/**
@@ -1325,7 +1326,7 @@ export class CompanionService {
 	 * (scripted ones are ready in microseconds; LearnHarness takes seconds and
 	 * is simply picked up by a later tick).
 	 */
-	async tick(settleMs = 250): Promise<{ nudge: (NudgeRecord & { ready: boolean }) | null; prepared: string[] }> {
+	async tick(settleMs = 250): Promise<{ nudge: (NudgeRecord & { ready: boolean; startsAt: number }) | null; prepared: string[] }> {
 		const prepared: string[] = [];
 		if (!this.store.profile()) return { nudge: null, prepared };
 		const now = this.now();
@@ -1653,7 +1654,31 @@ export class CompanionService {
 			}
 			return next;
 		});
-		return v;
+		return v.status === "done" ? { ...v, ...this.doneExtras(session, now) } : v;
+	}
+
+	/**
+	 * What the done screen names instead of a score (R-6; design log 23 Nov):
+	 * the ideas this session will bring back, and the next study block.
+	 */
+	private doneExtras(session: CompanionSession, now: Date): Pick<SessionView, "comingBack" | "nextBlockAt"> {
+		const titles = new Map(this.packIdeas().map((i) => [`${i.lectureId}#${i.nodeId}`, i.title]));
+		const comingBack: string[] = [];
+		for (const m of this.store.misses()) {
+			if (m.sessionId !== session.id || m.status !== "open") continue;
+			const name = (m.nodeId ? titles.get(`${m.lectureId}#${m.nodeId}`) : undefined) ?? m.questionText;
+			if (!comingBack.includes(name)) comingBack.push(name);
+		}
+		return { comingBack, nextBlockAt: this.nextBlockOf(this.store.state(), now)?.start.toISOString() ?? null };
+	}
+
+	/** The next study block still to come, within the week ahead. */
+	private nextBlockOf(state: Pick<ReturnType<CompanionStore["state"]>, "blocks">, now: Date) {
+		for (let i = 0; i < 8; i++) {
+			const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
+			if (c) return c;
+		}
+		return null;
 	}
 
 	/**
@@ -1955,8 +1980,8 @@ export class CompanionService {
 		const resume = resumableSession(state.sessions, now);
 		const resumeLecture = resume ? this.lectureById(resume.spec.lectureId) : undefined;
 		const nextBlock = (() => {
-			for (let i = 0; i < 8; i++) {
-				const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
+			{
+				const c = this.nextBlockOf(state, now);
 				if (c) {
 					const b = state.blocks.find((x) => x.id === c.id);
 					const first = b ? this.firstStepOf(b) : null;

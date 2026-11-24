@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AI_COPY, moduleHue, PLAN_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
+import { AI_COPY, HANDOFF_COPY, moduleHue, PLAN_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn } from "../api";
 import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
@@ -67,7 +67,7 @@ export function TodayScreen() {
 	let hero: { hue: number; eyebrow: string; title: string; sub: string; cta: string; done: number; total: number; go: () => void } | null = null;
 	if (t?.banner && t.banner.sessionId) {
 		const b = t.banner;
-		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
+		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? HANDOFF_COPY.ready(b.startsAt) : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: b.startsAt - 1, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
 	} else if (t?.resume) {
 		// A session you left (R-5): where it was saved, and how much is left. Opening it is what resumes it.
 		const r = t.resume;

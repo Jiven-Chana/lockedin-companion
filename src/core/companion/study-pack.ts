@@ -183,6 +183,7 @@ export function bankToScriptedSet(lectureId: string, bank: readonly BankQuestion
 				correct: [q.correct],
 				explanation: /\(Slides? \d/.test(q.explanation) ? q.explanation : `${q.explanation}${cite}`,
 				nodeId: q.node,
+				slides: q.slides,
 				...(example ? { workedExample: example } : {}),
 			};
 		}),

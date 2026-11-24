@@ -62,6 +62,8 @@ export interface SessionQuestion {
 	options: SessionOption[];
 	multi: boolean;
 	role: "check" | "predict";
+	/** The slides this question comes from, when the question bank knows them: the slide panel opens on the first. */
+	slides?: number[];
 }
 
 export interface SessionFeedback {
@@ -106,6 +108,10 @@ export interface SessionView {
 	practiceAvailable?: boolean;
 	/** Every (Slide n) referenced in prose + feedback, for the slide sheet. */
 	slideRefs: number[];
+	/** status "done": the ideas this session will bring back, by name (no score is shown: R-6). */
+	comingBack?: string[];
+	/** status "done": when the next study block starts (ISO), if one is planned. */
+	nextBlockAt?: string | null;
 }
 
 /** The learner's answer as it arrives from the session screen. */
@@ -154,6 +160,8 @@ export interface ScriptedQuestion {
 	nodeId: string;
 	/** Reserve this question for retests and "show me" follow-ups. */
 	retestOnly?: boolean;
+	/** The slides it comes from (study-pack bank questions carry them). */
+	slides?: number[];
 }
 
 export interface ScriptedSet {
@@ -412,6 +420,8 @@ export const COMPANION_EVENT_TYPES = [
 	"app_open_blocked",
 	"lock_override",
 	"settings_changed",
+	"break_started",
+	"break_ended",
 	"engine_fallback",
 	"error",
 	// v0.1 F-101, F-102
@@ -491,6 +501,8 @@ export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 export const CLIENT_EVENT_TYPES: readonly CompanionEventType[] = [
 	"onboarding_step",
 	"settings_changed",
+	"break_started",
+	"break_ended",
 	"block_started",
 	"error",
 	"explainer_opened",
