@@ -11,10 +11,13 @@ import { addMinutes, atTime, isValidHM, minutesBetween } from "./time.ts";
 import { blockOccursOn } from "./nudges.ts";
 import type { LockStrictness, StudyBlock } from "./types.ts";
 
+const STATUSES = ["proposed", "accepted", "started", "removed"] as const;
+const SOURCES = ["planner", "student", "phone"] as const;
+
+/** Check blocks the student saves or edits (F-110). Planner proposals are built by plan-week.ts. */
 export function validateBlocks(blocks: unknown): { ok: true; blocks: StudyBlock[] } | { ok: false; errors: string[] } {
 	if (!Array.isArray(blocks)) return { ok: false, errors: ["blocks must be an array"] };
 	const errors: string[] = [];
-	if (blocks.length > BLOCK_RULES.maxBlocks) errors.push(`at most ${BLOCK_RULES.maxBlocks} blocks a week`);
 	const out: StudyBlock[] = [];
 	const ids = new Set<string>();
 	blocks.forEach((raw, i) => {
@@ -23,19 +26,24 @@ export function validateBlocks(blocks: unknown): { ok: true; blocks: StudyBlock[
 		if (typeof b.id !== "string" || !/^[\w-]{1,64}$/.test(b.id)) errors.push(`${where}: id is required`);
 		else if (ids.has(b.id)) errors.push(`${where}: duplicate id`);
 		else ids.add(b.id);
-		if (!Number.isInteger(b.weekday) || b.weekday! < 1 || b.weekday! > 7) errors.push(`${where}: weekday must be 1 (Mon) to 7 (Sun)`);
+		if (typeof b.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) errors.push(`${where}: date must be YYYY-MM-DD`);
 		if (!isValidHM(b.start)) errors.push(`${where}: start must be HH:MM`);
 		const minutes = b.minutes ?? BLOCK_RULES.defaultMinutes;
 		if (!Number.isInteger(minutes) || minutes < BLOCK_RULES.minMinutes || minutes > BLOCK_RULES.maxMinutes)
 			errors.push(`${where}: minutes must be ${BLOCK_RULES.minMinutes}–${BLOCK_RULES.maxMinutes}`);
-		const skipped = Array.isArray(b.skippedDates) ? b.skippedDates.filter((d): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+		const status = (STATUSES as readonly string[]).includes(b.status as string) ? (b.status as StudyBlock["status"]) : "accepted";
+		const source = (SOURCES as readonly string[]).includes(b.source as string) ? (b.source as StudyBlock["source"]) : "student";
 		out.push({
 			id: b.id as string,
-			weekday: b.weekday as number,
+			date: b.date as string,
 			start: b.start as string,
 			minutes,
+			status,
+			source,
 			...(typeof b.lectureId === "string" && b.lectureId ? { lectureId: b.lectureId } : {}),
-			skippedDates: skipped,
+			...(typeof b.firstTaskQuestionId === "string" && b.firstTaskQuestionId ? { firstTaskQuestionId: b.firstTaskQuestionId } : {}),
+			...(b.reason === "keep-up" || b.reason === "gap" ? { reason: b.reason } : {}),
+			...(typeof b.anchorOf === "string" ? { anchorOf: b.anchorOf } : {}),
 		});
 	});
 	return errors.length > 0 ? { ok: false, errors } : { ok: true, blocks: out };

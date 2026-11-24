@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, type SessionSpec } from "@/src/core";
+import { AI_COPY, moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn, type SessionView } from "../api";
-import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
+import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
 import { Tint, useLockedIn } from "../root";
 import { PageHead } from "../shell";
@@ -20,6 +20,7 @@ export function TodayScreen() {
 	const { now } = useLockedIn();
 	const today = useData(() => lockedIn.today());
 	const progress = useData(() => lockedIn.progress());
+	const ai = useData(() => lockedIn.ai.status());
 	const [active, setActive] = useState<SessionView | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -50,7 +51,8 @@ export function TodayScreen() {
 	}
 	async function openNudge(id: string) {
 		const r = await lockedIn.nudge(id, "open");
-		if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
+		if (r.href) router.push(r.href);
+		else if (r.sessionId) router.push(`/app/session/${r.sessionId}`);
 	}
 
 	const lectures = t?.lectures ?? [];
@@ -59,24 +61,31 @@ export function TodayScreen() {
 	let hero: { hue: number; eyebrow: string; title: string; sub: string; cta: string; done: number; total: number; go: () => void } | null = null;
 	if (t?.banner && t.banner.sessionId) {
 		const b = t.banner;
-		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: 5, go: () => void openNudge(b.id) };
+		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
 	} else if (active && active.status !== "done") {
 		hero = { hue: moduleHue(active.lecture.module), eyebrow: `${active.lecture.module} · pick up where you left off`, title: active.lecture.title, sub: `${Math.max(0, active.budget - active.answered)} questions left`, cta: "Continue", done: active.answered, total: active.budget, go: () => router.push(`/app/session/${active.id}`) };
 	} else if (t?.welcomeBack) {
 		const wb = t.welcomeBack;
-		hero = { hue: 285, eyebrow: "Welcome back", title: "3 questions on last week?", sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: 3, go: () => void start(wb.spec) };
+		hero = { hue: 285, eyebrow: "Welcome back", title: SESSION_COPY.welcomeBackQuestion(), sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: wb.spec.budget.questions, go: () => void start(wb.spec) };
 	} else if (t?.tryNow) {
 		const tn = t.tryNow;
-		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: "3 questions on your last lecture, about 3 minutes", cta: "Try it", done: 0, total: 3, go: () => void start(tn.spec) };
+		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: SESSION_COPY.tryNow(), cta: "Try it", done: 0, total: tn.spec.budget.questions, go: () => void start(tn.spec) };
 	} else {
 		const l = lectures.find((x) => x.hasMaterials) ?? null;
-		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: "5 questions, about 10 minutes", cta: "Quiz me", done: 0, total: 5, go: () => void start({ kind: "post-lecture", lectureId: l.id }) };
+		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: "Quiz me", done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id }) };
 	}
 
 	return (
 		<>
-			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} />
+			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} clock />
+			{ai.data && !ai.data.ready ? (
+				<div className="li-note li-row" role="status" style={{ gap: 12 }}>
+					<span style={{ flexGrow: 1 }}>{ai.data.blocker && ai.data.provider ? ai.data.blocker : AI_COPY.fallback}</span>
+					<Link href="/app/me#ai" className="li-btn">{AI_COPY.fallbackAction}</Link>
+				</div>
+			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
+			<StarterCards phone={!!t?.phoneAvailable && !t.phonePaired} />
 			<div className="li-grid-2">
 				<div className="li-stack" style={{ gap: 24 }}>
 					{hero ? (
@@ -100,6 +109,7 @@ export function TodayScreen() {
 						<h2 id="today-h" className="li-h2" style={{ marginBottom: 8 }}>Today</h2>
 						{lectures.length === 0 ? <p className="li-muted" style={{ margin: 0 }}>No lectures today. A good day to revisit something, or to rest.</p> : null}
 						{lectures.map((l) => {
+							if (!l.start || !l.end) return null;
 							const ended = new Date(l.end) <= now;
 							return (
 								<div key={l.id} className="li-tl">
@@ -133,13 +143,13 @@ export function TodayScreen() {
 							<span style={{ display: "flex", flexDirection: "column" }}><b className="li-display" style={{ fontSize: "1.8em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><span className="li-small li-muted">questions answered</span></span>
 						</div>
 					</section>
-					<section className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
+					<Link href="/app/plan" className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
 						<span style={{ color: "var(--li-accent-text)" }}><Icon.calendar /></span>
 						<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
 							<b>Next study block</b>
-							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}` : "None set. Add one in Me."}</span>
+							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}` : "None yet. Plan your week."}</span>
 						</span>
-					</section>
+					</Link>
 					<Link href="/app/me" className="li-btn" style={{ alignSelf: "flex-start" }}>
 						<span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 999, background: "conic-gradient(oklch(0.6 0.16 0), oklch(0.6 0.16 120), oklch(0.6 0.16 240), oklch(0.6 0.16 360))" }} />
 						Make it yours
@@ -147,5 +157,35 @@ export function TodayScreen() {
 				</div>
 			</div>
 		</>
+	);
+}
+
+/**
+ * Optional next steps after the first taste (spec J1′ step 5), each one
+ * dismissible. "Get questions on your phone" joins when the phone app ships
+ * (F-112).
+ */
+function StarterCards({ phone }: { phone: boolean }) {
+	const [hideSlides, setHideSlides] = useLocalFlag("li-card-slides");
+	const [hidePlan, setHidePlan] = useLocalFlag("li-card-plan");
+	const [hidePhone, setHidePhone] = useLocalFlag("li-card-phone");
+	const cards = [
+		!hideSlides && { key: "slides", title: "Add your slides", sub: "Lectures, a week or a whole semester. I'll write the questions.", href: "/app/library", dismiss: () => setHideSlides(true) },
+		!hidePlan && { key: "plan", title: "Plan my week with me (2 min)", sub: "A few quick questions, then study blocks in your free time.", href: "/app/plan/chat", dismiss: () => setHidePlan(true) },
+		phone && !hidePhone && { key: "phone", title: "Get questions on your phone", sub: "One question after a lecture, even with this laptop closed.", href: "/app/me#phone", dismiss: () => setHidePhone(true) },
+	].filter(Boolean) as { key: string; title: string; sub: string; href: string; dismiss: () => void }[];
+	if (!cards.length) return null;
+	return (
+		<div className="li-row" style={{ gap: 12, alignItems: "stretch" }} aria-label="Next steps">
+			{cards.map((c) => (
+				<div key={c.key} className="li-card flat li-row" style={{ flex: "1 1 280px", gap: 10 }}>
+					<Link href={c.href} style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
+						<b>{c.title}</b>
+						<span className="li-small li-muted">{c.sub}</span>
+					</Link>
+					<button type="button" className="li-btn ghost" onClick={c.dismiss} aria-label={`Dismiss ${c.title}`}>✕</button>
+				</div>
+			))}
+		</div>
 	);
 }

@@ -1,0 +1,193 @@
+"use client";
+
+/**
+ * The week (v0.1 F-110, F-111, J5′): lectures, commitments and study blocks
+ * for Mon–Sun. Proposals are ticked, moved or removed in one action each.
+ * The weekly target lives here, with "Plan my week" and the setup chat.
+ * On Sunday (or from the N-5 nudge) the check-in comes first. Nothing is
+ * ever called missed (R-6).
+ */
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { moduleHue, PLAN_COPY, type StudyBlock } from "@/src/core";
+import { ApiError, lockedIn, type CheckinData, type PlanData } from "../api";
+import { fmtTime, useData } from "../hooks";
+import { Tint, useLockedIn } from "../root";
+import { PageHead } from "../shell";
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const TARGETS = [60, 120, 180, 240, 300, 360, 480, 600];
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDaysIso = (date: string, n: number) => {
+	const d = new Date(`${date}T12:00:00`);
+	d.setDate(d.getDate() + n);
+	return iso(d);
+};
+
+function BlockCard({ b, order, onDone }: { b: PlanData["blocks"][number]; order: number; onDone: () => void }) {
+	const [moving, setMoving] = useState(false);
+	const [date, setDate] = useState(b.date);
+	const [start, setStart] = useState(b.start);
+	const [err, setErr] = useState<string | null>(null);
+	const act = async (patch: Parameters<typeof lockedIn.updateBlock>[1]) => {
+		try {
+			await lockedIn.updateBlock(b.id, patch);
+			setMoving(false);
+			onDone();
+		} catch (e) {
+			setErr(e instanceof ApiError ? e.message : "Couldn't do that");
+		}
+	};
+	const proposed = b.status === "proposed";
+	return (
+		<Tint hue={moduleHue(b.focus?.module ?? "study")}>
+			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
+				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : ""}</span>
+				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : "Free study"}{b.reason === "gap" ? " · catch-up" : ""}</span>
+				{moving ? (
+					<span className="li-row" style={{ gap: 6, flexWrap: "wrap" }}>
+						<input className="li-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Day" style={{ width: "auto" }} />
+						<input className="li-input" type="time" value={start} onChange={(e) => setStart(e.target.value)} aria-label="Start" style={{ width: "auto" }} />
+						<button type="button" className="li-btn primary" onClick={() => act({ date, start })}>Move</button>
+						<button type="button" className="li-btn" onClick={() => setMoving(false)}>Cancel</button>
+					</span>
+				) : b.status !== "started" ? (
+					<span className="li-row" style={{ gap: 6 }}>
+						{proposed ? <button type="button" className="li-btn primary" onClick={() => act({ status: "accepted" })} aria-label={`Keep ${b.start} block`}>✓ Keep</button> : null}
+						<button type="button" className="li-btn" onClick={() => setMoving(true)}>Move</button>
+						<button type="button" className="li-btn ghost" onClick={() => act({ status: "removed" })} aria-label={`Remove ${b.start} block`}>✕</button>
+					</span>
+				) : null}
+				{err ? <span className="li-small" role="alert">{err}</span> : null}
+			</div>
+		</Tint>
+	);
+}
+
+function CheckIn({ onDone }: { onDone: (week: string) => void }) {
+	const data = useData(() => lockedIn.checkin().catch(() => null as CheckinData | null));
+	const [proposal, setProposal] = useState<{ proposed: number; current: number; ask: string | null; keepLabel: string } | null>(null);
+	const [busy, setBusy] = useState(false);
+	const c = data.data;
+	if (!c) return null;
+	if (!c.target) return <div className="li-card">Set a weekly target below first, then the check-in can suggest changes to it.</div>;
+	const feel = async (feeling: string) => {
+		setBusy(true);
+		const r = await lockedIn.answerCheckin({ feeling });
+		setProposal({ proposed: r.proposed!, current: r.current!, ask: r.ask ?? null, keepLabel: r.keepLabel ?? "Keep" });
+		setBusy(false);
+	};
+	const finish = async (body: { target: number } | { keep: true }) => {
+		setBusy(true);
+		await lockedIn.answerCheckin(body);
+		onDone(c.nextWeek);
+	};
+	return (
+		<section className="li-card li-stack" style={{ gap: 12 }} aria-labelledby="checkin-h">
+			<h2 id="checkin-h" className="li-h2">Your week</h2>
+			<p style={{ margin: 0 }}>{c.text}</p>
+			{!proposal ? (
+				<div className="li-row" style={{ gap: 8 }}>
+					{Object.entries(c.feelings).map(([k, label]) => <button key={k} type="button" className="li-btn" disabled={busy} onClick={() => feel(k)}>{label}</button>)}
+				</div>
+			) : proposal.ask ? (
+				<div className="li-row" style={{ gap: 8 }}>
+					<b style={{ flexGrow: 1 }}>{proposal.ask}</b>
+					<button type="button" className="li-btn primary" disabled={busy} onClick={() => finish({ target: proposal.proposed })}>{PLAN_COPY.yes}</button>
+					<button type="button" className="li-btn" disabled={busy} onClick={() => finish({ keep: true })}>{proposal.keepLabel}</button>
+				</div>
+			) : (
+				<div className="li-row" style={{ gap: 8 }}>
+					<b style={{ flexGrow: 1 }}>Same again next week.</b>
+					<button type="button" className="li-btn primary" disabled={busy} onClick={() => finish({ keep: true })}>Plan next week</button>
+				</div>
+			)}
+		</section>
+	);
+}
+
+export function PlanScreen() {
+	const router = useRouter();
+	const params = useSearchParams();
+	const { now } = useLockedIn();
+	const [week, setWeek] = useState<string | undefined>(params.get("week") ?? undefined);
+	const [msg, setMsg] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const plan = useData(() => lockedIn.plan(week), [week]);
+	const isSunday = now.getDay() === 0;
+	const [showCheckin, setShowCheckin] = useState(params.get("checkin") === "1" || isSunday);
+	const p = plan.data;
+
+	async function propose() {
+		setBusy(true);
+		setMsg(null);
+		try {
+			const r = await lockedIn.proposePlan(p?.week);
+			setMsg(r.message);
+			void plan.reload();
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't plan the week");
+		} finally {
+			setBusy(false);
+		}
+	}
+	async function setTarget(minutes: number) {
+		await lockedIn.planSettings({ weeklyTargetMinutes: minutes });
+		void plan.reload();
+	}
+
+	const days = p ? DAYS.map((name, i) => ({ name, date: addDaysIso(p.week, i) })) : [];
+	const lecturesOn = (date: string) => (p?.lectures ?? []).filter((l) => l.start && iso(new Date(l.start)) === date);
+	const blocksOn = (date: string) => (p?.blocks ?? []).filter((b: StudyBlock) => b.date === date);
+	const commitmentsOn = (date: string) => (p?.commitments ?? []).filter((c) => c.weekdays.includes(((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1));
+	const proposals = (p?.blocks ?? []).filter((b) => b.status === "proposed").length;
+
+	return (
+		<>
+			<PageHead eyebrow="Week" title="Your study week">
+				<div className="li-row" style={{ gap: 10, marginTop: 12 }}>
+					<button type="button" className="li-btn" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), -7))} aria-label="Previous week">‹</button>
+					<b>{p ? `Week of ${new Date(`${p.week}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}` : "…"}</b>
+					<button type="button" className="li-btn" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), 7))} aria-label="Next week">›</button>
+				</div>
+			</PageHead>
+
+			{showCheckin ? <CheckIn onDone={(w) => { setShowCheckin(false); setWeek(w); void plan.reload(); }} /> : null}
+
+			<section className="li-card li-row" style={{ gap: 16, alignItems: "center" }} aria-label="Weekly target">
+				<label className="li-row" style={{ gap: 8 }}>
+					<b>Weekly target</b>
+					<select className="li-input" style={{ width: "auto" }} value={p?.target ?? ""} onChange={(e) => void setTarget(Number(e.target.value))}>
+						<option value="" disabled>Choose…</option>
+						{[...new Set([...TARGETS, ...(p?.target ? [p.target] : [])])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{PLAN_COPY.hours(m)}</option>)}
+					</select>
+				</label>
+				<span className="li-muted" style={{ flexGrow: 1 }}>{p ? `${PLAN_COPY.hours(p.committedMinutes)} kept${p.proposedMinutes ? `, ${PLAN_COPY.hours(p.proposedMinutes)} proposed` : ""}` : ""}</span>
+				<button type="button" className="li-btn primary" disabled={busy || !p?.target} onClick={propose}>{busy ? "Planning…" : "Plan my week"}</button>
+				{proposals ? <button type="button" className="li-btn" onClick={async () => { await lockedIn.acceptBlocks(p!.week); void plan.reload(); }}>Keep all {proposals}</button> : null}
+				<Link className="li-btn ghost" href="/app/plan/chat">Plan my week with me (2 min)</Link>
+				{!showCheckin ? <button type="button" className="li-btn ghost" onClick={() => setShowCheckin(true)}>Check in</button> : null}
+			</section>
+			{msg ? <div className="li-note" role="status">{msg}</div> : null}
+
+			<div className="li-week" role="list" aria-label="This week">
+				{days.map((d, di) => (
+					<div key={d.date} className="li-day" role="listitem" data-today={d.date === iso(now) ? "true" : "false"}>
+						<b>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>
+						{[
+							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} hue={moduleHue(l.module)}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
+							...commitmentsOn(d.date).map((c, i) => ({ at: c.start, key: `c${i}`, node: <span key={`c${i}`} className="li-event" data-kind="commitment">{c.start} {c.label}</span> })),
+							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b as PlanData["blocks"][number]} order={di} onDone={() => void plan.reload()} /> })),
+						]
+							.sort((a, b) => a.at.localeCompare(b.at))
+							.map((x) => x.node)}
+					</div>
+				))}
+			</div>
+			{p && !p.target ? <div className="li-card li-empty">Choose a weekly target, then &quot;Plan my week&quot;. Or <Link href="/app/plan/chat">plan it with me</Link> in about two minutes.</div> : null}
+			<button type="button" className="li-btn ghost" style={{ alignSelf: "flex-start" }} onClick={() => router.push("/app")}>Back to Today</button>
+		</>
+	);
+}

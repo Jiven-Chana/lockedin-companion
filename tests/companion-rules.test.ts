@@ -85,8 +85,8 @@ describe("sample timetable", () => {
 	it("puts the current teaching week on this week, earlier weeks before it, in course order", () => {
 		const ls = materializeSampleTimetable(sample, now, { hasMaterials: (id) => id !== "h1" });
 		const h2 = ls.find((l) => l.id === "h2")!;
-		assert.equal(new Date(h2.start).toISOString(), new Date(2026, 10, 17, 11).toISOString());
-		assert.equal(new Date(ls.find((l) => l.id === "h1")!.start).toISOString(), new Date(2026, 10, 10, 11).toISOString());
+		assert.equal(new Date(h2.start!).toISOString(), new Date(2026, 10, 17, 11).toISOString());
+		assert.equal(new Date(ls.find((l) => l.id === "h1")!.start!).toISOString(), new Date(2026, 10, 10, 11).toISOString());
 		assert.equal(ls.find((l) => l.id === "g2")!.start, new Date(2026, 10, 19, 9).toISOString(), "a lecture can override its slot");
 		assert.deepEqual(ls.filter((l) => l.kind === "event").map((l) => l.id).sort(), ["hci-lab-w1", "hci-lab-w2"]);
 		assert.equal(h2.order, 2);
@@ -133,11 +133,12 @@ describe(".ics import", () => {
 		"END:VCALENDAR",
 	].join("\r\n");
 
-	it("expands weekly recurrences, skips all-day events, maps by module code", () => {
+	it("expands weekly recurrences, keeps all-day events as busy days (F-108), maps by module code", () => {
 		const events = parseIcs(ics, { from: new Date(2026, 10, 1), to: new Date(2026, 11, 31) });
-		assert.equal(events.length, 5);
+		assert.equal(events.filter((e) => !e.allDay).length, 5);
+		assert.deepEqual(events.filter((e) => e.allDay).map((e) => e.summary), ["Reading week"]);
 		const { lectures, unmapped } = icsToLectures(events, [{ code: "HCI", name: "Human-Computer Interaction" }]);
-		assert.deepEqual(unmapped.map((e) => e.summary), ["Chess club"]);
+		assert.deepEqual(unmapped.map((e) => e.summary).sort(), ["Chess club", "Reading week"]);
 		const lec = lectures.filter((l) => l.kind === "lecture");
 		assert.deepEqual(lec.map((l) => l.week), [1, 2, 3]);
 		assert.deepEqual(lec.map((l) => l.order), [1, 2, 3]);
@@ -147,11 +148,11 @@ describe(".ics import", () => {
 });
 
 describe("study blocks and the lock", () => {
-	const block = { id: "b1", weekday: 2, start: "13:00", minutes: 60, skippedDates: [] };
+	const block = { id: "b1", date: "2026-11-17", start: "13:00", minutes: 60, status: "accepted" as const, source: "student" as const };
 
-	it("validates: at most 2, sane times, ids", () => {
+	it("validates: a date, sane times, ids", () => {
 		assert.equal(validateBlocks([block]).ok, true);
-		const bad = validateBlocks([{ ...block, weekday: 8, start: "25:00", minutes: 5 }]);
+		const bad = validateBlocks([{ ...block, date: "Tuesday", start: "25:00", minutes: 5 }]);
 		assert.equal(bad.ok, false);
 		assert.equal((bad as { errors: string[] }).errors.length, 3);
 	});
@@ -161,7 +162,8 @@ describe("study blocks and the lock", () => {
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 13, 26))?.onBreak, true);
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 13, 31))?.onBreak, false);
 		assert.equal(activeBlock([block], new Date(2026, 10, 17, 14, 0)), null);
-		assert.equal(activeBlock([{ ...block, skippedDates: ["2026-11-17"] }], new Date(2026, 10, 17, 13, 10)), null);
+		assert.equal(activeBlock([{ ...block, status: "removed" }], new Date(2026, 10, 17, 13, 10)), null);
+		assert.equal(activeBlock([{ ...block, date: "2026-11-24" }], new Date(2026, 10, 17, 13, 10)), null, "only on its own date");
 	});
 
 	it("there is always a way out", () => {

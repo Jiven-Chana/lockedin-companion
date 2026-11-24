@@ -18,7 +18,7 @@ export interface SlideAssembly {
 
 const HEADING_RE = /^##\s+Slide\s+(\d+)\s*(?:[—–-]\s*(.*))?$/;
 
-function firstLineTitle(markdown: string): string {
+export function firstLineTitle(markdown: string): string {
 	for (const raw of markdown.split("\n")) {
 		const line = raw.replace(/^#+\s*/, "").replace(/[*_`]/g, "").trim();
 		if (line) return line.length > 80 ? `${line.slice(0, 77)}…` : line;

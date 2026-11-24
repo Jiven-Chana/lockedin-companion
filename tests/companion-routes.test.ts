@@ -64,7 +64,9 @@ describe("companion HTTP routes", () => {
 		assert.equal(h.defaultEngine, "scripted");
 		assert.equal(h.onboarded, false);
 		assert.deepEqual(await json(r.due.GET(req("GET"))), { nudge: null, prepared: [] });
-		await json(r.sessions.POST(req("POST", { kind: "try-now", lectureId: "hci-w3-personas" })), 409);
+		// Only the first taste (the bundled sample lecture, J1′) may start before onboarding.
+		await json(r.sessions.POST(req("POST", { kind: "post-lecture", lectureId: "hci-w3-personas" })), 409);
+		await json(r.sessions.POST(req("POST", { kind: "try-now", lectureId: "hci-w4-fieldwork" })), 409);
 	});
 
 	it("J1: onboarding → try-now → question 1 in three calls", async () => {
@@ -126,8 +128,8 @@ describe("companion HTTP routes", () => {
 		assert.equal((await json(r.reads.GET(req("GET")))).label, "Sample timetable");
 		assert.ok((await json(r.progress.GET(req("GET")))).week);
 		assert.equal((await json(r.materials.GET(req("GET"), ctx({ lectureId: "hci-w3-personas" })))).slides.length, 10);
-		await json(r.blocks.PUT(req("PUT", [{ id: "b1", weekday: 3, start: "15:00", minutes: 25, skippedDates: [] }])));
-		await json(r.blocks.PUT(req("PUT", [{ id: "b1", weekday: 9 }])), 400);
+		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "2026-11-18", start: "15:00", minutes: 25, status: "accepted", source: "student" }])));
+		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "Wednesday" }])), 400);
 		const profile = await json(r.profile.PUT(req("PUT", { prefs: { nudgesPerDay: 2 }, appearance: { theme: "dark" } })));
 		assert.equal(profile.prefs.nudgesPerDay, 2);
 		await json(r.events.POST(req("POST", { type: "onboarding_step", data: { step: 2 } })));
@@ -149,12 +151,14 @@ describe("companion HTTP routes", () => {
 		for (const type of ["hint", "show_me", "keep_going", "session_stopped", "answer"]) assert.match(archived, new RegExp(`"type":"${type}"`), type);
 	});
 
-	it("facilitator routes and uploads are off unless COMPANION_DEMO=1", async () => {
+	it("facilitator routes are off unless COMPANION_DEMO=1; uploads are for everyone (F-104)", async () => {
 		process.env.COMPANION_DEMO = "0";
 		try {
 			await json(r.demoState.GET(req("GET")), 404);
 			await json(r.csv.GET(req("GET")), 404);
-			await json(r.materials.POST(new Request(URL_BASE, { method: "POST", body: new Uint8Array([1]) }), ctx({ lectureId: "hci-w3-personas" })), 404);
+			// Not the demo 404: the upload route now runs, and refuses one junk byte as an unreadable PDF.
+			const res = await r.materials.POST(new Request(URL_BASE, { method: "POST", body: new Uint8Array([1]) }), ctx({ lectureId: "hci-w3-personas" }));
+			assert.notEqual(res.status, 404);
 		} finally {
 			process.env.COMPANION_DEMO = "1";
 		}

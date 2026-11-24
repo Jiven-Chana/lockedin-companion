@@ -2,7 +2,7 @@
 
 LockedIn adds a **start layer** and **session engines** around the LearnHarness teaching engine (v0.6.1, included and modified under AGPL-3.0; see `NOTICE`) for the hi-fi prototype (T21): a proactive study app that gets students into a short session at the right moment, with LearnHarness doing the teaching inside the session.
 
-This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The phone UI (`app/m/*`) is built on top of the [API](API.md) and is not part of this layer.
+This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The LockedIn screens (`components/lockedin/`, served at `/app`) are built on top of the [API](API.md) and are not part of this layer.
 
 - **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it). **Next version:** [v0.1-spec.md](v0.1-spec.md); **history:** [VERSIONS.md](VERSIONS.md)
 - **How we work:** [SDLC.md](SDLC.md) (branches, commits, PRs, definition of done, CI)
@@ -18,14 +18,14 @@ npm ci
 npm run plugins:setup                 # once after a fresh checkout
 
 cp companion/seed/.env.local.example .env.local   # add a provider key for the learnharness engine
-npm run companion:seed                # settings, prompt overrides, demo content → data/
+# The first start seeds data/ (settings, prompt overrides, demo content) by itself (v0.1 F-102).
 
 npm run dev                           # http://localhost:3000/api/companion/health
 ```
 
 With `COMPANION_ENGINE` unset the server uses the **scripted** engine, so a fresh checkout works with no API key. Set `COMPANION_ENGINE=learnharness` (and configure models once, see [CHECKPOINT.md](CHECKPOINT.md)) for real teaching.
 
-One participant per data directory (plan §7.2): `LH_DATA_DIR=$PWD/runs/P03 npm run companion:seed && LH_DATA_DIR=$PWD/runs/P03 npm run dev`. `runs/` is git-ignored.
+One participant per data directory (plan §7.2): `LH_DATA_DIR=$PWD/runs/P03 npm run dev` (a fresh directory seeds itself on first start). `runs/` is git-ignored.
 
 ## Commands
 
@@ -33,7 +33,7 @@ One participant per data directory (plan §7.2): `LH_DATA_DIR=$PWD/runs/P03 npm 
 |---|---|
 | `npm run test:companion` | The companion test suite (about 3 s, no network, no model) |
 | `npm run companion:check` | Prompt-override drift check + companion tests (what CI runs first) |
-| `npm run companion:seed` | Seed a data dir (`-- --force` overwrites existing materials) |
+| `npm run companion:seed` | Re-seed a data dir, e.g. after pulling prompt changes (`-- --force` overwrites existing materials). A fresh data dir is seeded automatically on first start |
 | `npm run companion:prompts` | Regenerate the derived prompt overrides after an engine prompt changes |
 | `npm run companion:tracer` | Tracer bullet: a real LearnHarness session to question 1, with latency and cost (`-- gt-w2-nash --runs 5 --answer`) |
 | `npm test` / `npm run typecheck` / `npm run lint` | The full upstream gates, which must stay green |

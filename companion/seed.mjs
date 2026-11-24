@@ -14,6 +14,11 @@
  *    (existing files kept unless --force, so uploaded slides survive a re-seed).
  * 4. Prints where things went and which engine is active.
  *
+ * The server calls seedDataDir() itself on first run (v0.1 F-102): when any
+ * prompt override switched on in the seed is missing from <data>/prompts,
+ * it seeds before the companion starts, so a fresh data directory needs no
+ * manual step. Run this script to re-seed after pulling prompt changes.
+ *
  * Lectures are NOT written here: onboarding materialises the sample timetable
  * relative to the (demo) clock, so the week is always "this week".
  */
@@ -21,19 +26,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildDerivedPrompts } from "./build-prompts.mjs";
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SEED = path.join(ROOT, "companion", "seed");
-const CONTENT = path.join(ROOT, "companion", "content");
-const force = process.argv.includes("--force");
-
-const dataDir = process.env.LH_DATA_DIR ? path.resolve(process.env.LH_DATA_DIR) : path.join(ROOT, "data");
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const isPlaceholder = (v) => typeof v === "string" && v.trim().startsWith("<");
 
-/** Deep merge: `base` (existing) wins for model slots that are already set; seed wins elsewhere. */
+/**
+ * Deep merge: `base` (existing) wins for model slots that are already set; seed wins elsewhere.
+ * @param {unknown} existing
+ * @param {any} seed
+ * @param {Record<string, string | undefined>} [env]
+ */
 export function mergeSettings(existing, seed, env = process.env) {
 	const out = structuredClone(isObject(existing) ? existing : {});
 	const merge = (target, src) => {
@@ -87,50 +89,91 @@ function copyTree(from, to, { overwrite }) {
 	return { copied, kept };
 }
 
-function main() {
+const seedPaths = (root) => {
+	const seed = path.join(/* turbopackIgnore: true */ root, "companion", "seed");
+	return { seed, content: path.join(/* turbopackIgnore: true */ root, "companion", "content") };
+};
+
+const readSeedSettings = (root) => JSON.parse(fs.readFileSync(path.join(/* turbopackIgnore: true */ seedPaths(root).seed, "settings.json"), "utf-8"));
+
+/**
+ * The prompt overrides the seed switches on, as paths under prompts/.
+ * @param {string} root
+ * @returns {string[]}
+ */
+export function seededPromptPaths(root) {
+	return Object.entries(readSeedSettings(root).agent?.prompts ?? {})
+		.filter(([, on]) => on === true)
+		.map(([rel]) => rel);
+}
+
+/**
+ * First run: true when any override the seed switches on is missing from <data>/prompts.
+ * @param {{ root: string, dataDir: string }} opts
+ */
+export function needsSeed({ root, dataDir }) {
+	return seededPromptPaths(root).some((rel) => !fs.existsSync(path.join(/* turbopackIgnore: true */ dataDir, "prompts", rel)));
+}
+
+/**
+ * Seed one data directory. Returns what it did; prints nothing.
+ * `force` also overwrites existing materials (uploaded slides are kept otherwise).
+ * @param {{ root: string, dataDir: string, force?: boolean, env?: Record<string, string | undefined> }} opts
+ */
+export function seedDataDir({ root, dataDir, force = false, env = process.env }) {
+	const { seed: SEED, content: CONTENT } = seedPaths(root);
 	fs.mkdirSync(dataDir, { recursive: true });
 
 	// 1. settings.json
-	const settingsFile = path.join(dataDir, "settings.json");
+	const settingsFile = path.join(/* turbopackIgnore: true */ dataDir, "settings.json");
 	const existing = fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, "utf-8")) : {};
-	const seed = JSON.parse(fs.readFileSync(path.join(SEED, "settings.json"), "utf-8"));
-	const merged = mergeSettings(existing, seed);
+	const merged = mergeSettings(existing, readSeedSettings(root), env);
 	fs.writeFileSync(settingsFile, `${JSON.stringify(merged, null, "\t")}\n`);
-	const missing = ["strong", "cheap", "vision"].filter((s) => !merged.models?.[s]?.model);
+	const missingModels = ["strong", "cheap", "vision"].filter((s) => !merged.models?.[s]?.model);
 
-	// 2. prompt overrides (derived ones rebuilt from the current source first)
-	for (const [rel, text] of Object.entries(buildDerivedPrompts())) {
-		const committed = path.join(SEED, "prompts", rel);
-		if (!fs.existsSync(committed) || fs.readFileSync(committed, "utf-8") !== text) {
-			console.warn(`! companion/seed/prompts/${rel} is stale against the source; run npm run companion:prompts and review.`);
-		}
-	}
-	const prompts = copyTree(path.join(SEED, "prompts"), path.join(dataDir, "prompts"), { overwrite: true });
+	// 2. prompt overrides
+	const prompts = copyTree(path.join(/* turbopackIgnore: true */ SEED, "prompts"), path.join(/* turbopackIgnore: true */ dataDir, "prompts"), { overwrite: true });
 
 	// 3. demo content
-	const materialsDir = path.join(dataDir, "companion", "materials");
+	const materialsDir = path.join(/* turbopackIgnore: true */ dataDir, "companion", "materials");
 	let lectures = 0;
 	let materials = { copied: 0, kept: 0 };
 	for (const entry of fs.readdirSync(CONTENT, { withFileTypes: true })) {
 		if (!entry.isDirectory()) continue;
 		lectures++;
-		const r = copyTree(path.join(CONTENT, entry.name), path.join(materialsDir, entry.name), { overwrite: force });
+		const r = copyTree(path.join(/* turbopackIgnore: true */ CONTENT, entry.name), path.join(/* turbopackIgnore: true */ materialsDir, entry.name), { overwrite: force });
 		materials = { copied: materials.copied + r.copied, kept: materials.kept + r.kept };
 	}
+	return { dataDir, prompts: prompts.copied, lectures, materials, missingModels };
+}
 
-	// 4. report
+async function main() {
+	const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+	const dataDir = process.env.LH_DATA_DIR ? path.resolve(process.env.LH_DATA_DIR) : path.join(root, "data");
+	const force = process.argv.includes("--force");
+
+	// Derived overrides are rebuilt from the current engine source first; warn if the committed ones drifted.
+	const { buildDerivedPrompts } = await import("./build-prompts.mjs");
+	for (const [rel, text] of Object.entries(buildDerivedPrompts())) {
+		const committed = path.join(root, "companion", "seed", "prompts", rel);
+		if (!fs.existsSync(committed) || fs.readFileSync(committed, "utf-8") !== text) {
+			console.warn(`! companion/seed/prompts/${rel} is stale against the source; run npm run companion:prompts and review.`);
+		}
+	}
+
+	const r = seedDataDir({ root, dataDir, force });
 	const engine = process.env.COMPANION_ENGINE || "scripted (COMPANION_ENGINE unset)";
-	console.log(`Seeded ${dataDir}`);
+	console.log(`Seeded ${r.dataDir}`);
 	console.log(`  settings.json      merged (graph off, background tools off, file access restricted, 4 prompt overrides on)`);
-	console.log(`  prompts/           ${prompts.copied} override file(s)`);
-	console.log(`  companion/materials ${lectures} lecture(s): ${materials.copied} copied, ${materials.kept} kept${materials.kept ? " (use --force to overwrite)" : ""}`);
+	console.log(`  prompts/           ${r.prompts} override file(s)`);
+	console.log(`  companion/materials ${r.lectures} lecture(s): ${r.materials.copied} copied, ${r.materials.kept} kept${r.materials.kept ? " (use --force to overwrite)" : ""}`);
 	console.log(`  engine             ${engine}`);
-	if (missing.length > 0) {
-		console.log(`\n! Model slots not set: ${missing.join(", ")}. The learnharness engine needs them.`);
+	if (r.missingModels.length > 0) {
+		console.log(`\n! Model slots not set: ${r.missingModels.join(", ")}. The learnharness engine needs them.`);
 		console.log("  Configure once in LearnHarness Settings (npm run dev → http://localhost:3000), or set");
 		console.log("  COMPANION_MODEL_STRONG/CHEAP/VISION=\"provider/model-id\" and re-run this script.");
 	}
 	console.log("\nNext: npm run dev → http://localhost:3000/api/companion/health");
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

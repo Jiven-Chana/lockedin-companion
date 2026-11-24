@@ -12,7 +12,7 @@
 
 import type { ChatInput } from "../../../core/input-events.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
-import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SHOW_ME_THINKING } from "../../../core/companion/policy.ts";
+import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
 import type { AnswerInput, CompanionSession, Lecture } from "../../../core/companion/types.ts";
@@ -41,6 +41,15 @@ export interface LhPort {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The student's latest typed message in the chat (answers are tool results, not user text). */
+function lastUserText(messages: LhMessage[]): string | null {
+	const m = [...messages].reverse().find((x) => x.role === "user");
+	if (!m) return null;
+	const c = (m as { content?: unknown }).content;
+	if (typeof c === "string") return c;
+	return Array.isArray(c) ? c.map((p: { type?: string; text?: string }) => (p?.type === "text" ? (p.text ?? "") : "")).join("") : null;
+}
 
 /** The probe-handoff marker sits between the prober's turn and the teacher's. */
 function teacherSpoke(messages: LhMessage[]): boolean {
@@ -113,13 +122,21 @@ export class LearnHarnessEngine implements SessionEngine {
 
 	async view(session: CompanionSession, lecture: Lecture) {
 		const chatId = this.chatId(session);
-		return mapChatToView({
-			messages: this.record(session),
-			running: this.port.running(chatId),
-			failure: this.port.failure(chatId),
-			session,
-			lecture,
-		});
+		const messages = this.record(session);
+		// A hand-off (F-112): question 1 was answered on the phone, outside this chat. The chat owes one question fewer.
+		const seeded = session.spec.seedAnswer ? 1 : 0;
+		const mapped = mapChatToView({ messages, running: this.port.running(chatId), failure: this.port.failure(chatId), session: { ...session, budget: session.budget - seeded }, lecture });
+		const v = seeded ? { ...mapped, answered: mapped.answered + seeded, budget: mapped.budget + seeded } : mapped;
+		// The teacher gave feedback and stopped before the budget: ask once for the next question (TEACHER_RULES).
+		if (v.status === "done" && v.endedEarly && v.answered < v.budget && lastUserText(messages)?.trim() !== TEACHER_RULES.continueText) {
+			try {
+				await this.send(chatId, { type: "text", text: TEACHER_RULES.continueText });
+				return { ...v, status: "thinking" as const, endedEarly: undefined, activity: `Writing question ${v.answered + 1}…`, teacherNudged: true };
+			} catch {
+				return v;
+			}
+		}
+		return v;
 	}
 
 	private pending(session: CompanionSession, questionId: string) {

@@ -1,0 +1,16 @@
+{
+	"name": "lockedin-relay",
+	"private": true,
+	"type": "module",
+	"description": "LockedIn's phone relay and phone web app (v0.1 F-112). Tests run from the repo root: tests/companion-relay.test.ts.",
+	"scripts": {
+		"dev": "wrangler dev --local --test-scheduled",
+		"db:local": "wrangler d1 execute lockedin-relay --local --file schema.sql",
+		"db:remote": "wrangler d1 execute lockedin-relay --remote --file schema.sql",
+		"vapid": "node scripts/vapid.mjs",
+		"deploy": "wrangler deploy"
+	},
+	"devDependencies": {
+		"wrangler": "^4"
+	}
+}

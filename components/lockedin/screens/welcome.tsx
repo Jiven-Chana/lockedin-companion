@@ -1,51 +1,98 @@
 "use client";
 
 /**
- * Onboarding (mvp1-plan F-02): three decisions, then "What I read", then a
- * real session. No account, no key, no model choice (AE2-1, AE2-P14).
+ * Onboarding v0.1 (spec J1′, DECISIONS.md V-15 to V-17, O-3):
+ *   1. Connect your AI and pick models (required)
+ *   2. Connect your timetable (link, file, none, or the labelled sample)
+ *   3. Your modules: found in the calendar, tick / rename / add. The first
+ *      taste starts preparing here.
+ *   4. Try it now: 3 questions on the bundled sample lecture.
  */
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { moduleHue } from "@/src/core";
-import { ApiError, api, lockedIn, type TodayData } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { CALENDAR_COPY, moduleHue, SESSION_COPY, type DetectedModule } from "@/src/core";
+import { ApiError, api, lockedIn, type FirstTaste } from "../api";
 import { Icon, Logo } from "../icons";
 import { Tint } from "../root";
+import { ConnectAi } from "./connect";
 
-type Source = "sample" | "file" | "link";
+type Source = "link" | "file" | "none" | "sample";
+interface ModuleRow { code: string; name: string; on: boolean }
 
 export function WelcomeScreen() {
 	const router = useRouter();
 	const [step, setStep] = useState(1);
-	const [modules, setModules] = useState<{ code: string; name: string }[]>([]);
-	const [picked, setPicked] = useState<string[]>([]);
-	const [source, setSource] = useState<Source>("sample");
+	const [aiReady, setAiReady] = useState(false);
+	const [source, setSource] = useState<Source>("link");
 	const [link, setLink] = useState("");
 	const [file, setFile] = useState<File | null>(null);
-	const [perDay, setPerDay] = useState<1 | 2>(1);
+	const [fileText, setFileText] = useState<string | null>(null);
+	const [rows, setRows] = useState<ModuleRow[]>([]);
+	const [newModule, setNewModule] = useState("");
+	const [found, setFound] = useState<{ events: number } | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [done, setDone] = useState<{ reads: Awaited<ReturnType<typeof lockedIn.reads>>; tryNow: TodayData["tryNow"]; note?: string } | null>(null);
+	const [done, setDone] = useState<{ note: string; firstTaste: FirstTaste | null } | null>(null);
+	const taste = useRef<Promise<{ sessionId: string } | null> | null>(null);
 
-	useEffect(() => {
-		api<{ modules: { code: string; name: string }[] }>("/modules").then((r) => { setModules(r.modules); setPicked(r.modules.map((m) => m.code)); }).catch(() => undefined);
-	}, []);
-	useEffect(() => { void lockedIn.event("onboarding_step", { step }); }, [step]);
+	useEffect(() => { void lockedIn.event("onboarding_step", { step, flow: "v0.1" }); }, [step]);
+
+	/** Start the first taste once, as soon as the student reaches the modules screen (J1′). */
+	function prewarm() {
+		taste.current ??= lockedIn.firstTaste().catch(() => null);
+	}
+
+	async function readCalendar() {
+		setBusy(true);
+		setError(null);
+		try {
+			if (source === "sample") {
+				const r = await api<{ modules: { code: string; name: string }[] }>("/modules");
+				setRows(r.modules.map((m) => ({ ...m, on: true })));
+				setFound(null);
+			} else if (source === "none") {
+				setFound(null);
+			} else {
+				const text = source === "file" && file ? await file.text() : null;
+				setFileText(text);
+				const preview = await lockedIn.calendarPreview(text !== null ? { text } : { url: link.trim() });
+				setFound({ events: preview.events });
+				setRows(preview.modules.map((m: DetectedModule) => ({ code: m.code, name: m.name, on: m.confident })));
+			}
+			prewarm();
+			setStep(3);
+		} catch (e) {
+			setError(e instanceof ApiError ? e.message : "Couldn't read that calendar. Check the link or file.");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function addModule() {
+		const name = newModule.trim();
+		if (!name) return;
+		setRows((r) => [...r, { code: "", name, on: true }]);
+		setNewModule("");
+	}
 
 	async function finish() {
 		setBusy(true);
 		setError(null);
 		try {
-			const ob = await lockedIn.onboard({ modules: picked, timetableSource: source === "sample" ? "sample" : "ics", nudgesPerDay: perDay });
-			let note: string | undefined;
-			if (source === "file" && file) {
-				const r = await lockedIn.importIcs(await file.text());
-				note = `${r.added} events read from ${file.name}${r.unmapped.length ? `; ${r.unmapped.length} didn't match a module` : ""}.`;
-			} else if (source === "link" && link.trim()) {
-				const r = await lockedIn.subscribe(link.trim());
-				note = `${r.added} events read from your calendar link${r.unmapped.length ? `; ${r.unmapped.length} didn't match a module` : ""}. It refreshes when you open the app.`;
-			}
-			setDone({ reads: await lockedIn.reads(), tryNow: ob.tryNow, note });
+			const calendar =
+				source === "sample" ? { kind: "sample" as const }
+				: source === "none" ? { kind: "none" as const }
+				: source === "file" ? { kind: "file" as const, text: fileText ?? "" }
+				: { kind: "link" as const, url: link.trim() };
+			const modules = rows.filter((r) => r.on && r.name.trim()).map((r) => ({ name: r.name.trim(), ...(r.code ? { code: r.code } : {}) }));
+			const ob = await lockedIn.onboardV1({ calendar, ...(source === "sample" ? {} : { modules }), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+			const note = ob.calendar
+				? `${ob.calendar.added} events read from your calendar${ob.calendar.unmapped ? `; ${ob.calendar.unmapped} didn't match a module` : ""}.`
+				: source === "sample"
+					? `I read the sample timetable: ${ob.reads.lectures} lectures.`
+					: `${modules.length} ${modules.length === 1 ? "module" : "modules"} added. You can connect a calendar later in Me.`;
+			setDone({ note, firstTaste: ob.firstTaste });
 			setStep(4);
 		} catch (e) {
 			setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
@@ -55,13 +102,28 @@ export function WelcomeScreen() {
 	}
 
 	async function tryNow() {
-		if (!done?.tryNow) return router.push("/app");
+		if (!done?.firstTaste) return router.push("/app");
 		setBusy(true);
-		const { sessionId } = await lockedIn.startSession(done.tryNow.spec);
+		const warm = taste.current ? await taste.current : null;
+		const sessionId = warm?.sessionId ?? (await lockedIn.startSession(done.firstTaste.spec)).sessionId;
 		router.push(`/app/session/${sessionId}`);
 	}
 
-	const canNext = step === 1 ? picked.length > 0 : step === 2 ? source === "sample" || (source === "file" && !!file) || (source === "link" && /^(https?|webcal):\/\//i.test(link.trim())) : true;
+	const linkOk = /^(https?|webcal):\/\//i.test(link.trim());
+	const canNext =
+		step === 1 ? aiReady
+		: step === 2 ? source === "sample" || source === "none" || (source === "file" && !!file) || (source === "link" && linkOk)
+		: step === 3 ? source === "sample" || rows.some((r) => r.on && r.name.trim())
+		: true;
+	const next = () => (step === 2 ? void readCalendar() : step === 3 ? void finish() : setStep(step + 1));
+
+	const option = (id: Source, icon: React.ReactNode, title: string, sub: string, chip?: string) => (
+		<button type="button" role="radio" aria-checked={source === id} className="li-opt" onClick={() => setSource(id)}>
+			<span style={{ color: "var(--li-muted)" }}>{icon}</span>
+			<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}><b>{title}</b><span className="li-small li-muted">{sub}</span></span>
+			{chip ? <span className="li-chip">{chip}</span> : null}
+		</button>
+	);
 
 	return (
 		<div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", padding: "48px 32px" }}>
@@ -80,88 +142,89 @@ export function WelcomeScreen() {
 					<section className="li-card" style={{ flex: "999 1 560px", minWidth: 0, padding: 36, borderRadius: 28, display: "flex", flexDirection: "column", gap: 20 }}>
 						{step === 1 ? (
 							<>
-								<h1 className="li-h1">What are you studying?</h1>
-								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>Pick your modules. Each one gets its own colour.</p>
-								<div className="li-row" style={{ gap: 12 }}>
-									{modules.map((m) => {
-										const on = picked.includes(m.code);
-										return (
-											<Tint key={m.code} hue={moduleHue(m.code)}>
-												<button type="button" aria-pressed={on} onClick={() => setPicked((p) => (on ? p.filter((x) => x !== m.code) : [...p, m.code]))} className="li-opt" style={{ width: "auto", minWidth: 260, borderColor: on ? "var(--li-accent)" : undefined, background: on ? "var(--li-soft)" : undefined }}>
-													<span style={{ width: 32, height: 32, borderRadius: 10, background: "var(--li-accent)", flexShrink: 0 }} />
-													<span style={{ display: "flex", flexDirection: "column" }}><b>{m.name}</b><span className="li-small li-muted">{m.code}</span></span>
-													{on ? <span style={{ marginLeft: "auto", color: "var(--li-accent-text)" }}><Icon.check /></span> : null}
-												</button>
-											</Tint>
-										);
-									})}
-								</div>
+								<h1 className="li-h1">Connect your AI</h1>
+								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>LockedIn teaches with your own ChatGPT or API key. Then pick a model for each part of the teacher, or let me choose.</p>
+								<ConnectAi onReadyChange={setAiReady} />
 							</>
 						) : null}
 
 						{step === 2 ? (
 							<>
-								<h1 className="li-h1">Connect your calendar</h1>
-								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>So I can nudge you after a lecture, never during one.</p>
-								<div role="radiogroup" aria-label="Calendar source" className="li-stack" style={{ gap: 12 }}>
-									<button type="button" role="radio" aria-checked={source === "link"} className="li-opt" onClick={() => setSource("link")} style={{ alignItems: "flex-start" }}>
-										<span style={{ color: "var(--li-accent-text)", marginTop: 2 }}><Icon.link /></span>
-										<span style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-											<b>Subscribe to a calendar link</b>
-											<span className="li-small li-muted">University timetables, Google, Outlook and Apple calendars all give you an iCal link.</span>
-										</span>
-									</button>
+								<h1 className="li-h1">Connect your timetable</h1>
+								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>So I can find your modules and nudge you after a lecture, never during one.</p>
+								<div role="radiogroup" aria-label="Timetable source" className="li-stack" style={{ gap: 12 }}>
+									{option("link", <Icon.link />, "Subscribe to a calendar link", "An iCal link from your timetable, Google, Outlook or Apple calendar")}
 									{source === "link" ? (
 										<label className="li-stack" style={{ gap: 6, paddingLeft: 8 }}>
 											<b className="li-small">Calendar link</b>
 											<input className="li-input" type="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://… or webcal://…" autoFocus />
 										</label>
 									) : null}
-									<button type="button" role="radio" aria-checked={source === "file"} className="li-opt" onClick={() => setSource("file")}>
-										<span style={{ color: "var(--li-muted)" }}><Icon.upload /></span>
-										<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}><b>Upload a calendar file</b><span className="li-small li-muted">An .ics export, read once</span></span>
-									</button>
+									{source === "link" ? (
+										<details className="li-small" style={{ paddingLeft: 8 }}>
+											<summary style={{ cursor: "pointer" }}>{CALENDAR_COPY.findLinkLabel}</summary>
+											<div className="li-stack" style={{ gap: 4, marginTop: 6 }}>
+												{CALENDAR_COPY.findLink.map((line) => <span key={line} className="li-muted">{line}</span>)}
+											</div>
+										</details>
+									) : null}
+									{option("file", <Icon.upload />, "Upload a calendar file", "An .ics export, read once")}
 									{source === "file" ? (
 										<label className="li-stack" style={{ gap: 6, paddingLeft: 8 }}>
 											<b className="li-small">Calendar file (.ics)</b>
 											<input type="file" accept=".ics,text/calendar" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
 										</label>
 									) : null}
-									<button type="button" role="radio" aria-checked={source === "sample"} className="li-opt" onClick={() => setSource("sample")}>
-										<span style={{ color: "var(--li-muted)" }}><Icon.calendar /></span>
-										<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}><b>Use the sample timetable</b><span className="li-small li-muted">A realistic week for your modules, clearly labelled as a sample</span></span>
-										<span className="li-chip">Sample</span>
-									</button>
+									{option("none", <Icon.check />, "No calendar, I'll type my modules", "You can connect one later in Me")}
+									{option("sample", <Icon.calendar />, "Use the sample timetable", "A demo week of HCI and Game Theory, clearly labelled", "Sample")}
 								</div>
 							</>
 						) : null}
 
 						{step === 3 ? (
 							<>
-								<h1 className="li-h1">How often can I nudge you?</h1>
-								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>Each nudge brings a session with a goal and question 1 ready. Never during a lecture, never between 22:00 and 08:00.</p>
-								<div role="radiogroup" aria-label="Nudges per day" className="li-row" style={{ gap: 12 }}>
-									{([1, 2] as const).map((n) => (
-										<button key={n} type="button" role="radio" aria-checked={perDay === n} className="li-opt" style={{ width: "auto", minWidth: 240 }} onClick={() => setPerDay(n)}>
-											<span style={{ display: "flex", flexDirection: "column" }}><b>{n === 1 ? "Once a day" : "Twice a day"}</b><span className="li-small li-muted">{n === 1 ? "Recommended. Usually after a lecture." : "If one isn't enough."}</span></span>
-										</button>
+								<h1 className="li-h1">Your modules</h1>
+								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>
+									{source === "sample"
+										? "The sample week has these two modules."
+										: found
+											? rows.length
+												? `I found these in ${found.events} calendar events. Untick anything that isn't a module, and fix any names.`
+												: `I read ${found.events} events but couldn't spot any modules. Add them below.`
+											: "Add the modules you're taking this term."}
+								</p>
+								<div className="li-stack" style={{ gap: 10 }}>
+									{rows.map((r, i) => (
+										<Tint key={`${r.code}-${i}`} hue={moduleHue(r.code || r.name)}>
+											<div className="li-opt" style={{ borderColor: r.on ? "var(--li-accent)" : undefined, background: r.on ? "var(--li-soft)" : undefined }}>
+												<input type="checkbox" aria-label={`Include ${r.name}`} checked={r.on} disabled={source === "sample"} onChange={(e) => setRows((all) => all.map((x, j) => (j === i ? { ...x, on: e.target.checked } : x)))} />
+												<input className="li-input" aria-label="Module name" value={r.name} disabled={source === "sample"} onChange={(e) => setRows((all) => all.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} style={{ flexGrow: 1 }} />
+												{r.code ? <span className="li-small li-muted">{r.code}</span> : null}
+											</div>
+										</Tint>
 									))}
 								</div>
-								<p className="li-small li-muted" style={{ margin: 0 }}>Quiet hours and everything else can be changed later in Me.</p>
+								{source !== "sample" ? (
+									<div className="li-row" style={{ gap: 8 }}>
+										<input className="li-input" style={{ flex: "1 1 260px" }} value={newModule} onChange={(e) => setNewModule(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addModule(); }} placeholder="Add a module, e.g. Organic Chemistry" />
+										<button type="button" className="li-btn" onClick={addModule} disabled={!newModule.trim()}>Add</button>
+									</div>
+								) : null}
+								<p className="li-small li-muted" style={{ margin: 0 }}>While you check these, I&apos;m writing your first 3 practice questions.</p>
 							</>
 						) : null}
 
 						{step === 4 && done ? (
 							<>
 								<h1 className="li-h1">You&apos;re set.</h1>
-								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>{done.note ?? `I read the ${done.reads.label.toLowerCase()}: ${done.reads.lectures} lectures across ${done.reads.modules.join(" and ")}.`}</p>
-								{done.tryNow ? (
-									<Tint hue={moduleHue(done.tryNow.module)}>
+								<p className="li-muted" style={{ margin: 0, fontSize: "1.1em" }}>{done.note}</p>
+								{done.firstTaste ? (
+									<Tint hue={moduleHue(done.firstTaste.module)}>
 										<button type="button" className="li-hero" onClick={tryNow} disabled={busy}>
 											<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-												<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>Try it now · {done.tryNow.module}</span>
-												<span className="li-hero-title">{done.tryNow.title}</span>
-												<span style={{ opacity: 0.9 }}>3 questions on your last lecture, about 3 minutes</span>
+												<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>Try it now · sample lecture · {done.firstTaste.module}</span>
+												<span className="li-hero-title">{done.firstTaste.title}</span>
+												<span style={{ opacity: 0.9 }}>{SESSION_COPY.firstTaste()}</span>
 											</span>
 											<span className="li-hero-cta">{busy ? "Starting…" : "Start"}</span>
 										</button>
@@ -174,18 +237,20 @@ export function WelcomeScreen() {
 						{error ? <div className="li-note" role="alert">{error}</div> : null}
 						{step <= 3 ? (
 							<div className="li-row">
-								{step > 1 ? <button type="button" className="li-btn" onClick={() => setStep(step - 1)}>Back</button> : null}
-								<button type="button" className="li-btn primary big" style={{ marginLeft: "auto" }} disabled={!canNext || busy} onClick={() => (step < 3 ? setStep(step + 1) : void finish())}>{step < 3 ? "Continue" : busy ? "Setting up…" : "Finish"}</button>
+								{step > 1 ? <button type="button" className="li-btn" onClick={() => setStep(step - 1)} disabled={busy}>Back</button> : null}
+								<button type="button" className="li-btn primary big" style={{ marginLeft: "auto" }} disabled={!canNext || busy} onClick={next}>
+									{busy ? (step === 2 ? "Reading…" : "Setting up…") : step < 3 ? "Continue" : "Finish"}
+								</button>
 							</div>
 						) : null}
 					</section>
 
 					<aside className="li-card flat" style={{ flex: "1 1 300px", minWidth: 0, padding: 28, borderRadius: 28, background: "var(--li-rail)", display: "flex", flexDirection: "column", gap: 12 }}>
 						<h2 className="li-h2">What I&apos;ll read</h2>
-						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b style={{ color: "var(--li-accent-text)" }}>✓</b>Event times and titles, to find your lectures and free time</span>
+						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b style={{ color: "var(--li-accent-text)" }}>✓</b>Event times and titles, to find your modules, lectures and free time</span>
 						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b style={{ color: "var(--li-accent-text)" }}>✓</b>Your lecture slides, to write the questions</span>
 						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b className="li-muted">✕</b>Never your location, contacts or anything else on your laptop</span>
-						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b className="li-muted">✕</b>Nothing leaves this laptop except questions to the teaching model</span>
+						<span className="li-row" style={{ alignItems: "flex-start", gap: 10, flexWrap: "nowrap" }}><b className="li-muted">✕</b>Nothing leaves this laptop except what the teacher needs, sent to the AI you connect</span>
 						<span className="li-small li-muted">See exactly what was read, and delete it in one click, from Me.</span>
 					</aside>
 				</div>

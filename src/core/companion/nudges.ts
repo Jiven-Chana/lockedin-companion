@@ -18,12 +18,13 @@
  *   5. no nudge text references an ignored nudge.
  */
 
-import { NUDGE_RULES, NUDGE_TEXT, SESSION_BUDGETS } from "./policy.ts";
+import { NUDGE_RULES, NUDGE_TEXT, SCHEDULE_RULES, SESSION_BUDGETS, WHY_TEXT } from "./policy.ts";
 import {
 	addDays,
 	addMinutes,
 	atTime,
 	dateKey,
+	formatHM,
 	inQuietHours,
 	isoWeekday,
 	minutesBetween,
@@ -31,6 +32,8 @@ import {
 	wakingWindow,
 	weekdayName,
 } from "./time.ts";
+import { isTimed, type TimedLecture } from "./timetable.ts";
+import { pacedUnits, type UnitStatus } from "./plan-week.ts";
 import type {
 	CompanionSession,
 	CompanionState,
@@ -62,6 +65,24 @@ export function specFor(
 	};
 }
 
+/**
+ * The kind of session a nudge opens. N-4 returns to a session that already
+ * exists, whose own budget the session screen shows; for the Today card it
+ * counts as a post-lecture session.
+ */
+export function sessionKindForNudge(type: NudgeType): SessionKind {
+	switch (type) {
+		case "N-2":
+			return "retest";
+		case "N-3":
+			return "missed-lecture";
+		case "block":
+			return "block";
+		default:
+			return "post-lecture";
+	}
+}
+
 /** The goal line on the session screen (R-4: the goal is on screen). */
 export function goalFor(spec: SessionSpec, lecture: Pick<Lecture, "title">, budget = spec.budget.questions): string {
 	const minutes = Math.round((spec.budget.minutes * budget) / Math.max(1, spec.budget.questions));
@@ -80,14 +101,16 @@ export interface Commitment {
 	end: Date;
 }
 
+/** A block is a commitment on its own date once accepted (or started); proposals and removed blocks aren't (F-110). */
 export function blockOccursOn(block: StudyBlock, day: Date): boolean {
-	return block.weekday === isoWeekday(day) && !block.skippedDates.includes(dateKey(day));
+	return block.date === dateKey(day) && (block.status === "accepted" || block.status === "started");
 }
 
 /** Every timetabled event and study block on the given local day, by start. */
 export function commitmentsOn(state: Pick<CompanionState, "lectures" | "blocks">, day: Date): Commitment[] {
 	const out: Commitment[] = [];
 	for (const l of state.lectures) {
+		if (!isTimed(l)) continue;
 		const start = new Date(l.start);
 		if (sameDay(start, day)) out.push({ id: l.id, kind: l.kind ?? "lecture", start, end: new Date(l.end) });
 	}
@@ -157,29 +180,54 @@ export function isSessionReady(s: CompanionSession | undefined): boolean {
 	return !!s && (s.state === "ready" || s.state === "active" || s.state === "done");
 }
 
-/** An N-1 for this lecture would make sense: it has material and the student was there. */
-function n1Eligible(l: Lecture): boolean {
-	return (l.kind ?? "lecture") === "lecture" && l.hasMaterials && l.attended !== false;
+/** An N-1 for this lecture would make sense: a timetabled lecture the student was at, with something to study after it. */
+function n1Eligible(l: Lecture, state?: Pick<CompanionState, "lectures">): l is TimedLecture {
+	if (!isTimed(l) || (l.kind ?? "lecture") !== "lecture" || l.attended === false) return false;
+	return l.hasMaterials || (!!state && state.lectures.some((u) => u.module === l.module && u.hasMaterials && !u.archived));
+}
+
+/**
+ * What an N-1 after this lecture teaches (V-18, spec §5.5): the lecture's own
+ * material when it has some; otherwise the module's current-week unit by the
+ * pacing rule, so it works whether or not slides were attached to that slot.
+ */
+export function n1Target(state: CompanionState, l: Lecture, now: Date): string {
+	if (l.hasMaterials) return l.id;
+	const mod = state.profile?.modules.find((m) => m.code === l.module) ?? { code: l.module };
+	const status = (id: string): UnitStatus["status"] =>
+		state.misses.some((m) => m.lectureId === id && m.status === "open") ? "revisit" : state.sessions.some((s) => s.spec.lectureId === id && s.state === "done") ? "answered" : "not-started";
+	const units: UnitStatus[] = state.lectures.filter((u) => u.module === l.module && u.hasMaterials && !u.archived).map((u) => ({ id: u.id, module: u.module, week: u.week, order: u.order, hasMaterials: true, status: status(u.id) }));
+	const [first] = pacedUnits({ modules: [mod], units, now, blocks: 1 });
+	return first?.lectureId ?? units.sort((a, b) => b.week - a.week || b.order - a.order)[0]?.id ?? l.id;
+}
+
+/** "you're free until 15:00" from a free gap's end, or null at the end of the day. */
+function untilText(state: CompanionState, end: Date): string | null {
+	const quiet = state.profile?.prefs.quietHours ?? { from: "22:00", to: "08:00" };
+	return end.getTime() >= wakingWindow(end, quiet).end.getTime() ? null : formatHM(end);
 }
 
 /** The most recent lecture with material that has ended (the default focus). */
 export function latestEndedLecture(lectures: Lecture[], now: Date): Lecture | undefined {
 	return lectures
-		.filter((l) => (l.kind ?? "lecture") === "lecture" && l.hasMaterials && new Date(l.end) <= now)
+		.filter((l): l is TimedLecture => isTimed(l) && (l.kind ?? "lecture") === "lecture" && l.hasMaterials && new Date(l.end) <= now)
 		.sort((a, b) => new Date(b.end).getTime() - new Date(a.end).getTime())[0];
 }
 
 // ─── candidate builders ─────────────────────────────────────────────────────
 
 function n1Candidate(state: CompanionState, l: Lecture, at?: Date): NudgeCandidate {
-	const spec = specFor("post-lecture", l.id, state.profile?.prefs);
-	const end = new Date(l.end);
+	// A forced N-1 may name an untimed course unit (V-18): it fires at `at`.
+	const end = new Date(l.end ?? at ?? 0);
+	const target = n1Target(state, l, at ?? end);
+	const spec = specFor("post-lecture", target, state.profile?.prefs);
 	return {
 		type: "N-1",
 		key: at ? `forced:N-1:${l.id}:${at.getTime()}` : `N-1:${l.id}`,
 		text: NUDGE_TEXT.n1(l.module, spec.budget.questions, spec.budget.minutes),
+		why: WHY_TEXT.afterLecture(l.module, l.end ? untilText(state, nextCommitmentStart(state, end)) : null),
 		spec,
-		lectureId: l.id,
+		lectureId: target,
 		prepareFrom: (at ?? end).toISOString(),
 		fireAt: (at ?? addMinutes(end, NUDGE_RULES.n1DelayMinutes)).toISOString(),
 		fireBy: (at ?? addMinutes(end, NUDGE_RULES.n1FireByMinutes)).toISOString(),
@@ -204,7 +252,7 @@ function n3Candidate(state: CompanionState, l: Lecture, slot: Date, forced = fal
 	return {
 		type: "N-3",
 		key: forced ? `forced:N-3:${l.id}:${slot.getTime()}` : `N-3:${l.id}`,
-		text: NUDGE_TEXT.n3(weekdayName(l.start)),
+		text: NUDGE_TEXT.n3(weekdayName(l.start ?? slot.toISOString())),
 		spec: specFor("missed-lecture", l.id, state.profile?.prefs),
 		lectureId: l.id,
 		prepareFrom: (forced ? slot : addMinutes(slot, -NUDGE_RULES.n3PrepareLeadMinutes)).toISOString(),
@@ -253,7 +301,7 @@ function postLectureCandidates(state: CompanionState, now: Date): NudgeCandidate
 	if (firedToday(state, now, "N-1").length > 0) return [];
 	const out: NudgeCandidate[] = [];
 	for (const l of state.lectures) {
-		if (!n1Eligible(l)) continue;
+		if (!n1Eligible(l, state)) continue;
 		const end = new Date(l.end);
 		if (!sameDay(end, now) || end > now) continue;
 		const gapEnd = nextCommitmentStart(state, end);
@@ -316,8 +364,8 @@ function missedLectureCandidates(state: CompanionState, now: Date): NudgeCandida
 	if (now >= wakingWindow(now, profile.prefs.quietHours).end) return [];
 	const lookback = addDays(now, -NUDGE_RULES.n3LookbackDays);
 	const missed = state.lectures
-		.filter((l) => {
-			if ((l.kind ?? "lecture") !== "lecture" || l.attended !== false || !l.hasMaterials) return false;
+		.filter((l): l is TimedLecture => {
+			if (!isTimed(l) || (l.kind ?? "lecture") !== "lecture" || l.attended !== false || !l.hasMaterials) return false;
 			const end = new Date(l.end);
 			if (end > now || end < lookback) return false;
 			if (firedWithKey(state, `N-3:${l.id}`)) return false;
@@ -377,7 +425,44 @@ function blockCandidates(state: CompanionState, now: Date): NudgeCandidate[] {
 
 // ─── composition ────────────────────────────────────────────────────────────
 
-const PRIORITY: Record<NudgeType, number> = { block: 0, "N-4": 1, "N-1": 2, "N-3": 3, "N-2": 4 };
+const PRIORITY: Record<NudgeType, number> = { block: 0, "N-4": 1, "N-1": 2, "N-5": 3, "N-3": 4, "N-2": 5 };
+
+/**
+ * N-5 (F-111, F-114): once on Sunday at the student's chosen time, when a
+ * weekly target is set; opens the check-in. Counts as that day's nudge.
+ */
+function sundayCandidates(state: CompanionState, now: Date): NudgeCandidate[] {
+	const plan = state.profile?.plan;
+	if (!plan?.weeklyTargetMinutes || isoWeekday(now) !== 7) return [];
+	const at = atTime(now, plan.sundayTime || "19:00");
+	if (now < at || minutesBetween(at, now) > NUDGE_RULES.bannerTtlMinutes) return [];
+	const key = `N-5:${dateKey(now)}`;
+	if (firedWithKey(state, key)) return [];
+	return [n5Candidate(state, at, key)];
+}
+
+function n5Candidate(state: CompanionState, at: Date, key: string): NudgeCandidate {
+	const monday = addDays(atTime(at, "00:00"), 8 - isoWeekday(at));
+	const quiet = state.profile?.prefs.quietHours ?? { from: "22:00", to: "08:00" };
+	let lectures = 0;
+	let gaps = 0;
+	for (let i = 0; i < 7; i++) {
+		const day = addDays(monday, i);
+		lectures += state.lectures.filter((l) => isTimed(l) && (l.kind ?? "lecture") === "lecture" && sameDay(l.start, day)).length;
+		gaps += freeGapsOn(state, day, quiet).filter((g) => minutesBetween(g.start, g.end) >= (state.profile?.plan?.blockMinutes ?? 50)).length;
+	}
+	return {
+		type: "N-5",
+		key,
+		text: NUDGE_TEXT.n5(lectures, gaps),
+		why: WHY_TEXT.sunday,
+		spec: specFor("block", "", state.profile?.prefs),
+		opens: "checkin",
+		prepareFrom: at.toISOString(),
+		fireAt: at.toISOString(),
+		fireBy: at.toISOString(),
+	};
+}
 
 /** Every nudge whose slot is open now, before the global rules. Each carries
  *  the id of its pre-warmed session when one exists. */
@@ -389,6 +474,7 @@ export function nudgeCandidates(state: CompanionState, now: Date): NudgeCandidat
 		...postLectureCandidates(state, now),
 		...missedLectureCandidates(state, now),
 		...retestCandidates(state, now),
+		...sundayCandidates(state, now),
 	];
 	return all
 		.map((c) => (c.sessionId ? c : { ...c, sessionId: sessionForKey(state, c.key)?.id }))
@@ -410,19 +496,21 @@ function passesGlobalRules(state: CompanionState, now: Date, c: NudgeCandidate):
 	const profile = state.profile;
 	if (!profile) return false;
 	if (inQuietHours(now, profile.prefs.quietHours)) return false;
+	// 0 a day (F-114): laptop and phone are silent; the student starts from Today.
+	if (profile.prefs.nudgesPerDay === 0) return false;
 	const busy = commitmentAt(state, now);
 	if (busy && !(c.type === "block" && busy.kind === "block")) return false;
 	if (countsTowardCap(c.type) && capReached(state, now)) return false;
 	return true;
 }
 
-/** What fires now: at most one candidate, after the global rules and readiness. */
-export function dueNudges(state: CompanionState, now: Date): NudgeCandidate[] {
+/** What fires now: at most one candidate, after the global rules and readiness. `assumeReady` plans ahead (scheduleWeek). */
+export function dueNudges(state: CompanionState, now: Date, opts: { assumeReady?: boolean } = {}): NudgeCandidate[] {
 	return nudgeCandidates(state, now)
 		.filter((c) => now >= new Date(c.fireAt))
 		.filter((c) => {
 			const session = c.sessionId ? state.sessions.find((s) => s.id === c.sessionId) : undefined;
-			return c.type === "N-4" || c.type === "block" || isSessionReady(session) || now >= new Date(c.fireBy);
+			return opts.assumeReady || c.type === "N-4" || c.type === "block" || c.type === "N-5" || isSessionReady(session) || now >= new Date(c.fireBy);
 		})
 		.filter((c) => passesGlobalRules(state, now, c))
 		.slice(0, 1);
@@ -431,12 +519,12 @@ export function dueNudges(state: CompanionState, now: Date): NudgeCandidate[] {
 /** Sessions to start preparing now, so question 1 is waiting when the nudge is tapped. */
 export function prewarmCandidates(state: CompanionState, now: Date): NudgeCandidate[] {
 	const profile = state.profile;
-	if (!profile || inQuietHours(now, profile.prefs.quietHours)) return [];
+	if (!profile || inQuietHours(now, profile.prefs.quietHours) || profile.prefs.nudgesPerDay === 0) return [];
 	const preparedToday = state.sessions.filter((s) => s.nudgeKey && sameDay(s.createdAt, now)).length;
 	const room = NUDGE_RULES.maxPrewarmPerDay - preparedToday;
 	if (room <= 0) return [];
 	return nudgeCandidates(state, now)
-		.filter((c) => c.type !== "N-4" && c.type !== "block" && !c.sessionId)
+		.filter((c) => c.type !== "N-4" && c.type !== "block" && c.type !== "N-5" && !c.sessionId)
 		.filter((c) => !capReached(state, now))
 		.slice(0, room);
 }
@@ -450,10 +538,10 @@ export function forcedCandidate(
 	opts: { lectureId?: string } = {},
 ): NudgeCandidate | string {
 	const pick = (pred: (l: Lecture) => boolean) =>
-		opts.lectureId ? state.lectures.find((l) => l.id === opts.lectureId) : state.lectures.filter(pred).sort((a, b) => b.end.localeCompare(a.end))[0];
+		opts.lectureId ? state.lectures.find((l) => l.id === opts.lectureId) : state.lectures.filter((l): l is TimedLecture => isTimed(l) && pred(l)).sort((a, b) => b.end.localeCompare(a.end))[0];
 	switch (type) {
 		case "N-1": {
-			const l = pick((l) => n1Eligible(l) && new Date(l.end) <= now) ?? state.lectures.find((l) => l.hasMaterials);
+			const l = pick((l) => n1Eligible(l) && new Date(l.end!) <= now) ?? state.lectures.find((l) => l.hasMaterials);
 			return l ? n1Candidate(state, l, now) : "no lecture with materials";
 		}
 		case "N-2": {
@@ -462,7 +550,7 @@ export function forcedCandidate(
 		}
 		case "N-3": {
 			const l =
-				pick((l) => l.attended === false && l.hasMaterials && new Date(l.end) <= now) ??
+				pick((l) => l.attended === false && l.hasMaterials && new Date(l.end!) <= now) ??
 				latestEndedLecture(state.lectures, now) ??
 				state.lectures.find((l) => l.hasMaterials);
 			return l ? n3Candidate(state, l, now, true) : "no lecture with materials";
@@ -476,8 +564,88 @@ export function forcedCandidate(
 			return snoozed && session ? n4Candidate(session, snoozed.id, now, true) : "no snoozed nudge with a live session";
 		}
 		case "block": {
-			const block = state.blocks[0] ?? { id: "demo-block", weekday: isoWeekday(now), start: "00:00", minutes: 25, skippedDates: [] };
+			const block: StudyBlock = state.blocks.find((b) => blockOccursOn(b, now)) ?? { id: "demo-block", date: dateKey(now), start: "00:00", minutes: 25, status: "accepted", source: "student" };
 			return blockCandidate(state, block, now, now, true) ?? "no lecture to focus the block on";
 		}
+		case "N-5":
+			return n5Candidate(state, now, `forced:N-5:${now.getTime()}`);
 	}
+}
+
+// ─── the week ahead for the phone (F-112, F-114) ───────────────────────────
+
+/** A question as the phone shows it: everything needed with no network call at tap time (spec §5.2). */
+export interface NudgeQuestion {
+	id: string;
+	lectureId: string;
+	stem: string;
+	options: [string, string, string];
+	correct: 0 | 1 | 2;
+	explanation: string;
+	slides: number[];
+}
+
+export interface ScheduledNudge {
+	/** The nudge's key: stable, so a re-upload of the same plan is the same nudge. */
+	id: string;
+	fireAt: string;
+	kind: NudgeType;
+	title: string;
+	/** ≤ 90 characters (a notification body). */
+	body: string;
+	why?: string;
+	lectureId?: string;
+	/** N-1: the module whose lecture just ended ("HCI"). */
+	module?: string;
+	opens: "session" | "checkin" | "question";
+	question?: NudgeQuestion;
+	/** The phone's "later" fires this (counted when the laptop planned it, R-5). */
+	snoozeFireAt: string;
+	expiresAt: string;
+}
+
+/**
+ * The next `days` days of nudges, planned with the same rules as the live
+ * tick (cap, quiet hours, priorities, busy times): simulate the clock in
+ * SCHEDULE_RULES.stepMinutes steps, assuming each session is ready on
+ * time, and record each nudge as fired so the cap holds across the week.
+ * N-1 carries a bank question when one is ready (N-1 v2); `questionFor`
+ * returns one for a unit, skipping ids already used.
+ */
+export function scheduleWeek(
+	state: CompanionState,
+	now: Date,
+	opts: { questionFor?: (lectureId: string, used: ReadonlySet<string>) => NudgeQuestion | undefined; days?: number } = {},
+): ScheduledNudge[] {
+	if (!state.profile || state.profile.prefs.nudgesPerDay === 0) return [];
+	const step = SCHEDULE_RULES.stepMinutes;
+	const start = new Date(Math.ceil(now.getTime() / (step * 60_000)) * step * 60_000);
+	const end = addDays(now, opts.days ?? SCHEDULE_RULES.days);
+	const sim: CompanionState = { ...state, nudges: [...state.nudges] };
+	const used = new Set(state.nudges.map((n) => n.questionId).filter((q): q is string => !!q));
+	const out: ScheduledNudge[] = [];
+	for (let t = start; t < end; t = addMinutes(t, step)) {
+		const [c] = dueNudges(sim, t, { assumeReady: true });
+		if (!c || c.type === "N-4") continue;
+		const unitModule = state.lectures.find((l) => l.id === c.lectureId)?.module;
+		const question = c.type === "N-1" && c.lectureId ? opts.questionFor?.(c.lectureId, used) : undefined;
+		if (question) used.add(question.id);
+		const lectureModule = c.key.startsWith("N-1:") ? state.lectures.find((l) => `N-1:${l.id}` === c.key)?.module : unitModule;
+		out.push({
+			id: c.key,
+			fireAt: t.toISOString(),
+			kind: c.type,
+			title: question && lectureModule ? NUDGE_TEXT.n1Title(lectureModule) : c.type === "N-5" ? NUDGE_TEXT.n5Title : "LockedIn",
+			body: question ? question.stem : c.text,
+			...(c.why ? { why: c.why } : {}),
+			...(c.lectureId ? { lectureId: c.lectureId } : {}),
+			...(c.type === "N-1" && lectureModule ? { module: lectureModule } : {}),
+			opens: question ? "question" : c.opens === "checkin" ? "checkin" : "session",
+			...(question ? { question } : {}),
+			snoozeFireAt: snoozeReturnTime(sim, t).toISOString(),
+			expiresAt: addMinutes(t, NUDGE_RULES.bannerTtlMinutes).toISOString(),
+		});
+		sim.nudges.push({ id: `sched-${out.length}`, type: c.type, key: c.key, firedAt: t.toISOString(), text: c.text, ...(c.lectureId ? { lectureId: c.lectureId } : {}) });
+	}
+	return out;
 }

@@ -23,6 +23,7 @@ import type {
 	StudyBlock,
 } from "../../core/companion/types.ts";
 import { badRequest } from "./errors.ts";
+import { migrateAppearance } from "../../core/companion/palette.ts";
 
 export interface DemoState {
 	/** Demo clock offset from real time. */
@@ -37,6 +38,21 @@ export interface RuntimeState {
 	lockOverrideUntil?: string;
 	/** A subscribed calendar link (F-03); stays on this laptop. */
 	calendarUrl?: string;
+	/** When the subscribed link was last read (F-108: refreshed on open and every 6 hours). */
+	calendarRefreshedAt?: string;
+	/** The phone link (F-112, spec §7 runtime). The secrets stay on this laptop. */
+	pairId?: string;
+	laptopSecret?: string;
+	phoneToken?: string;
+	eventCursor?: number;
+	scheduleVersion?: number;
+	scheduleFingerprint?: string;
+	scheduleUploadedAt?: string;
+	eventsPulledAt?: string;
+	/** Phone event ids already replayed (dedupe, §5.2 item 3). */
+	replayedPhoneEvents?: string[];
+	/** Facilitator "send a question to the phone now": kept in every upload until it expires (real time). */
+	phoneNowNudge?: Record<string, unknown> & { id: string; expiresAt: string };
 }
 
 const FILES = {
@@ -108,20 +124,28 @@ export class CompanionStore {
 	// ─── documents ──────────────────────────────────────────────────────────
 
 	profile(): Profile | null {
-		return this.readJson<Profile | null>(FILES.profile, null);
+		const p = this.readJson<Profile | null>(FILES.profile, null);
+		// v0.0 profiles have appearance.reduceMotion instead of motion (F-118).
+		return p ? { ...p, appearance: migrateAppearance(p.appearance ?? {}) as Profile["appearance"] } : null;
 	}
 	saveProfile(p: Profile): void {
 		this.writeJson(FILES.profile, p);
 	}
 
+	/** Lectures and course units in use: archived ones (gone from the calendar, removed units) are hidden. */
 	lectures(): Lecture[] {
+		return this.allLectures().filter((l) => !l.archived);
+	}
+	/** Every record, archived ones included (history, merges). */
+	allLectures(): Lecture[] {
 		return this.readJson<Lecture[]>(FILES.lectures, []);
 	}
+	/** Replaces the whole list: pass allLectures()-based lists so archived records survive. */
 	saveLectures(l: Lecture[]): void {
 		this.writeJson(FILES.lectures, l);
 	}
 	updateLecture(id: string, fn: (l: Lecture) => Lecture): Lecture | null {
-		const all = this.lectures();
+		const all = this.allLectures();
 		const i = all.findIndex((l) => l.id === id);
 		if (i < 0) return null;
 		all[i] = fn(all[i]!);
@@ -129,8 +153,9 @@ export class CompanionStore {
 		return all[i]!;
 	}
 
+	/** Dated blocks (v0.1 F-110). v0.0's weekly slots (no date, never had a screen) are dropped on read. */
 	blocks(): StudyBlock[] {
-		return this.readJson<StudyBlock[]>(FILES.blocks, []);
+		return this.readJson<StudyBlock[]>(FILES.blocks, []).filter((b) => typeof b.date === "string" && typeof b.status === "string");
 	}
 	saveBlocks(b: StudyBlock[]): void {
 		this.writeJson(FILES.blocks, b);

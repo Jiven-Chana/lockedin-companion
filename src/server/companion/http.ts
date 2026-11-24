@@ -23,12 +23,42 @@ export interface CompanionRouteContext<P extends Params> {
 	json: () => Promise<unknown>;
 }
 
+/**
+ * A CompanionError from any module instance. Next gives each route its own
+ * copy of these modules while the service is shared through globalThis, so
+ * an error thrown by the service can fail `instanceof` in another route.
+ */
+function isCompanionError(err: unknown): err is CompanionError {
+	if (err instanceof CompanionError) return true;
+	const e = err as { name?: unknown; code?: unknown; status?: unknown } | null;
+	return !!e && (e.name === "CompanionError" || e.name === "EngineError") && typeof e.code === "string" && typeof e.status === "number";
+}
+
 export function companionErrorResponse(err: unknown): Response {
-	if (err instanceof CompanionError) {
+	if (isCompanionError(err)) {
 		return Response.json({ error: err.message, code: err.code, ...(err.detail !== undefined ? { detail: err.detail } : {}) }, { status: err.status });
 	}
 	console.error("[companion] unhandled error:", err);
 	return Response.json({ error: "Internal error", code: "internal" }, { status: 500 });
+}
+
+/**
+ * Files from a multipart upload ("file" fields), or pasted text ("text",
+ * with an optional "name"), for the course-material routes (F-104).
+ */
+export async function readUploads(req: Request): Promise<{ name: string; bytes: Uint8Array }[]> {
+	if (!(req.headers.get("content-type") ?? "").includes("multipart/form-data")) throw new CompanionError("bad_request", 400, "send multipart/form-data with one or more \"file\" fields");
+	const form = await req.formData();
+	const out: { name: string; bytes: Uint8Array }[] = [];
+	for (const f of form.getAll("file")) {
+		if (f instanceof Blob) out.push({ name: (f as File).name || "upload", bytes: new Uint8Array(await f.arrayBuffer()) });
+	}
+	const text = form.get("text");
+	if (typeof text === "string" && text.trim()) {
+		const name = form.get("name");
+		out.push({ name: `${typeof name === "string" && name.trim() ? name.trim() : "Pasted notes"}.md`, bytes: new TextEncoder().encode(text) });
+	}
+	return out;
 }
 
 export function companionRoute<P extends Params = Params>(

@@ -1,14 +1,18 @@
 "use client";
 
-/** Me (F-09): appearance with a live preview, nudges, sessions, calendar, what I read, delete. */
+/** Me (F-09; v0.1 F-119): your AI, appearance with a live preview, nudges, sessions, calendar, what I read, delete. */
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { Profile } from "@/src/core";
+import type { MotionChoice, Profile } from "@/src/core";
 import { ApiError, lockedIn } from "../api";
 import { useData, useLocalFlag } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
+import { ConnectAi } from "./connect";
+import { PhoneSection } from "../phone-section";
+import { VoiceSection } from "../voice-section";
+import { RoutineSettings, StudyBlocksSettings } from "../study-settings";
 
 const SEEDS: [string, number][] = [["Lavender", 285], ["Ocean", 230], ["Moss", 150], ["Ember", 40], ["Rose", 350]];
 
@@ -60,6 +64,35 @@ export function MeScreen() {
 			<PageHead eyebrow="Me" title="Make it yours" />
 			{msg ? <div className="li-note" role="status">{msg}</div> : null}
 
+			<section id="ai" className="li-card li-stack" aria-labelledby="ai-h" style={{ gap: 16 }}>
+				<h2 id="ai-h" className="li-h2">Your AI</h2>
+				<span className="li-muted">The AI that teaches your sessions, and the model behind each part of the teacher.</span>
+				<ConnectAi variant="settings" />
+			</section>
+
+			<section id="phone" className="li-card li-stack" aria-labelledby="ph-h" style={{ gap: 12 }}>
+				<h2 id="ph-h" className="li-h2">Phone</h2>
+				<PhoneSection />
+			</section>
+
+			{profile.data ? (
+				<>
+					<section id="blocks" className="li-card li-stack" aria-labelledby="sb-h" style={{ gap: 12 }}>
+						<h2 id="sb-h" className="li-h2">Study blocks</h2>
+						<StudyBlocksSettings profile={profile.data} onSaved={setMsg} />
+					</section>
+					<section id="routine" className="li-card li-stack" aria-labelledby="rt-h" style={{ gap: 12 }}>
+						<h2 id="rt-h" className="li-h2">Routine</h2>
+						<RoutineSettings profile={profile.data} />
+					</section>
+				</>
+			) : null}
+
+			<section id="voice" className="li-card li-stack" aria-labelledby="vo-h" style={{ gap: 12 }}>
+				<h2 id="vo-h" className="li-h2">Voice</h2>
+				<VoiceSection />
+			</section>
+
 			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>
 				<h2 id="ap" className="li-h2">Appearance</h2>
 				<Seg label="Theme" value={appearance.theme} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"], ["contrast", "High contrast"]]} onChange={(v) => setAppearance({ theme: v })} />
@@ -80,7 +113,7 @@ export function MeScreen() {
 				<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
 					<Seg label="Text size" value={appearance.textSize} options={[["normal", "Normal"], ["large", "Large"], ["xlarge", "Extra large"]]} onChange={(v) => setAppearance({ textSize: v })} />
 					<Seg label="Line spacing" value={appearance.loose ? "loose" : "normal"} options={[["normal", "Normal"], ["loose", "Loose"]]} onChange={(v) => setAppearance({ lineSpacing: v })} />
-					<Seg label="Motion" value={appearance.reduceMotion ? "reduce" : "full"} options={[["full", "Full"], ["reduce", "Reduce"]]} onChange={(v) => setAppearance({ reduceMotion: v === "reduce" })} />
+					<Seg label="Motion" value={appearance.motion} options={[["calm", "Calm"], ["full", "Full"], ["off", "Off"]]} onChange={(v) => setAppearance({ motion: v as MotionChoice })} />
 				</div>
 				<div className="li-card flat" style={{ background: "linear-gradient(160deg, var(--li-bg-a), var(--li-bg-b))" }}>
 					<span className="li-eyebrow">Preview</span>
@@ -96,7 +129,7 @@ export function MeScreen() {
 				<section className="li-card li-stack" aria-labelledby="nd" style={{ gap: 20 }}>
 					<h2 id="nd" className="li-h2">Nudges and sessions</h2>
 					<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
-						<Seg label="Nudges a day" value={prefs.nudgesPerDay} options={[[1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
+						<Seg label="Nudges a day" value={prefs.nudgesPerDay} options={[[0, "Off"], [1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
 						<Seg label="Sessions start with" value={prefs.defaultMode} options={[["question-first", "Question me first"], ["show-first", "Show me first"]]} onChange={(v) => savePrefs({ defaultMode: v })} />
 					</div>
 					<div className="li-row" style={{ gap: 20 }}>
@@ -115,7 +148,9 @@ export function MeScreen() {
 				<h2 id="rd" className="li-h2">Calendar and what I read</h2>
 				{reads.data ? (
 					<ul style={{ margin: 0, paddingLeft: "1.2em" }}>
-						<li>Source: {reads.data.label}</li>
+						<li>Source: {reads.data.label}{reads.data.link ? ` (${reads.data.link})` : ""}</li>
+						{reads.data.refreshedAt ? <li>Refreshed {new Date(reads.data.refreshedAt).toLocaleString("en-GB")}; it refreshes when you open the app and every 6 hours</li> : null}
+						<li>Times read in {reads.data.timeZone}</li>
 						<li>{reads.data.events} timetable events, {reads.data.lectures} lectures, modules {reads.data.modules.join(", ") || "none"}</li>
 						<li>Last read: {reads.data.lastReadAt ? new Date(reads.data.lastReadAt).toLocaleString("en-GB") : "never"}</li>
 						<li>Location: never read</li>

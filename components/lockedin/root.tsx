@@ -7,8 +7,9 @@
  * with every screen. Module-tinted regions use <Tint>.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { readAppearance, themeCss, timeOfDay, type FocusAppearance, type Profile } from "@/src/core";
+import { usePathname } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { MOTION, readAppearance, themeCss, timeOfDay, type FocusAppearance, type Profile } from "@/src/core";
 import { api, lockedIn } from "./api";
 
 interface RootCtx {
@@ -21,6 +22,11 @@ interface RootCtx {
 }
 
 const Ctx = createContext<RootCtx | null>(null);
+
+/** The root context, or null outside <LockedInRoot> (server rendering in tests). */
+export function useLockedInOptional(): RootCtx | null {
+	return useContext(Ctx);
+}
 
 export function useLockedIn(): RootCtx {
 	const c = useContext(Ctx);
@@ -65,6 +71,29 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 		}
 	}, []);
 
+	// Theme and hue changes cross-fade live (F-118): colours transition for a moment after a change, never otherwise.
+	const [xfade, setXfade] = useState(false);
+	const lastLook = useRef<string | null>(null);
+	const look = `${appearance.theme}|${appearance.hue}`;
+	useEffect(() => {
+		if (lastLook.current !== null && lastLook.current !== look) {
+			setXfade(true);
+			const t = setTimeout(() => setXfade(false), MOTION.mediumMs + 100);
+			lastLook.current = look;
+			return () => clearTimeout(t);
+		}
+		lastLook.current = look;
+	}, [look]);
+	const pathname = usePathname() ?? "";
+	const motionVars = {
+		"--li-m-short": `${MOTION.shortMs}ms`,
+		"--li-m-medium": `${MOTION.mediumMs}ms`,
+		"--li-m-ring": `${MOTION.ringMs}ms`,
+		"--li-m-stagger": `${MOTION.staggerMs}ms`,
+		"--li-m-page": `${MOTION.pageMs}ms`,
+		"--li-m-drift": `${MOTION.driftSeconds}s`,
+	} as React.CSSProperties;
+
 	const scheme: "light" | "dark" =
 		appearance.theme === "dark" || appearance.theme === "contrast" ? "dark" : appearance.theme === "light" ? "light" : systemDark ? "dark" : "light";
 	const tod = timeOfDay(now);
@@ -72,13 +101,18 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 
 	return (
 		<Ctx.Provider value={{ appearance, setAppearance, scheme, now, refreshClock, demo }}>
-			<style>{css}</style>
+			{/* Time-of-day colours depend on the clock, which can differ between server and browser (#418). */}
+			<style suppressHydrationWarning>{css}</style>
 			<div
 				className="li-root"
+				suppressHydrationWarning
 				data-scheme={scheme}
 				data-text={appearance.textSize}
 				data-loose={String(appearance.loose)}
-				data-motion={appearance.reduceMotion ? "reduce" : "full"}
+				data-motion={appearance.motion}
+				data-place={pathname.startsWith("/app/session") ? "session" : "app"}
+				data-xfade={xfade ? "" : undefined}
+				style={motionVars}
 				data-tod={tod}
 			>
 				{children}
@@ -96,7 +130,7 @@ export function Tint({ hue, className, children, style }: { hue: number; classNa
 	const cls = `li-tint-${Math.round(hue)}`;
 	return (
 		<div className={`${cls} ${className ?? ""}`} style={style}>
-			<style>{themeCss(`.${cls}`, appearance, { hue, tod: timeOfDay(now) })}</style>
+			<style suppressHydrationWarning>{themeCss(`.${cls}`, appearance, { hue, tod: timeOfDay(now) })}</style>
 			{children}
 		</div>
 	);

@@ -43,6 +43,20 @@ The design is in [`v0.1-spec.md`](v0.1-spec.md). Section 3 of the spec lists whe
 | V-13 | The repository is public (AGPL-3.0, as LearnHarness). kayzisland, JishnuMukherjee, LekanAkinwale01 and RPala2703 were invited with write access | Jiven, 23 Nov | D-7 |
 | V-14 | Naming: `VERSIONS.md`, `v0.1-spec.md`, integration branch `feat/v0.1`, tags `lockedin-v0.x` | `SDLC.md` reserves `v*` tags | — |
 
+## Made during the v0.1 build (23 Nov 2026, Jiven)
+
+Taken while building stage 2 (spec §9 step 2). V-15 and V-17 change the spec; [`v0.1-spec.md`](v0.1-spec.md) F-101, J1′, §3 and §12 are updated to match.
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-15 | **The student picks a model per LearnHarness slot** (Strong = prober + teacher, Cheap = question banks, research, grading, Vision = diagrams and PDF reading), each with a thinking level, exactly as in LearnHarness's own Settings. **"Choose for me"** fills all three from a curated list (`models.ts`). The same rows are in Me → AI | Jiven: "It is crucial we have this delineation because in the LearnHarness engine they use a variety of agents to support learning." **Departs from** the Dev anti-persona ("Where do I pick the model?"); "Choose for me" keeps the no-knowledge path to one tap | F-101 "the student never sees model names"; J1′ "No model choice" |
+| V-16 | **Connecting an AI is required** on onboarding screen 1; there is no "Not now". The scripted engine remains only as the declared fallback (after disconnecting, or `COMPANION_ENGINE=scripted` for CI and no-AI demos) | Jiven: "we need the sign in for them to actually use the tool" | — |
+| V-17 | **Calendar first, modules read from it.** Onboarding: connect AI → connect a timetable (link, file, none, or the labelled sample) → confirm the modules found in its event titles (tick, rename, add) → try it now. Typing a module is the fallback when there is no calendar or one is missing. v0.0's "How often can I nudge you?" screen is dropped (1 a day by default, changed in Me) | Jiven: "if we can pick it up from the calendar why would we get the user to type it out again?" Modules came only from the sample timetable in v0.0. Birmingham's timetable (MyUoB) may not export iCal (D-10) and Canvas feeds hold deadlines, not lectures, hence the typing fallback | J1′ step 2 "Pick or type modules" |
+| O-1 | Relay: **Cloudflare Workers + D1 + Cron on a team-owned account** (someone runs `npx wrangler login` before stage 9) | The spec's proposal | spec §12 O-1 |
+| O-2 | "Choose for me", **Balanced**: ChatGPT and OpenAI Strong `gpt-6-sol` (thinking low), Cheap `gpt-6-luna`, Vision `gpt-6-sol`; Anthropic `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-sonnet-5-5`; OpenRouter the same Anthropic models. Each slot falls back down a short list when an account doesn't offer the first pick. Confirm with the checkpoint run | Cheap writes the question banks, so it runs most; Strong balances teaching quality and latency | spec §12 O-2 |
+| O-3 | The first taste is **3 questions on the bundled HCI "Personas and scenarios" lecture**, labelled as a sample, on the student's AI, prepared while they confirm their modules | Nobody has added slides at that point; it has real authored slides | spec §12 O-3 |
+| B-16 | ChatGPT **background use** is shown after sign-in as LearnHarness's toggle, **on by default**, with "LockedIn prepares your questions in the background, so this needs to be on." Off blocks sessions with a plain reason | The prober → teacher hand-off is a background turn; with background use off it is refused and question 1 never appears (`src/server/jobs.ts`, spec F-102 risk) | — |
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:
@@ -64,3 +78,58 @@ Status on 23 Nov:
 | D-8 | T23 setup: laptop phone frame or real phones on a hotspot? | Both work; real phones need `-H 0.0.0.0` on a private hotspot |
 | D-9 | Session length stated as an estimate, stop or keep going, no up-front length question | As proposed |
 | D-10 | Does Birmingham's timetable export iCal? | `.ics` import is built (stretch); the sample timetable is the MVP |
+
+## How course material comes in (O-15, raised 23 Nov 2026)
+
+**Decided the same day: option D, built in v0.1 (V-18 below).**
+
+Raised by Jiven while specifying stage 4 (F-104). Recorded here with the reasoning because it shapes the data model, F-104, F-105 (study packs) and the 26 Nov test.
+
+**The problem.** F-104 as specified assumes one file per lecture, matched to a timetable lecture by the week number in its name, its slide titles, or date order. Real material doesn't arrive that way:
+
+| # | How a student's material can arrive | What F-104 as specified does with it |
+|---|---|---|
+| S1 | One PDF per lecture, labelled by week ("GT Week 3 – Nash.pdf") | Works, if there is a timetable to match to |
+| S2 | One file for the whole semester (a single deck, a reading pack, a revision guide) | Fails: it has to be split into lectures or topics first |
+| S3 | Files with no week or date on them ("Lecture slides.pdf", "notes.md") | Only date order is left, which guesses badly |
+| S4 | Canvas module pages: a summary per week, as text, with the deadlines in the calendar | Not a file at all; the Canvas calendar holds deadlines, not lectures (seen 23 Nov) |
+| S5 | No timetable at all: MyUoB doesn't appear to export iCal (D-10), so typed modules have no lectures | Nothing to match to; every upload is orphaned |
+
+**What the rest of the app needs from material:**
+- *content units* (a lecture or a topic) with their text and slide numbers, so a unit can be quizzed, cited and turned into a study pack;
+- and, separately, *when* a unit was taught, so N-1 ("HCI just finished. One question:") can fire after it.
+
+v0.0 fuses the two in one `Lecture` record: a timetable event that may have slides.
+
+**Options considered:**
+- **A. Heuristic matching only (spec F-104 as written).** Cheap and deterministic. Handles S1 with a timetable; fails S2 to S5.
+- **B. Upload on each lecture's own page.** The student picks the lecture; no guessing. Handles S1 with a timetable. Still fails S2 and S5, and it's tedious for a whole term.
+- **C. The AI proposes the structure.** The Cheap model reads the upload (per-page titles and text) and proposes units, each with a title, a page range and a week if one is found. The student confirms or edits them in one list. Units attach to timetable lectures when they line up; otherwise they stay as untimed topics. Handles S1 to S3; S4 can be pasted as text notes. It needs `lh-port.generate()` (stage 5) first, and costs one model call per upload.
+- **D. Separate content from the timetable in the data model.** A module has *topics* (from material, in course order) and *events* (from the timetable, with times). A post-lecture nudge links "the lecture that just ended" to "the next topic not yet covered". Models S1 to S5 properly, including no timetable. It is the largest change: Library, study packs, nudges and the concept map all key on lectures today.
+
+**Evidence:**
+- Q-10: 19 of 22 share slides; 21 of 22 share a timetable.
+- INT-06-e: "upload the material and the quiz is generated".
+- AE2-1: every extra setup step costs.
+- The Birmingham timetable route is unknown (D-10).
+
+We have **no evidence** on how students' material is actually split across files. That is a research gap worth a question in T23 or in Kobi's findings.
+
+**Risk to the 26 Nov test:** testers use the facilitator laptop and demo modules, so the test does not depend on solving this. The narrative does, though: "add your slides" is task T2.
+
+### V-18 (23 Nov 2026, Jiven): learning separated from lectures
+
+"Just change the v0.1 spec and build the thing." Option D above, combined with C (the AI proposes how material splits into units, and the student confirms). The model is in [`v0.1-spec.md`](v0.1-spec.md) section 5.5:
+- **course units** per module, with weeks and material, from any input shape;
+- a **module calendar** (current week, reading weeks) that works without a timetable;
+- a **pacing rule**: keep up first, gap repair capped at a third of the weekly target, units more than 6 weeks back left for revision. This answers Jiven's concern that a student in week 10 must not be stuck on week 3.
+
+Lecture times become a signal for N-1, not a requirement. F-104, F-109 and F-110 in the spec are revised to match.
+
+Defaults chosen in the build, all tunable in `policy.ts` and open to the group (O-7):
+- `gapShare` = 1/3;
+- `maxGapWeeksBack` = 6;
+- "keep up" covers the current and the previous week;
+- reading weeks lift the cap.
+
+**Evidence:** none direct for the pacing numbers. LIT-16 and LIT-17 (spaced practice testing) support revisiting weak units. INT-05-h supports planning in weeks. Jiven's reasoning (23 Nov): "If we have the app notifying the user to study xyz to meet their inputted time commitment for a given week then we have a better chance at maximising objectives since we can just structure learning around weaknesses."

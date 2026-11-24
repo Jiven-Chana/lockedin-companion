@@ -13,4 +13,4 @@ export { createLearnHarnessPort, type LearnHarnessPortOptions } from "./lh-port.
 export { ScriptedEngine } from "./engines/scripted.ts";
 export type { SessionEngine, PrepareContext, SessionPatch } from "./engines/types.ts";
 export { companionService, createCompanionService, companionDataDir, companionContentDir, configuredEngine, demoEnabled } from "./default.ts";
-export { companionRoute, companionErrorResponse, type CompanionRouteContext } from "./http.ts";
+export { companionRoute, companionErrorResponse, readUploads, type CompanionRouteContext } from "./http.ts";

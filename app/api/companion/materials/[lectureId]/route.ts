@@ -1,13 +1,12 @@
-import { companionRoute, demoEnabled } from "@/src/server";
+import { companionRoute } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-/** Slide titles and availability for a lecture. */
+/** Slide titles and availability for a lecture or course unit. */
 export const GET = companionRoute<{ lectureId: string }>(({ svc, params }) => svc.materials(params.lectureId));
 
-/** Upload a lecture PDF (dev/facilitator only: COMPANION_DEMO=1). Body: the PDF bytes, or multipart "file". */
+/** Replace a lecture's or unit's material with one PDF. Body: the PDF bytes, or multipart "file". */
 export const POST = companionRoute<{ lectureId: string }>(async ({ svc, req, params }) => {
-	if (!demoEnabled()) return Response.json({ error: "Not found", code: "not_found" }, { status: 404 });
 	let bytes: Uint8Array;
 	if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
 		const file = (await req.formData()).get("file");
@@ -17,3 +16,6 @@ export const POST = companionRoute<{ lectureId: string }>(async ({ svc, req, par
 	if (bytes.length === 0) return Response.json({ error: "empty body", code: "bad_request" }, { status: 400 });
 	return svc.importMaterials(params.lectureId, bytes);
 });
+
+/** Remove: a course unit is hidden (history kept); a timetable lecture loses its uploaded material. */
+export const DELETE = companionRoute<{ lectureId: string }>(({ svc, params }) => svc.removeMaterials(params.lectureId));

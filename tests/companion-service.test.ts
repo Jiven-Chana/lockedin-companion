@@ -178,8 +178,8 @@ describe("J5: study blocks and the simulated lock", () => {
 	it("off by default, gentle/firm prompt, always a way out, one-tap skip", () => {
 		const { svc, clock, events } = setup();
 		svc.onboard({});
-		svc.saveBlocks([{ id: "b1", weekday: 2, start: "15:00", minutes: 50, skippedDates: [] }]);
-		assert.throws(() => svc.saveBlocks([1, 2, 3].map((i) => ({ id: `b${i}`, weekday: 1, start: "10:00", minutes: 25, skippedDates: [] }))), /at most 2/);
+		svc.saveBlocks([{ id: "b1", date: "2026-11-17", start: "15:00", minutes: 50, status: "accepted", source: "student" }]);
+		assert.throws(() => svc.saveBlocks([{ id: "b2", date: "next Tuesday", start: "10:00", minutes: 25 }]), /date must be YYYY-MM-DD/);
 		clock.set(at(17, 15, 10));
 		assert.deepEqual(svc.appOpen({ app: "Social" }), { allowed: true, reason: "lock-off" });
 
@@ -199,7 +199,7 @@ describe("J5: study blocks and the simulated lock", () => {
 		assert.ok(events().includes("lock_override") && events().includes("app_open_blocked"));
 
 		const skipped = svc.skipBlock("b1");
-		assert.deepEqual(skipped.skippedDates, ["2026-11-17"], "today's block is still running, so today is skipped");
+		assert.equal(skipped.status, "removed", "skipping a dated block removes it (one tap, X-7)");
 	});
 });
 
@@ -310,7 +310,7 @@ describe("data and the event log", () => {
 		assert.match(csv.split("\n")[0]!, /^t,wall,participant,type,data$/);
 		assert.match(csv, /P03,onboarding_step/);
 		fs.mkdirSync(path.join(dir, "materials", "x"), { recursive: true });
-		svc.deleteAll();
+		await svc.deleteAll();
 		assert.equal(store.profile(), null);
 		assert.deepEqual(store.events(), []);
 		assert.ok(fs.existsSync(path.join(dir, "materials", "x")));

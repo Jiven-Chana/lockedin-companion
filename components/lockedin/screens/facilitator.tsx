@@ -3,7 +3,7 @@
 /** The T23 facilitator panel (F-10): demo clock, scenarios, fire nudges, engine, event log. COMPANION_DEMO=1 only. */
 
 import { useState } from "react";
-import { ApiError, lockedIn } from "../api";
+import { ApiError, api, lockedIn } from "../api";
 import { fmtTime, useData, usePoll } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
@@ -32,7 +32,9 @@ export function FacilitatorScreen() {
 	const [msg, setMsg] = useState<string | null>(null);
 	const [participant, setParticipant] = useState("");
 	const [setAt, setSetAt] = useState("");
-	usePoll(() => { void state.reload(); void log.reload(); }, 4000, true);
+	// F-119: the phone relay's status (null when COMPANION_RELAY_URL isn't set).
+	const phone = useData(() => lockedIn.phone().catch(() => null));
+	usePoll(() => { void state.reload(); void log.reload(); void phone.reload(); }, 4000, true);
 
 	async function run(label: string, fn: () => Promise<unknown>) {
 		try {
@@ -72,6 +74,7 @@ export function FacilitatorScreen() {
 							<button type="button" className="li-btn" onClick={() => run("+1 hour", () => lockedIn.demo.clock({ advanceMinutes: 60 }))}>+1 h</button>
 							<button type="button" className="li-btn" onClick={() => run("Jumped to the next lecture's end", () => lockedIn.demo.clock({ jump: "next-lecture-end" }))}>Next lecture end</button>
 							<button type="button" className="li-btn" onClick={() => run("Next day 09:00", () => lockedIn.demo.clock({ jump: "next-day" }))}>Next day</button>
+							<button type="button" className="li-btn" onClick={() => run("Sunday evening (check-in time)", () => lockedIn.demo.clock({ jump: "sunday-evening" }))}>Sunday evening</button>
 							<button type="button" className="li-btn ghost" onClick={() => run("Real time", () => lockedIn.demo.clock({ jump: "reset" }))}>Real time</button>
 						</div>
 						<label className="li-row">
@@ -83,12 +86,37 @@ export function FacilitatorScreen() {
 					<section className="li-card li-stack" style={{ gap: 12 }}>
 						<h2 className="li-h2">Fire a nudge now</h2>
 						<div className="li-row">
-							{["N-1", "N-2", "N-3", "N-4", "block"].map((t) => <button key={t} type="button" className="li-btn" onClick={() => run(`Fired ${t}`, () => lockedIn.demo.fire(t))}>{t}</button>)}
+							{["N-1", "N-2", "N-3", "N-4", "N-5", "block"].map((t) => <button key={t} type="button" className="li-btn" onClick={() => run(`Fired ${t}`, () => lockedIn.demo.fire(t))}>{t}</button>)}
+						</div>
+						<div className="li-row">
+							<b className="li-small">Phone (no phone needed):</b>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered right, then 4 more on the laptop", () => api("/demo/phone", { body: { action: "handover", correct: true } }))}>Answer + hand-off</button>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered wrong, then 4 more on the laptop", () => api("/demo/phone", { body: { action: "handover", correct: false } }))}>Wrong + hand-off</button>
+							<button type="button" className="li-btn" onClick={() => run("Phone: answered, then Done for now", () => api("/demo/phone", { body: { action: "done" } }))}>Answer + done</button>
 						</div>
 						<span className="li-small li-muted">Upcoming by the rules: {s?.candidates.length ? s.candidates.map((c) => `${c.type} at ${fmtTime(c.fireAt)}`).join(", ") : "none right now"}.</span>
 					</section>
 				</div>
 				<div className="li-stack">
+					<section className="li-card li-stack" style={{ gap: 12 }}>
+						<h2 className="li-h2">Phone relay</h2>
+						{phone.data ? (
+							<>
+								<span className="li-small">
+									{phone.data.relay} · {phone.data.reachable === false ? "unreachable (the laptop carries on alone)" : "reachable"}
+									{" · "}{phone.data.paired ? `paired${phone.data.pushReady ? ", notifications on" : phone.data.phoneSeenAt ? ", phone opened the link (no notifications yet)" : ", phone not seen yet"}` : "not paired"}
+									{phone.data.uploadedAt ? ` · week uploaded ${fmtTime(phone.data.uploadedAt)}` : ""}
+								</span>
+								<div className="li-row">
+									<button type="button" className="li-btn primary" disabled={!phone.data.paired} onClick={() => run("Sent: the phone shows the question within a minute", () => api("/demo/phone-now", { method: "POST" }))}>Send a question to the phone now</button>
+									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Synced with the relay", () => lockedIn.syncPhone())}>Sync now</button>
+									<button type="button" className="li-btn" disabled={!phone.data.paired} onClick={() => run("Pairing reset: pair again from Me → Phone", () => lockedIn.unpairPhone())}>Reset pairing</button>
+								</div>
+							</>
+						) : (
+							<span className="li-small li-muted">No relay on this laptop (COMPANION_RELAY_URL is not set). Use the phone buttons under “Fire a nudge now” to simulate it.</span>
+						)}
+					</section>
 					<section className="li-card li-stack" style={{ gap: 12 }}>
 						<h2 className="li-h2">Participant</h2>
 						<div className="li-row">

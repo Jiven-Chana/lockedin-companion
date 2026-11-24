@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { moduleHue, type SessionKind } from "@/src/core";
-import { lockedIn } from "../api";
+import { ApiError, lockedIn, type PackData } from "../api";
 import { ConceptMap } from "../concept-map";
-import { fmtDay, fmtTime, useData } from "../hooks";
+import { ExplainerCard } from "../explainer-card";
+import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
 import { StatusTag } from "../icons";
 import { Prose } from "../prose";
 import { Tint, useLockedIn } from "../root";
 
-type Tab = "map" | "slides" | "revisit";
+type Tab = "map" | "explainers" | "slides" | "revisit";
 
 export function LectureScreen({ lectureId }: { lectureId: string }) {
 	const router = useRouter();
@@ -20,19 +21,27 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 	const [selected, setSelected] = useState<string | null>(null);
 	const [openSlide, setOpenSlide] = useState<number | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [msg, setMsg] = useState<string | null>(null);
+	const [confirmRemove, setConfirmRemove] = useState(false);
 	const lectures = useData(() => lockedIn.lectures());
 	const slides = useData(() => lockedIn.slides(lectureId), [lectureId]);
 	const map = useData(() => lockedIn.map(lectureId), [lectureId]);
 	const misses = useData(() => lockedIn.misses(lectureId), [lectureId]);
+	const pack = useData(() => lockedIn.pack(lectureId).catch(() => null), [lectureId]);
+	const packRunning = !!pack.data?.running;
+	usePoll(() => {
+		void pack.reload();
+		if (pack.data?.meta?.stages.map === "running") void map.reload();
+	}, 2_000, packRunning);
 
 	const lecture = lectures.data?.find((l) => l.id === lectureId);
-	if (lectures.data && !lecture) return <div className="li-card li-empty">That lecture isn&apos;t in your timetable. <Link href="/app/library">Back to the Library</Link></div>;
+	if (lectures.data && !lecture) return <div className="li-card li-empty">That isn&apos;t in your course any more. <Link href="/app/library">Back to the Library</Link></div>;
 	if (!lecture) return <div className="li-card li-empty">Loading…</div>;
 
-	async function start(kind: SessionKind) {
+	async function start(kind: SessionKind, nodes?: string[]) {
 		setBusy(true);
 		try {
-			const { sessionId } = await lockedIn.startSession({ kind, lectureId });
+			const { sessionId } = await lockedIn.startSession({ kind, lectureId, ...(nodes?.length ? { nodes } : {}) });
 			router.push(`/app/session/${sessionId}`);
 		} finally {
 			setBusy(false);
@@ -48,19 +57,58 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module} · Week {lecture.week}</Link>
+						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · Week ${lecture.week}` : ""}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
-						<span className="li-muted">{fmtDay(lecture.start, now)} {fmtTime(lecture.start)}–{fmtTime(lecture.end)}{lecture.attended === false ? " · you weren't there" : ""}</span>
+						<span className="li-muted">{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : lecture.week > 0 ? `Week ${lecture.week} · from your course material` : "From your course material"}{lecture.attended === false ? " · you weren't there" : ""}</span>
 					</div>
 				</header>
 				<div className="li-row">
 					<button type="button" className="li-btn primary big" disabled={!lecture.hasMaterials || busy} onClick={() => start(lecture.attended === false ? "missed-lecture" : "post-lecture")}>{lecture.attended === false ? "Show me this lecture" : "Quiz me"}</button>
 					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => start("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
-					<button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button>
+					{lecture.start ? <button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button> : null}
+					<label className="li-btn ghost" style={{ cursor: "pointer" }}>
+						{lecture.hasMaterials ? "Replace material" : "Add slides (PDF)"}
+						<input type="file" accept=".pdf,application/pdf" className="li-sr" onChange={async (e) => {
+							const f = e.target.files?.[0];
+							if (!f) return;
+							setMsg("Reading your slides…");
+							try {
+								const r = await lockedIn.replaceMaterials(lectureId, f);
+								setMsg(`${r.slideCount} slides added${r.needsCaption.length ? `; no text found on ${r.needsCaption.length}` : ""}.`);
+								void lectures.reload(); void slides.reload(); void map.reload();
+							} catch (err) {
+								setMsg(err instanceof ApiError ? err.message : "Couldn't read that PDF");
+							}
+						}} />
+					</label>
+					{lecture.hasMaterials ? (
+						confirmRemove ? (
+							<span className="li-row" style={{ gap: 8 }}>
+								<b>{lecture.start ? "Remove the slides you added?" : "Remove this unit?"}</b>
+								<button type="button" className="li-btn primary" onClick={async () => { await lockedIn.removeMaterials(lectureId); setConfirmRemove(false); if (!lecture.start) router.push("/app/library"); else { void lectures.reload(); void slides.reload(); } }}>Remove</button>
+								<button type="button" className="li-btn" onClick={() => setConfirmRemove(false)}>Keep</button>
+							</span>
+						) : <button type="button" className="li-btn ghost" onClick={() => setConfirmRemove(true)}>Remove</button>
+					) : null}
 				</div>
+				{msg ? <div className="li-note" role="status">{msg}</div> : null}
+				{lecture.hasMaterials ? (
+					<PackProgress
+						data={pack.data ?? null}
+						onStart={async (fresh) => {
+							try {
+								await lockedIn.startPack(lectureId, fresh);
+								void pack.reload();
+							} catch (e) {
+								setMsg(e instanceof ApiError ? e.message : "Couldn't start the study pack");
+							}
+						}}
+						onCancel={async () => { await lockedIn.cancelPack(lectureId); void pack.reload(); }}
+					/>
+				) : null}
 
 				<div role="tablist" aria-label="Lecture" className="li-seg" style={{ alignSelf: "flex-start" }}>
-					{([["map", "Concept map"], ["slides", `Slides (${slides.data?.length ?? 0})`], ["revisit", `Ideas to revisit (${openMisses.length})`]] as [Tab, string][]).map(([k, label]) => (
+					{([["map", "Concept map"], ["explainers", `Explainers (${pack.data?.explainers.length ?? 0})`], ["slides", `Slides (${slides.data?.length ?? 0})`], ["revisit", `Ideas to revisit (${openMisses.length})`]] as [Tab, string][]).map(([k, label]) => (
 						<button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
 					))}
 				</div>
@@ -69,7 +117,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					<div className="li-grid-2">
 						<div className="li-stack">
 							<span className="li-small li-muted">✓ solid · ◐ shaky · ○ to revisit · · not yet. From your answers, never your attendance.{map.data?.source === "headings" ? " This starter map follows the slide headings; your first teaching session refines it." : ""}</span>
-							{map.data ? <ConceptMap data={map.data} selected={selected} onSelect={setSelected} /> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
+							{map.data ? <ConceptMap data={map.data} selected={selected} onSelect={(node) => { setSelected(node); void lockedIn.event("map_node_clicked", { lectureId, node }); }} /> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
 						</div>
 						<aside className="li-card" style={{ position: "sticky", top: 24 }}>
 							{node ? (
@@ -84,8 +132,12 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 										})()}
 									</span>
 									<span>{node.answers ? `${node.answers} ${node.answers === 1 ? "answer" : "answers"} landed here.` : "You haven't been asked about this yet."}</span>
+									{(() => {
+										const ex = pack.data?.explainers.find((e) => e.node === node.id);
+										return ex ? <ExplainerCard explainer={ex} onSlide={(n) => { setOpenSlide(n); setTab("slides"); }} /> : null;
+									})()}
 									<div className="li-row">
-										<button type="button" className="li-btn primary" disabled={busy || !lecture.hasMaterials} onClick={() => start(node.status === "revisit" && openMisses.length ? "retest" : "post-lecture")}>Quiz me on this</button>
+										<button type="button" className="li-btn primary" disabled={busy || !lecture.hasMaterials} onClick={() => start("post-lecture", [node.id])}>Quiz me on this idea</button>
 										{node.slides[0] ? <button type="button" className="li-btn" onClick={() => { setOpenSlide(node.slides[0]!); setTab("slides"); }}>Open slide {node.slides[0]}</button> : null}
 									</div>
 								</div>
@@ -97,6 +149,21 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 								</div>
 							)}
 						</aside>
+					</div>
+				) : null}
+
+				{tab === "explainers" ? (
+					<div className="li-stack" style={{ gap: 14 }}>
+						{(pack.data?.explainers ?? []).length === 0 ? <div className="li-card li-empty">{packRunning ? "Your explainers are being written…" : "No explainers yet. They come with the study pack."}</div> : null}
+						{(pack.data?.explainers ?? []).map((e) => (
+							<ExplainerCard
+								key={e.id}
+								explainer={e}
+								busy={busy}
+								onSlide={(n) => { setOpenSlide(n); setTab("slides"); }}
+								onTry={() => { void lockedIn.event("explainer_opened", { lectureId, node: e.node, via: "try" }); void start("post-lecture", [e.node]); }}
+							/>
+						))}
 					</div>
 				) : null}
 
@@ -126,5 +193,44 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 				) : null}
 			</div>
 		</Tint>
+	);
+}
+
+const PACK_ORDER = ["read", "map", "bank", "explainers"] as const;
+const STAGE_LABEL: Record<(typeof PACK_ORDER)[number], string> = { read: "Reading your slides", map: "drawing the map", bank: "writing questions", explainers: "writing explainers" };
+
+/** The study pack's work, shown as it happens (AE2-2: never a bare spinner). */
+function PackProgress({ data, onStart, onCancel }: { data: PackData | null; onStart: (fresh: boolean) => void; onCancel: () => void }) {
+	const meta = data?.meta;
+	if (!meta) {
+		return (
+			<div className="li-row li-note" style={{ gap: 10 }}>
+				<span style={{ flexGrow: 1 }}>No study pack yet: a concept map, short explainers and practice questions written from these slides.</span>
+				<button type="button" className="li-btn primary" onClick={() => onStart(false)}>Write the study pack</button>
+			</div>
+		);
+	}
+	return (
+		<div className="li-row li-note" style={{ gap: 10 }} role="status" aria-live="polite">
+			<span style={{ flexGrow: 1 }}>
+				{PACK_ORDER.map((s, i) => {
+					const st = meta.stages[s];
+					const mark = st === "done" || st === "skipped" ? " ✓" : st === "running" ? "…" : st === "failed" ? " ✕" : "";
+					return (
+						<span key={s} className="li-pack-stage" data-state={st}>
+							{i ? " → " : ""}
+							{STAGE_LABEL[s]}
+							{mark ? <span key={st} className={st === "done" || st === "skipped" ? "li-tick" : undefined}>{mark}</span> : null}
+						</span>
+					);
+				})}
+				{meta.state === "ready" && meta.counts ? <span className="li-small li-muted"> · {meta.counts.questions} {meta.counts.questions === 1 ? "question" : "questions"}, {meta.counts.explainers} {meta.counts.explainers === 1 ? "explainer" : "explainers"}{meta.costUsd ? ` · $${meta.costUsd.toFixed(3)}` : ""}</span> : null}
+				{meta.state === "failed" ? <span className="li-small"> · {meta.error ?? "Something went wrong."}</span> : null}
+				{meta.state === "cancelled" ? <span className="li-small"> · paused</span> : null}
+			</span>
+			{data?.running ? <button type="button" className="li-btn" onClick={onCancel}>Cancel</button> : null}
+			{!data?.running && (meta.state === "failed" || meta.state === "cancelled") ? <button type="button" className="li-btn primary" onClick={() => onStart(false)}>Resume</button> : null}
+			{!data?.running && meta.state === "ready" ? <button type="button" className="li-btn ghost" onClick={() => onStart(true)}>Regenerate</button> : null}
+		</div>
 	);
 }

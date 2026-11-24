@@ -50,7 +50,7 @@ describe("paletteTokens", () => {
 
 describe("appearance and theme CSS", () => {
 	it("reads the stored appearance, defaulting to system + auto", () => {
-		assert.deepEqual(readAppearance(undefined), { theme: "system", hue: "auto", textSize: "normal", loose: false, reduceMotion: false });
+		assert.deepEqual(readAppearance(undefined), { theme: "system", hue: "auto", textSize: "normal", loose: false, motion: "calm" });
 		assert.equal(readAppearance({ theme: "dark", accent: "40" } as never).hue, 40);
 		assert.equal(readAppearance({ accent: "blue" } as never).hue, "auto");
 	});

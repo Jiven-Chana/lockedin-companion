@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { slideTitles } from "../../core/companion/slides.ts";
 import { validateScriptedSet } from "../../core/companion/scripted.ts";
+import { bankToScriptedSet, type BankQuestion, type Explainer } from "../../core/companion/study-pack.ts";
 import type { SampleTimetable } from "../../core/companion/timetable.ts";
 import type { ScriptedSet } from "../../core/companion/types.ts";
 import { assertSafeId, type CompanionStore } from "./store.ts";
@@ -67,7 +68,17 @@ export class CompanionContent {
 	/** The scripted set for a lecture, validated. Throws on an invalid file (authoring error). */
 	scriptedSet(lectureId: string): ScriptedSet | null {
 		const p = this.find(lectureId, "questions.json");
-		if (!p) return null;
+		if (!p) {
+			// No authored set: a generated study pack's bank is the fallback (F-105), so the
+			// scripted engine works on the student's own material.
+			const bankFile = this.find(lectureId, "bank.json");
+			if (!bankFile) return null;
+			const bank = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ bankFile, "utf-8")) as BankQuestion[];
+			const explainersFile = this.find(lectureId, "explainers.json");
+			const explainers = explainersFile ? (JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ explainersFile, "utf-8")) as Explainer[]) : [];
+			const set = bankToScriptedSet(lectureId, bank, explainers);
+			return set.questions.length ? set : null;
+		}
 		const parsed = validateScriptedSet(JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ p, "utf-8")));
 		if (!parsed.ok) throw new Error(`invalid scripted set ${p}: ${parsed.errors.join("; ")}`);
 		return parsed.set;
@@ -84,5 +95,10 @@ export class CompanionContent {
 		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.md"), files.slidesMd, "utf-8");
 		if (files.pdf) fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
 		return dir;
+	}
+
+	/** Delete a lecture's uploaded material (the bundled demo content in the repo is never touched). */
+	removeMaterials(lectureId: string): void {
+		fs.rmSync(/* turbopackIgnore: true */ this.store.materialsDir(lectureId), { recursive: true, force: true });
 	}
 }

@@ -20,6 +20,26 @@ import { stores } from "../stores.ts";
 import { isTurnRunning } from "../turn-liveness.ts";
 import { turnFailure } from "../turn-runs.ts";
 import type { LhPort, LhSendResult } from "./engines/learnharness.ts";
+import { refreshWorkerRequestAdmission } from "../../agent/worker-request-admission.ts";
+import { writeSettings } from "../../store/settings.ts";
+import { deleteKey, keyStatuses, saveKey } from "../keys.ts";
+import { clampModelsLevels, modelCatalog, refreshConnectionCatalog, validateModelsSettings } from "../model-catalog.ts";
+import { parseModelsSettingsBody } from "../settings-body.ts";
+import { subscriptionRequestOrigin } from "../desktop-access.ts";
+import { webSubscriptionOwner, webSubscriptionStatus } from "../web-subscriptions.ts";
+import { KEY_PROVIDERS, PROVIDER_KEY_ID, type CatalogModel, type KeyProvider, type SlotChoices } from "../../core/companion/models.ts";
+import { MODEL_SLOTS } from "../../core/settings.ts";
+import type { AiPort } from "./ai.ts";
+import { Type } from "typebox";
+import { piEngineForSpec } from "../../agent/models.ts";
+import { runSubmitAgent } from "../../agent/subagents/submit-agent.ts";
+import { isSubscriptionProvider } from "../../agent/subscription-connections.ts";
+import { modelsNotConfigured } from "../../core/settings.ts";
+import type { ModelRole } from "../../../config.ts";
+import { resolveSlot } from "../../core/settings-resolution.ts";
+import { providerKeyPresent } from "../keys.ts";
+import { EngineError } from "./errors.ts";
+import type { Generate } from "./generate.ts";
 
 async function readNdjsonAnswer(res: Response): Promise<string> {
 	if (!res.ok || !res.body) {
@@ -105,3 +125,145 @@ export function createLearnHarnessPort(opts: LearnHarnessPortOptions = {}): LhPo
 		},
 	};
 }
+
+/**
+ * Connect your AI (v0.1 F-101): ChatGPT sign-in, API keys, the model
+ * catalogue and the three slots, through the same server functions the
+ * engine's own Settings uses (app/api/subscriptions, app/api/keys,
+ * app/api/models, PUT /api/settings/models).
+ */
+export function createAiPort(): AiPort {
+	const NOT_AVAILABLE = { connected: false, pending: false, allowBackgroundUse: false, email: null, error: null, available: false };
+	return {
+		async chatgptStatus() {
+			try {
+				const { chatgpt } = await webSubscriptionStatus();
+				const account = chatgpt.accounts.find((a) => a.id === chatgpt.activeId) ?? null;
+				return {
+					available: chatgpt.available,
+					pending: chatgpt.pending,
+					allowBackgroundUse: chatgpt.allowBackgroundUse,
+					connected: !!(chatgpt.available && account?.connected && account.planEnabled !== false),
+					email: account?.email ?? null,
+					error: chatgpt.error ?? null,
+				};
+			} catch {
+				// Desktop-owned mode (Electron) runs ChatGPT in the main process: F-117.
+				return NOT_AVAILABLE;
+			}
+		},
+		async chatgptControl(op, fields, req) {
+			const origin = subscriptionRequestOrigin(req);
+			if (!origin) return { error: "Open sign-in from LockedIn on this computer." };
+			const result = (await webSubscriptionOwner().control("chatgpt", { op, ...fields }, origin)) as { value?: { error?: string | null }; browserAction?: string };
+			return {
+				...(result.browserAction ? { browserAction: result.browserAction } : {}),
+				...(result.value?.error ? { error: result.value.error } : {}),
+			};
+		},
+		keysPresent() {
+			const statuses = keyStatuses();
+			const present = (p: KeyProvider) => statuses.some((k) => k.id === PROVIDER_KEY_ID[p] && k.present);
+			return Object.fromEntries(KEY_PROVIDERS.map((p) => [p, present(p)])) as Record<KeyProvider, boolean>;
+		},
+		saveKey(provider, value) {
+			const r = saveKey(PROVIDER_KEY_ID[provider], value);
+			return r.ok ? { ok: true } : { ok: false, error: r.error };
+		},
+		deleteKey(provider) {
+			deleteKey(PROVIDER_KEY_ID[provider]);
+		},
+		async catalog(): Promise<CatalogModel[]> {
+			await refreshConnectionCatalog().catch(() => undefined);
+			return modelCatalog().models.map((m) => ({
+				id: m.id,
+				name: m.name,
+				provider: m.provider,
+				input: [...m.input],
+				reasoning: m.reasoning,
+				supportedLevels: [...(m.supportedLevels ?? [])],
+				cost: m.cost && (m.cost.input > 0 || m.cost.output > 0) ? { input: m.cost.input, output: m.cost.output } : null,
+			}));
+		},
+		slots(): SlotChoices {
+			const models = readSettings()?.models ?? {};
+			const out: SlotChoices = {};
+			for (const slot of MODEL_SLOTS) {
+				const s = models[slot];
+				if (s?.model) out[slot] = { model: { provider: s.model.provider, id: s.model.id }, ...(s.thinkingLevel ? { thinkingLevel: s.thinkingLevel as never } : {}) };
+			}
+			return out;
+		},
+		voiceKeyPresent() {
+			return keyStatuses().some((k) => k.id === "DEEPGRAM_API_KEY" && k.present);
+		},
+		async saveVoiceKey(value) {
+			// The exact call dictation makes (app/api/stt/token): a key without Member permission can't mint a token.
+			try {
+				const res = await fetch("https://api.deepgram.com/v1/auth/grant", { method: "POST", headers: { Authorization: `Token ${value}`, "Content-Type": "application/json" }, body: JSON.stringify({ ttl_seconds: 30 }), signal: AbortSignal.timeout(15_000) });
+				await res.body?.cancel().catch(() => {});
+				if (res.status === 401) return { ok: false, error: "Deepgram didn't accept that key. Check it and try again." };
+				if (res.status === 403) return { ok: false, error: "That key can't start dictation: in the Deepgram console, give it Member permission (or make a new Member key)." };
+				if (!res.ok) return { ok: false, error: `Deepgram answered with an error (${res.status}). Try again in a minute.` };
+			} catch {
+				return { ok: false, error: "Couldn't reach Deepgram. Check your internet connection." };
+			}
+			const r = saveKey("DEEPGRAM_API_KEY", value);
+			return r.ok ? { ok: true } : { ok: false, error: r.error };
+		},
+		deleteVoiceKey() {
+			deleteKey("DEEPGRAM_API_KEY");
+		},
+		writeSlots(slots) {
+			const parsed = parseModelsSettingsBody(slots ?? {});
+			if (!parsed.ok) return { ok: false, error: parsed.error };
+			const record = readSettings() ?? { version: 1 };
+			if (slots) {
+				const verdict = validateModelsSettings(parsed.settings, record.models);
+				if (!verdict.ok) return { ok: false, error: verdict.error };
+			}
+			writeSettings({ ...record, models: clampModelsLevels(parsed.settings) });
+			refreshWorkerRequestAdmission();
+			return { ok: true };
+		},
+	};
+}
+
+/** The engine role whose prompts and limits fit each slot (ROLE_SLOT, reversed). */
+const SLOT_ROLE: Record<"strong" | "cheap" | "vision", ModelRole> = { strong: "teacher", cheap: "extractor", vision: "visualMaker" };
+
+/**
+ * One-shot structured generation (spec §5.4) on the student's slot. A
+ * user-initiated call, so a ChatGPT slot doesn't need background consent.
+ */
+export const generate: Generate = async (req) => {
+	const started = Date.now();
+	const spec = resolveSlot(readSettings()?.models?.[req.slot]);
+	if (!spec) throw new EngineError("models_not_configured", modelsNotConfigured([req.slot]).error, 503);
+	if (!providerKeyPresent(spec.provider)) throw new EngineError("provider_key_missing", `Your ${spec.provider} connection isn't available. Reconnect in Me → Your AI.`, 503);
+	if (isSubscriptionProvider(spec.provider)) await refreshConnectionCatalog(spec.provider).catch(() => undefined);
+	const engine = piEngineForSpec(spec, false);
+	let cost = 0;
+	let priced = false;
+	const value = await runSubmitAgent<unknown>({
+		role: SLOT_ROLE[req.slot],
+		toolName: req.toolName,
+		toolDescription: req.toolDescription,
+		parameters: Type.Unsafe(req.schema),
+		fill: (input) => input,
+		systemPrompt: req.system,
+		prompt: req.user,
+		engine,
+		signal: req.signal,
+		onStep: (usage) => {
+			const c = (usage as { cost?: { total?: number } }).cost?.total;
+			if (typeof c === "number") {
+				cost += c;
+				priced ||= c > 0;
+			}
+		},
+		neverSubmitted: `the model never called ${req.toolName}`,
+		...(req.validate ? { validate: req.validate } : {}),
+	});
+	return { value: value as never, model: `${spec.provider}/${spec.id}`, cost: priced ? cost : null, ms: Date.now() - started };
+};
