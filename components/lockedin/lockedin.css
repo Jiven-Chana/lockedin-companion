@@ -261,3 +261,67 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-pair-code { font: 700 2.6em/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.08em; padding: 12px 20px; border-radius: 16px; background: var(--li-soft); color: var(--li-ink); align-self: flex-start; white-space: nowrap; user-select: all; }
 .li-pair-status { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: 14px; background: var(--li-soft); }
 .li-pair-status[data-state="paired"] { background: var(--li-solid-bg); color: var(--li-solid-ink); font-weight: 700; }
+
+/* v1.1 (V-34 to V-36): Progress as the history of what you have learned. */
+.li-score { font-size: 3em; line-height: 1; }
+.li-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.li-chart-grid { stroke: var(--li-line); stroke-width: 1; }
+.li-chart-axis { fill: var(--li-muted); font-size: 12px; font-family: inherit; }
+.li-chart-axis[data-on="true"] { fill: var(--li-ink); font-weight: 700; }
+.li-chart-line { fill: none; stroke: var(--li-accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.li-chart-pace { fill: none; stroke: var(--li-muted); stroke-width: 2; stroke-dasharray: 6 6; }
+.li-chart-point { cursor: pointer; outline: none; }
+.li-chart-dot { fill: var(--li-surface); stroke: var(--li-accent); stroke-width: 2.5; transition: r var(--li-m-fast, 120ms) ease; }
+.li-chart-point[data-on="true"] .li-chart-dot { fill: var(--li-accent); }
+.li-chart-dot-future { fill: var(--li-surface); stroke: var(--li-muted); stroke-width: 2; }
+.li-chart-cursor { stroke: var(--li-accent); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
+.li-chart-point:focus-visible .li-chart-cursor { stroke-width: 2; opacity: 1; }
+.li-chart-milestone { fill: var(--li-solid); stroke: var(--li-surface); stroke-width: 1.5; }
+.li-chart-detail { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-radius: 14px; background: var(--li-soft); min-height: 46px; margin: 0; }
+.li-key { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--li-accent); }
+.li-key-pace { border-top: 2px dashed var(--li-muted); }
+.li-progress-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .li-progress-two { grid-template-columns: 1fr; } }
+.li-share { display: flex; flex-direction: column; gap: 6px; }
+.li-bar { display: block; height: 8px; border-radius: 999px; background: var(--li-line); overflow: hidden; }
+.li-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--li-accent); min-width: 0; transition: width var(--li-m-medium, 240ms) ease; }
+.li-attention { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; background: var(--li-soft); }
+.li-attention > span { flex: 1 1 220px; }
+.li-milestones { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.li-milestone { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; border: 1.5px dashed var(--li-line); color: var(--li-muted); }
+.li-milestone[data-earned="true"] { border: 1.5px solid var(--li-solid); background: var(--li-solid-bg); color: var(--li-solid-ink); }
+
+/* v1.1 (V-37): the Week page as a timetable. Fixed things are flat; study blocks are solid, in their module's colour, and can be dragged. */
+.li-tt { display: flex; flex-direction: column; gap: 8px; }
+.li-tt-head { display: grid; grid-template-columns: 52px repeat(7, minmax(0, 1fr)); padding: 0 0 4px; }
+.li-tt-head b { text-align: center; padding: 4px 0; border-radius: 10px; }
+.li-tt-head b[data-today="true"] { background: var(--li-soft); color: var(--li-accent-text); }
+.li-tt-body { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); background: var(--li-surface); border: 1px solid var(--li-line); border-radius: 16px; overflow: hidden; }
+.li-tt-hours { position: relative; }
+.li-tt-hours span { position: absolute; right: 8px; transform: translateY(-50%); font-size: 0.75em; color: var(--li-muted); }
+.li-tt-hours span:first-child { transform: translateY(2px); }
+.li-tt-hours span:last-child { transform: translateY(-100%); }
+.li-tt-days { position: relative; border-left: 1px solid var(--li-line); }
+.li-tt-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--li-line); opacity: 0.7; }
+.li-tt-day { position: absolute; top: 0; bottom: 0; width: calc(100% / 7); border-left: 1px solid var(--li-line); }
+.li-tt-day:first-of-type { border-left: none; }
+.li-tt-day[data-today="true"] { background: color-mix(in srgb, var(--li-soft) 45%, transparent); }
+.li-tt-item { position: absolute; left: 3px; right: 3px; border-radius: 8px; overflow: hidden; font-size: 0.78em; line-height: 1.25; }
+.li-tt-item b, .li-tt-item span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-tt-fixed { padding: 3px 6px; background: var(--li-soft); color: var(--li-ink); border-left: 3px solid var(--li-accent); opacity: 0.85; }
+.li-tt-commit { padding: 3px 6px; color: var(--li-muted); border: 1px dashed var(--li-line); background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--li-line) 60%, transparent) 6px 7px); }
+.li-tt-block { overflow: visible; z-index: 1; }
+.li-tt-grab { height: 100%; padding: 3px 6px; border-radius: 8px; background: var(--li-accent); color: var(--li-accent-ink); cursor: grab; touch-action: none; user-select: none; box-shadow: 0 2px 6px var(--li-shadow); }
+.li-tt-grab[data-status="proposed"] { background: var(--li-surface); color: var(--li-ink); border: 2px dashed var(--li-accent); }
+.li-tt-grab[data-status="started"] { cursor: default; opacity: 0.75; }
+.li-tt-grab[data-selected="true"], .li-tt-grab:focus-visible { outline: 3px solid var(--li-ink); outline-offset: 1px; }
+.li-tt-grab[data-moving="true"] { cursor: grabbing; box-shadow: 0 10px 24px var(--li-shadow); transform: scale(1.02); }
+.li-tt-grab[data-moving="true"][data-ok="false"] { background: var(--li-revisit-bg); color: var(--li-revisit-ink); border: 2px solid var(--li-revisit); }
+/* A tapped block's options stay at the bottom of the screen, so they are seen without scrolling past the grid. */
+.li-tt-options { position: sticky; bottom: 12px; z-index: 5; max-width: 440px; border-radius: 12px; box-shadow: 0 12px 32px var(--li-shadow); }
+.li-week-list { display: none; }
+@media (max-width: 900px) {
+	.li-tt-wrap { display: none; }
+	.li-week-list { display: grid; }
+}
+

@@ -106,6 +106,93 @@ export const PHONE_PAIR_COPY = {
 	showAgain: "Pair a phone again",
 } as const;
 
+/**
+ * The learning score on Progress (v1.1, V-34): points build up as you learn
+ * and are never taken away for being wrong. Learning earns far more than
+ * discipline. The one way the score dips is an idea left untouched too long.
+ */
+export const SCORE_RULES = {
+	/** A right answer, by the question's difficulty (1 to 3). */
+	rightAnswer: { 1: 10, 2: 15, 3: 20 } as Record<number, number>,
+	/** Difficulty assumed for a question the teacher wrote (no bank difficulty). */
+	defaultDifficulty: 2,
+	/** The first right answer on an idea. */
+	ideaSecured: 20,
+	/** A right answer on an idea that was waiting in "to revisit". */
+	cameBack: 25,
+	/** Starting a study block you planned. */
+	blockStarted: 5,
+	/** An idea you secured and haven't got right again for this long is fading… */
+	fadeAfterDays: 21,
+	/** …and takes this much off the score while it is. One right answer brings it back. */
+	fadePoints: 5,
+	/** Term length for the steady-pace line when there is no timetable to read its end from. */
+	termWeeksWithoutTimetable: 12,
+	/** "Needs attention" compares modules over this many days (a week is too short for a module taught once a week). */
+	attentionDays: 14,
+	/** One answer counts for at most this much time (a tab left open is not study). */
+	maxMinutesPerAnswer: 10,
+} as const;
+
+/** Progress: the wording of the score, its chart and "needs attention" (v1.1). Never "behind", never a deficit number. */
+export const PROGRESS_COPY = {
+	score: "Learning score",
+	steadyPace: "Steady pace",
+	steadyPaceHelp: "A straight line to securing every idea in your study packs by the end of term.",
+	ranges: { week: "Week", month: "Month", term: "Term" },
+	thisWeek: (points: number) => `${points >= 0 ? "+" : "−"}${Math.abs(points)} this week`,
+	whereFrom: "Where it came from",
+	attention: "Needs attention",
+	nothingNeeds: "Nothing needs attention. Every module with material has had some of your time.",
+	nothingOn: (module: string, days: number | null) => (days === null ? `Nothing on ${module} yet` : `Nothing on ${module} for ${days} ${days === 1 ? "day" : "days"}`),
+	leastOn: (module: string) => `Least on ${module} in the last two weeks`,
+	questionsOn: (n: number, unit: string) => `${n} questions on ${unit}`,
+	fading: (n: number, module: string) => `${n} ${n === 1 ? "idea" : "ideas"} fading in ${module}`,
+	getBack: (n: number) => (n === 1 ? "Get it back" : "Get them back"),
+	noMaterial: (modules: readonly string[]) => `No slides or notes yet for ${modules.length > 1 ? `${modules.slice(0, -1).join(", ")} and ${modules.at(-1)}` : modules[0]}`,
+	addMaterial: "Add material",
+	milestones: "Milestones",
+	earned: (n: number, of: number) => `${n} of ${of}`,
+} as const;
+
+/**
+ * Milestones (v1.1, V-35): earned from real history, dated, kept for good.
+ * None needs an unbroken chain: "three full weeks" is any three. `how` is
+ * what the student reads on one not earned yet.
+ */
+export const MILESTONES = [
+	{ id: "first-idea", group: "learning", title: "First idea secured", how: "Get a question right on an idea for the first time." },
+	{ id: "ideas-10", group: "learning", title: "10 ideas secured", how: "Secure 10 ideas across your course." },
+	{ id: "ideas-25", group: "learning", title: "25 ideas secured", how: "Secure 25 ideas across your course." },
+	{ id: "ideas-50", group: "learning", title: "50 ideas secured", how: "Secure 50 ideas across your course." },
+	{ id: "unit-secured", group: "learning", title: "A whole unit secured", how: "Secure every idea in one unit's study pack." },
+	{ id: "came-back", group: "learning", title: "Came back", how: "Get an idea right after it went to “to revisit”." },
+	{ id: "comebacks-10", group: "learning", title: "10 comebacks", how: "Get 10 ideas back from “to revisit”." },
+	{ id: "first-block", group: "discipline", title: "First study block kept", how: "Start a study block you planned." },
+	{ id: "full-week", group: "discipline", title: "A full week kept", how: "Start every study block you accepted in one week." },
+	{ id: "full-weeks-3", group: "discipline", title: "Three full weeks kept", how: "Keep three full weeks. Any three: they needn't be in a row." },
+	{ id: "first-checkin", group: "discipline", title: "First Sunday check-in", how: "Answer the Sunday check-in." },
+	{ id: "first-phone", group: "discipline", title: "First question on your phone", how: "Answer a question from a notification." },
+	{ id: "two-modules", group: "rounded", title: "Two modules in one week", how: "Earn points in two modules in the same week." },
+	{ id: "all-modules", group: "rounded", title: "Every module in one week", how: "Earn points in every module you have material for, in the same week." },
+	{ id: "all-material", group: "rounded", title: "Material for every module", how: "Add slides or notes for every one of your modules." },
+] as const;
+
+export type MilestoneId = (typeof MILESTONES)[number]["id"];
+export const MILESTONE_GROUPS = { learning: "Learning", discipline: "Discipline", rounded: "Well-rounded" } as const;
+
+/** The Week timetable (v1.1, V-37): why a study block can't go where it was dropped. */
+export const PLACEMENT_COPY = {
+	lecture: "That overlaps a lecture or class.",
+	commitment: "That overlaps something in your routine.",
+	block: "Another study block is already there.",
+	quiet: "That's in your quiet hours.",
+	"past-midnight": "A study block has to end the same day.",
+	freeStudy: "Free study",
+	/** Dragging snaps to this many minutes. */
+	snapMinutes: 15,
+} as const;
+
 /** Me → Phone: "Send a test question to my phone" (v1.0.4), so a student can see their phone works without waiting for a lecture. */
 export const PHONE_TEST_COPY = {
 	button: "Send a test question to my phone",

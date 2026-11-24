@@ -3,7 +3,7 @@
 All routes live under `/api/companion/`. They are thin wrappers over `CompanionService` (`src/server/companion/service.ts`). Types are in `src/core/companion/types.ts` and importable by the UI from `@/src/core`.
 
 **Conventions**
-- JSON in and out. Errors are `{ error, code, detail? }` with a meaningful status: `400 bad_request`, `404 *_not_found`, `409` conflicts (`question_not_pending`, `turn_running`, `not_onboarded`, `nudge_already_handled`), `422 no_scripted_set`, `502/503/504` engine failures (`models_not_configured`, `provider_key_missing`, `timeout`).
+- JSON in and out. Errors are `{ error, code, detail? }` with a meaningful status: `400 bad_request`, `404 *_not_found`, `409` conflicts (`question_not_pending`, `turn_running`, `not_onboarded`, `nudge_already_handled`, `block_overlaps`), `422 no_scripted_set`, `502/503/504` engine failures (`models_not_configured`, `provider_key_missing`, `timeout`).
 - `204` with no body where noted.
 - LearnHarness's `proxy.ts` applies its host and same-origin write checks to every `/api` route. There is no login: localhost or a trusted hotspot only.
 - Facilitator routes (marked **demo**) return `404` unless `COMPANION_DEMO=1`.
@@ -127,7 +127,7 @@ The planner proposes blocks in free gaps. It never places one over a lecture, ev
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/plan` | `?week=YYYY-MM-DD` (default this week) | `{ week, target, blockMinutes, committedMinutes, proposedMinutes, blocks: (StudyBlock & { focus: { title, module } \| null })[], lectures, commitments }` |
+| GET | `/plan` | `?week=YYYY-MM-DD` (default this week) | `{ week, target, blockMinutes, committedMinutes, proposedMinutes, blocks: (StudyBlock & { focus: { title, module } \| null, module: string \| null })[], lectures, commitments, quietHours: { from, to }, modules: { code, name, hasMaterial }[] }`. A block's `module` is the student's choice, else its unit's, else `null` (free study). `quietHours` and `modules` are what the timetable needs (v1.1, V-37) |
 | POST | `/plan` | `{ week? }` | Proposes blocks to meet the target, replacing that week's earlier proposals (accepted ones stay) → plan + `{ roomMinutes, fits, message }`. `message` is "Your week only has room for 3 h 20. I've planned that." when the target doesn't fit. `409 no_target` without a target |
 | PUT | `/plan/settings` | `{ weeklyTargetMinutes?, blockMinutes?, sundayTime?, focusScreen? }` | The plan settings |
 | POST | `/routine` | `{ routine: { energy, commitments, places, weeklyTargetMinutes, preferredBlockMinutes? }, source: "chat" \| "form", modules?: [{ code, week, readingWeeks? }] }` | Saves the confirmed routine (and module weeks), then proposes this week → `{ routine, plan }` |
@@ -168,7 +168,7 @@ Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", corre
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET / PUT | `/blocks` | `StudyBlock[]` or `{ blocks }` of `{ id, date: "YYYY-MM-DD", start: "HH:MM", minutes: 10–120, status, source, lectureId? }` (v0.1: dated blocks; v0.0's weekly slots are dropped on read) | `{ blocks }` |
-| PUT | `/blocks/:id` | `{ status?: "accepted" \| "started" \| "removed", date?, start?, minutes?, source? }` | One action on a block (F-110). A move keeps its focus and chooses a proposal. Logs `plan_accepted`, `plan_moved`, `plan_removed` or `block_started` |
+| PUT | `/blocks/:id` | `{ status?: "accepted" \| "started" \| "removed", date?, start?, minutes?, source?, module?: string \| null }` | One action on a block (F-110). A move keeps its focus and chooses a proposal. A move onto a lecture, a routine commitment, another block, quiet hours or past midnight is refused: `409 block_overlaps`, `error` is the line to show, `detail.problem` is `lecture`, `commitment`, `block`, `quiet` or `past-midnight`, and the block stays where it was (v1.1, V-37). `module` is one of the student's module codes (the block then studies that module's next unit) or `null` for free study; `400` for an unknown code. Logs `plan_accepted`, `plan_moved`, `plan_removed`, `block_started` or `plan_module_set` |
 | POST | `/blocks/accept` | `{ ids? }` or `{ week? }` | Accepts the listed proposals, or every proposal that week → the plan |
 | POST | `/blocks/:id/skip` | | Removes the block (one tap, X-7) → `StudyBlock` |
 | GET | `/blocks/active` | | `{ active: { block, startedAt, endsAt, minutesLeft, onBreak, phaseEndsAt } \| null, lock, simulated: true }` |
@@ -179,7 +179,18 @@ Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", corre
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/today` | `{ now, onboarded, tryNow, lectures (today, with status), nextBlock, readyToRevisit, welcomeBack, banner, activeSession }` |
-| GET | `/progress` | `{ week: { sessions, questionsAnswered, readyToRevisit }, welcomeBack: { text, spec, daysAway } \| null, roadmap }` |
+| GET | `/progress` | The learning score and where it came from (v1.1, V-34 to V-36; the rules are `src/core/companion/score.ts` and `milestones.ts`, the numbers `SCORE_RULES` in `policy.ts`). `{ score, ideas, modules, attention, milestones, week, welcomeBack }`, described below |
+
+`GET /progress` in full:
+
+- `score`: `{ now, weekChange, series: { week, month, term }, term: { start, end, target }, ideasSecured, ideasTotal, fading }`. Each series is a list of points, `{ date, end, score, pace, gained, future, detail: { sessions, right, answered, secured, cameBack, blocks, modules }, milestones }`: seven days for `week`, thirty days for `month`, one point per week of term for `term`. `pace` is the steady-pace line (a straight line to `term.target`, every idea in the study packs secured, by `term.end`); `future` points carry the pace and no score. `detail.secured` and `detail.cameBack` are idea keys; `milestones` are the ids earned in that period.
+- `ideas`: `{ [key]: { title, unit, module } }` for every idea the history mentions. A key is `lectureId#nodeId`.
+- `modules`: `{ code, name, hasMaterial, lastActivity, shares: { week, month, term } }[]`, each share `{ points, minutes }`.
+- `attention`: `{ kind: "module" \| "fading" \| "material", module, text, action: { label, session?, href? } }[]`. The module done least in the last 14 days, ideas that are fading, and modules with no material, each with one action. Empty when nothing needs attention.
+- `milestones`: all fifteen, `{ id, group: "learning" \| "discipline" \| "rounded", title, how, earnedAt }[]`. A milestone is kept once earned: the first time it is seen it is saved to `milestones.json` and logged as `milestone_earned`.
+- `week`: `{ sessions, questionsAnswered, readyToRevisit }`, kept for Today. `welcomeBack`: `{ text, spec, daysAway } \| null`.
+
+The list of lectures by week (`roadmap`) is no longer part of this response (V-38): the Library shows it.
 
 ## Event log (T23)
 

@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, Routine, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -34,9 +34,12 @@ export interface PlanData {
 	blockMinutes: number;
 	committedMinutes: number;
 	proposedMinutes: number;
-	blocks: (StudyBlock & { focus: { title: string; module: string } | null })[];
+	/** `module`: the block's module (the student's choice, else its unit's), or null for free study (V-37). */
+	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null })[];
 	lectures: Lecture[];
 	commitments: Routine["commitments"];
+	quietHours: { from: string; to: string };
+	modules: { code: string; name: string; hasMaterial: boolean }[];
 }
 export interface ChatTurnData { say: string; chips?: string[]; done?: boolean; draft?: Record<string, unknown>; fallback?: boolean }
 export interface CheckinData { started: number; minutes: number; text: string; target: number | null; nextWeek: string; roomMinutes: number; feelings: Record<string, string> }
@@ -67,10 +70,33 @@ export interface TodayData {
 	phoneAvailable: boolean;
 }
 
+/** One point on the learning-score chart: a day (week and month ranges) or a week (term range). */
+export interface ProgressPoint {
+	date: string;
+	end: string;
+	score: number;
+	pace: number | null;
+	gained: number;
+	future: boolean;
+	detail: { sessions: number; right: number; answered: number; secured: string[]; cameBack: string[]; blocks: number; modules: string[] };
+	milestones: string[];
+}
+/** A "needs attention" line: the gap, and the one thing to do about it (a session to start, or a page to open). */
+export interface ProgressAttention {
+	kind: "module" | "fading" | "material";
+	module: string | null;
+	text: string;
+	action: { label: string; session?: { kind: "post-lecture"; lectureId: string; nodes?: string[] }; href?: string };
+}
+/** Progress (v1.1, V-34 to V-36): the learning score, where it came from, what needs attention, and milestones. */
 export interface ProgressData {
+	score: { now: number; weekChange: number; series: Record<ScoreRange, ProgressPoint[]>; term: { start: string; end: string; target: number }; ideasSecured: number; ideasTotal: number; fading: number };
+	ideas: Record<string, { title: string; unit: string; module: string }>;
+	modules: { code: string; name: string; hasMaterial: boolean; lastActivity: string | null; shares: Record<ScoreRange, { points: number; minutes: number }> }[];
+	attention: ProgressAttention[];
+	milestones: { id: string; group: "learning" | "discipline" | "rounded"; title: string; how: string; earnedAt: string | null }[];
 	week: { sessions: number; questionsAnswered: number; readyToRevisit: number };
 	welcomeBack: TodayData["welcomeBack"];
-	roadmap: Record<string, LectureWithStatus[]>;
 }
 
 export interface DemoState {
@@ -153,7 +179,7 @@ export const lockedIn = {
 	// v0.1 the week (F-109, F-110, F-111)
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),
-	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
+	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number; module?: string | null }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
 	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
 	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),
 	saveRoutine: (body: { routine: Partial<Routine>; source: "chat" | "form"; modules?: { code: string; week?: number; readingWeeks?: number[] }[] }) => api<{ routine: Routine; plan: PlanData & { message: string | null } }>("/routine", { body }),

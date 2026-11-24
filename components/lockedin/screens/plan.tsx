@@ -2,7 +2,9 @@
 
 /**
  * The week (v0.1 F-110, F-111, J5′): lectures, commitments and study blocks
- * for Mon–Sun. Proposals are ticked, moved or removed in one action each.
+ * for Mon–Sun. On a wide screen it is a timetable whose study blocks can be
+ * dragged (v1.1, V-37); on a narrow one, a list per day.
+ * Proposals are ticked, moved or removed in one action each.
  * The weekly target lives here, with "Plan my week" and the setup chat.
  * On Sunday (or from the N-5 nudge) the check-in comes first. Nothing is
  * ever called missed (R-6).
@@ -11,11 +13,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { moduleHue, PLAN_COPY, type StudyBlock } from "@/src/core";
+import { moduleHue, PLACEMENT_COPY, PLAN_COPY } from "@/src/core";
 import { ApiError, lockedIn, type CheckinData, type PlanData } from "../api";
 import { fmtTime, useData } from "../hooks";
 import { Tint, useLockedIn } from "../root";
 import { PageHead } from "../shell";
+import { WeekGrid } from "../week-grid";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const TARGETS = [60, 120, 180, 240, 300, 360, 480, 600];
@@ -26,7 +29,7 @@ const addDaysIso = (date: string, n: number) => {
 	return iso(d);
 };
 
-function BlockCard({ b, order, onDone }: { b: PlanData["blocks"][number]; order: number; onDone: () => void }) {
+function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][number]; order: number; modules?: PlanData["modules"]; onDone: () => void }) {
 	const [moving, setMoving] = useState(false);
 	const [date, setDate] = useState(b.date);
 	const [start, setStart] = useState(b.start);
@@ -42,10 +45,20 @@ function BlockCard({ b, order, onDone }: { b: PlanData["blocks"][number]; order:
 	};
 	const proposed = b.status === "proposed";
 	return (
-		<Tint hue={moduleHue(b.focus?.module ?? "study")}>
+		<Tint hue={moduleHue(b.module ?? "study")}>
 			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
 				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : ""}</span>
-				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : "Free study"}{b.reason === "gap" ? " · catch-up" : ""}</span>
+				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : b.module ? b.module : PLACEMENT_COPY.freeStudy}{b.reason === "gap" ? " · catch-up" : ""}</span>
+				{/* The block's module (V-37): changing it makes the block study that module's next unit. */}
+				{modules.length && b.status !== "started" ? (
+					<label className="li-row li-small" style={{ gap: 6 }}>
+						Module
+						<select className="li-input" style={{ width: "auto", minHeight: 30, padding: "2px 8px" }} value={b.module ?? ""} onChange={(e) => act({ module: e.target.value || null })}>
+							<option value="">{PLACEMENT_COPY.freeStudy}</option>
+							{modules.map((m) => <option key={m.code} value={m.code}>{m.name}{m.hasMaterial ? "" : " (no material yet)"}</option>)}
+						</select>
+					</label>
+				) : null}
 				{moving ? (
 					<span className="li-row" style={{ gap: 6, flexWrap: "wrap" }}>
 						<input className="li-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Day" style={{ width: "auto" }} />
@@ -115,6 +128,7 @@ export function PlanScreen() {
 	const [week, setWeek] = useState<string | undefined>(params.get("week") ?? undefined);
 	const [msg, setMsg] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [selected, setSelected] = useState<string | null>(null);
 	const plan = useData(() => lockedIn.plan(week), [week]);
 	const isSunday = now.getDay() === 0;
 	const [showCheckin, setShowCheckin] = useState(params.get("checkin") === "1" || isSunday);
@@ -140,7 +154,8 @@ export function PlanScreen() {
 
 	const days = p ? DAYS.map((name, i) => ({ name, date: addDaysIso(p.week, i) })) : [];
 	const lecturesOn = (date: string) => (p?.lectures ?? []).filter((l) => l.start && iso(new Date(l.start)) === date);
-	const blocksOn = (date: string) => (p?.blocks ?? []).filter((b: StudyBlock) => b.date === date);
+	const blocksOn = (date: string) => (p?.blocks ?? []).filter((b) => b.date === date);
+	const selectedBlock = p?.blocks.find((b) => b.id === selected) ?? null;
 	const commitmentsOn = (date: string) => (p?.commitments ?? []).filter((c) => c.weekdays.includes(((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1));
 	const proposals = (p?.blocks ?? []).filter((b) => b.status === "proposed").length;
 
@@ -172,14 +187,35 @@ export function PlanScreen() {
 			</section>
 			{msg ? <div className="li-note" role="status">{msg}</div> : null}
 
-			<div className="li-week" role="list" aria-label="This week">
+			{/* Wide screens: a timetable to drag blocks around (V-37). Narrow ones keep the list below, where dragging has no room. */}
+			{p ? (
+				<div className="li-tt-wrap li-stack" style={{ gap: 12 }}>
+					<WeekGrid
+						plan={p}
+						today={iso(now)}
+						selected={selected}
+						onSelect={setSelected}
+						onMove={async (id, to) => {
+							try {
+								await lockedIn.updateBlock(id, to);
+								await plan.reload();
+								return null;
+							} catch (e) {
+								return e instanceof ApiError ? e.message : "Couldn't move that block.";
+							}
+						}}
+					/>
+					{selectedBlock ? <div className="li-tt-options"><BlockCard key={`${selectedBlock.id}-${selectedBlock.status}-${selectedBlock.module}-${selectedBlock.start}-${selectedBlock.date}`} b={selectedBlock} order={0} modules={p.modules} onDone={() => void plan.reload()} /></div> : null}
+				</div>
+			) : null}
+			<div className="li-week li-week-list" role="list" aria-label="This week">
 				{days.map((d, di) => (
 					<div key={d.date} className="li-day" role="listitem" data-today={d.date === iso(now) ? "true" : "false"}>
 						<b>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>
 						{[
 							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} hue={moduleHue(l.module)}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
 							...commitmentsOn(d.date).map((c, i) => ({ at: c.start, key: `c${i}`, node: <span key={`c${i}`} className="li-event" data-kind="commitment">{c.start} {c.label}</span> })),
-							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b as PlanData["blocks"][number]} order={di} onDone={() => void plan.reload()} /> })),
+							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b} order={di} modules={p?.modules} onDone={() => void plan.reload()} /> })),
 						]
 							.sort((a, b) => a.at.localeCompare(b.at))
 							.map((x) => x.node)}

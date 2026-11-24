@@ -126,7 +126,7 @@ describe("companion HTTP routes", () => {
 		assert.deepEqual(lectures.lectures.map((l: { id: string }) => l.id), ["hci-w3-personas"]);
 		assert.equal((await json(r.missed.POST(req("POST"), ctx({ id: "hci-w4-fieldwork" })))).attended, false);
 		assert.equal((await json(r.reads.GET(req("GET")))).label, "Sample timetable");
-		assert.ok((await json(r.progress.GET(req("GET")))).week);
+		assert.equal((await json(r.progress.GET(req("GET")))).score.series.week.length, 7, "the learning score, a point a day this week (v1.1)");
 		assert.equal((await json(r.materials.GET(req("GET"), ctx({ lectureId: "hci-w3-personas" })))).slides.length, 10);
 		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "2026-11-18", start: "15:00", minutes: 25, status: "accepted", source: "student" }])));
 		await json(r.blocks.PUT(req("PUT", [{ id: "b1", date: "Wednesday" }])), 400);
