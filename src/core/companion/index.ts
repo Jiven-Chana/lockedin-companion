@@ -30,3 +30,4 @@ export * from "./checkin.ts";
 export * from "./routine.ts";
 export * from "./sync.ts";
 export * from "./diagram.ts";
+export * from "./score.ts";

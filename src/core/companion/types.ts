@@ -261,6 +261,8 @@ export interface StudyBlock {
 	minutes: number;
 	/** The course unit to study (the pacing rule's pick, spec §5.5). */
 	lectureId?: string;
+	/** The module this block is for (v1.1, V-37): the unit's module when the planner picked one, or the student's own choice. Unset = free study. */
+	module?: string;
 	/** A bank question to start with (F-105). */
 	firstTaskQuestionId?: string;
 	/** "keep-up" or "gap": why this unit (spec §5.5). */
