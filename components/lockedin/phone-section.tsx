@@ -16,6 +16,7 @@ export function PhoneSection() {
 	const [pairing, setPairing] = useState<(PhoneStatus & { url: string; qrSvg: string }) | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
 	const s = status.data;
 	// While the QR is up, watch for the phone connecting (J9 step 3).
 	usePoll(() => void status.reload(), 3_000, !!pairing && !s?.pushReady);
@@ -49,7 +50,10 @@ export function PhoneSection() {
 					<div className="li-qr" aria-label="QR code to pair your phone" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
 					<ol style={{ margin: 0, paddingLeft: "1.2em", display: "flex", flexDirection: "column", gap: 6, maxWidth: 420 }}>
 						{PHONE_PAIR_COPY.steps.map((step) => <li key={step}>{step}</li>)}
-						<li className="li-small li-muted">Or open this link on your phone: <span style={{ wordBreak: "break-all" }}>{pairing.url}</span></li>
+						<li className="li-small li-muted">
+							{PHONE_PAIR_COPY.orLink} <span style={{ wordBreak: "break-all" }}>{pairing.url}</span>{" "}
+							<button type="button" className="li-link" onClick={() => void navigator.clipboard.writeText(pairing.url).then(() => setCopied(true), () => setCopied(false))}>{copied ? PHONE_PAIR_COPY.copied : PHONE_PAIR_COPY.copyLink}</button>
+						</li>
 					</ol>
 				</div>
 			) : null}

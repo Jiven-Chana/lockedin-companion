@@ -205,7 +205,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 
 		// The phone app's manifest for one pair (v1.0 P-1). An iPhone gives a Home Screen
 		// app its own storage, so the pairing must be in the address the installed app
-		// opens at: the same manifest as the plain one, with the pair in its start address.
+		// opens at: the same manifest as the plain one, with the pair in its start address
+		// (as a query: start addresses with a query are the well-trodden path).
 		// The pair is only echoed, never looked up: a made-up one opens an app that isn't paired.
 		if (path === "/v1/manifest" && req.method === "GET") {
 			const pair = url.searchParams.get("pair") ?? "";
@@ -214,8 +215,20 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 			const res = await env.ASSETS.fetch(new Request(new URL("/manifest.webmanifest", url)));
 			if (!res.ok) return fail(404, "not found");
 			const manifest = (await res.json()) as Record<string, unknown>;
-			return new Response(JSON.stringify({ ...manifest, start_url: `/p#${pair}` }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
+			return new Response(JSON.stringify({ ...manifest, start_url: `/p?pair=${pair}` }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
 		}
+
+		// The iPhone install page (v1.0.2): the phone app, served already pointing at this pair's
+		// manifest. An iPhone reads the manifest as the page was served, so setting it from the
+		// page afterwards (v1.0) left the Home Screen app unpaired.
+		const install = /^\/p\/i\/([0-9a-f]{32}\.[0-9a-f]{32})$/.exec(path);
+		if (install && req.method === "GET" && env.ASSETS) {
+			const res = await env.ASSETS.fetch(new Request(new URL("/", url)));
+			if (!res.ok) return fail(404, "not found");
+			const html = (await res.text()).replace('href="/manifest.webmanifest"', `href="/v1/manifest?pair=${install[1]}"`);
+			return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+		}
+		if (path.startsWith("/p/i/")) return fail(404, "not found");
 
 		// The phone app (/p, /p#<pairId>.<token>) and its files.
 		if (env.ASSETS && req.method === "GET") {

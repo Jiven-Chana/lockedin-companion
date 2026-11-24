@@ -18,6 +18,7 @@ p { margin: 0; }
 .btn.ghost { background: transparent; border-color: transparent; text-decoration: underline; }
 .btn.small { min-height: 36px; padding: 4px 12px; font-size: 0.9em; }
 .btn:disabled { opacity: 0.6; }
+.input { font: inherit; min-height: 48px; width: 100%; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--line); background: var(--surface); color: var(--ink); }
 .options { display: flex; flex-direction: column; gap: 10px; }
 .option { text-align: left; width: 100%; }
 .result { padding: 12px 14px; border-radius: 14px; background: var(--soft); animation: slide 220ms ease-out; }

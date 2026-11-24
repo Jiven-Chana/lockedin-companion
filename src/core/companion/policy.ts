@@ -96,6 +96,10 @@ export const PHONE_PAIR_COPY = {
 		"Your phone shows what to do next. On an iPhone that is three taps to add LockedIn to your Home Screen.",
 		"Tap Allow notifications on your phone.",
 	],
+	/** The fallback when a Home Screen app opens unpaired (v1.0.2): it takes the link pasted in. */
+	orLink: "Or open this link on your phone. If the app on your Home Screen says it isn't paired, press Copy link and paste it there:",
+	copyLink: "Copy link",
+	copied: "Copied",
 } as const;
 
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
