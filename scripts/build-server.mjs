@@ -9,6 +9,8 @@
  * (see next.config.ts outputFileTracingExcludes). It also removes exact
  * build-only paths the tracer sweeps in: plugin authoring projects,
  * old installers and the development Electron runtime. Broad trace exclusions break externals.
+ * LockedIn (v1.0 N-0) also removes runs/, tests/, docs/ and relay/, and
+ * refuses a payload that still holds participant data.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -91,12 +93,38 @@ buildPluginAuthoring({ root: ROOT, standalone: true });
 // generic dist/** earlier broke pi-ai / pi-agent-core's runtime dist/.
 // Never touch ROOT/dist or ROOT/node_modules/electron (the running app
 // and the build runtime); native canvas/resvg packages stay untouched.
-for (const extra of ["plugins", "dist", path.join("node_modules", "electron")]) {
+//
+// LockedIn (v1.0 N-0): the same sweep copies runs/ (one data folder per
+// test participant, with their event logs), tests/, docs/ and relay/ into
+// the server. None is read at run time. A trace exclude for "runs" is NOT
+// the fix: it also strips node_modules/openai/resources/**/runs/*.mjs.
+for (const extra of ["plugins", "dist", path.join("node_modules", "electron"), "runs", "tests", "docs", "relay"]) {
 	const target = path.join(STANDALONE, extra);
 	if (exists(target)) {
 		fs.rmSync(target, { recursive: true, force: true });
 		console.log(`[build-server] removed build-only payload: ${extra}`);
 	}
+}
+
+// 2d) Safety (LockedIn v1.0 N-0): participant data must never ship. After
+// the removal above, refuse a payload that still holds a runs/ folder or a
+// companion event log anywhere outside node_modules.
+const participantData = [];
+const findParticipantData = (dir, depth) => {
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		if (entry.name === "node_modules" || entry.name === ".next") continue;
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) {
+			if (entry.name === "runs" && dir === STANDALONE) participantData.push(full);
+			else if (depth < 6) findParticipantData(full, depth + 1);
+		} else if (entry.name === "events.jsonl" || entry.name === "nudges.jsonl") participantData.push(full);
+	}
+};
+findParticipantData(STANDALONE, 0);
+if (participantData.length > 0) {
+	console.error("[build-server] REFUSING: standalone contains participant data — test sessions would ship in the app:");
+	for (const file of participantData.slice(0, 5)) console.error(`             ${path.relative(STANDALONE, file)}`);
+	process.exit(1);
 }
 
 // 3) Sanity: the runtime-read prompt assets must be present (the teacher
