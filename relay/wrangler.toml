@@ -12,11 +12,12 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "lockedin-relay"
-database_id = "REPLACE_WITH_THE_ID_FROM_wrangler_d1_create"
+database_id = "d50a92ce-dbee-4e24-94ec-857a999803de"
 
 [triggers]
 crons = ["* * * * *"]
 
 [vars]
-VAPID_SUBJECT = "mailto:lockedin-team@example.invalid"
+# The contact push services see (decided 24 Nov: the public repo, no personal email).
+VAPID_SUBJECT = "https://github.com/Jiven-Chana/lockedin-companion"
 # Secrets (wrangler secret put): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
