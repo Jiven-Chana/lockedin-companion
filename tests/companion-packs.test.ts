@@ -116,6 +116,17 @@ describe("study packs (F-105)", () => {
 		for (const e of ["pack_started", "pack_stage", "pack_ready"]) assert.ok(events().includes(e as never), e);
 	});
 
+	it("an explainer's diagram is saved with safe labels, and older packs are made safe when read (v1.0.1)", async () => {
+		const ai = fakeAi();
+		const { svc, store, id } = await setup(ai);
+		await svc.packs!.idle();
+		const file = path.join(store.materialsDir(id), "explainers.json");
+		const saved = JSON.parse(fs.readFileSync(file, "utf-8")) as { diagram: string }[];
+		// What the model wrote on 24 Nov, in a pack saved before the fix.
+		fs.writeFileSync(file, JSON.stringify(saved.map((e) => ({ ...e, diagram: "flowchart LR\n B --> D[None: calculate d(A)]" }))));
+		assert.equal(svc.pack(id).explainers[0]!.diagram, 'flowchart LR\n B --> D["None: calculate d(A)"]');
+	});
+
 	it("the concept map comes from the pack", async () => {
 		const { svc, id } = await setup();
 		await svc.packs!.idle();

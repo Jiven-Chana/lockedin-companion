@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import { tokenHex } from "@/src/core";
+import { safeMermaid, tokenHex } from "@/src/core";
 import { useLockedInOptional } from "./root";
 
 let renders = 0;
@@ -56,7 +56,8 @@ export function Diagram({ source }: { source: string }) {
 						gitBranchLabel0: v("accent-ink"),
 					},
 				});
-				const { svg: out } = await mermaid.render(`li-dia-${uid}-${++renders}`, source);
+				// Labels are quoted first, so one with brackets in it ("calculate d(A)") can't be a syntax error (v1.0.1).
+				const { svg: out } = await mermaid.render(`li-dia-${uid}-${++renders}`, safeMermaid(source));
 				if (!cancelled) {
 					setSvg(out);
 					setFailed(false);

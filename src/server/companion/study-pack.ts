@@ -18,6 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { splitNodeLabel } from "../../core/companion/concept-map.ts";
+import { safeMermaid } from "../../core/companion/diagram.ts";
 import { MATERIALS_RULES, PACK_COPY, PACK_RULES } from "../../core/companion/policy.ts";
 import { parseSlides, trimSlides } from "../../core/companion/slides.ts";
 import {
@@ -161,7 +162,8 @@ export class StudyPacks {
 		if (!list) return null;
 		// Packs written before the dry-run fix may still name question ids in the text.
 		const ids = (this.bank(lectureId) ?? []).map((q) => q.id);
-		return list.map((e) => ({ ...e, body: stripQuestionIds(e.body, ids) }));
+		// …and their diagrams were saved as the model wrote them: make the labels safe on the way out (v1.0.1).
+		return list.map((e) => ({ ...e, body: stripQuestionIds(e.body, ids), diagram: safeMermaid(e.diagram ?? "") }));
 	}
 	isRunning(lectureId: string) {
 		return this.running.has(lectureId);
@@ -330,7 +332,7 @@ export class StudyPacks {
 				spend(r, "explainers");
 				const out: Explainer[] = [];
 				r.value.explainers.forEach((e, i) => {
-					const item = { ...e, body: stripQuestionIds(e.body ?? "", ctx.questions), id: `${id}-e${i + 1}`.slice(-60) } as Explainer;
+					const item = { ...e, body: stripQuestionIds(e.body ?? "", ctx.questions), diagram: safeMermaid(e.diagram ?? ""), id: `${id}-e${i + 1}`.slice(-60) } as Explainer;
 					const problem = checkExplainer(item, ctx);
 					if (problem) meta.dropped.push({ stage: "explainers", id: item.id, reason: problem });
 					else out.push(item);
