@@ -219,6 +219,24 @@ describe("answering", () => {
 		assert.equal(port.sent.length, sent, "only once");
 	});
 
+	it("real run, 24 Nov: a teacher that stops after two different answers is asked each time, and the session goes on", async () => {
+		const { port, engine, session: prepared, chatId } = await withQuestion();
+		const session = { ...prepared, state: "active" as const };
+		const answer = (id: string) => newAnswerResult(id, "quiz", { kind: "quiz", questionText: "Q", dontKnow: false, answers: [], correct: true, answeredAt: "" });
+		const nudges = () => port.sent.filter((s) => s.input.type === "text" && s.input.text === TEACHER_RULES.continueText).length;
+		// Question 1 answered; the model's turn comes back empty.
+		port.push(chatId, answer("call_1"), assistant([text("")]));
+		assert.equal((await engine.view(session, lecture)).teacherNudged, true);
+		// The nudge worked: question 2. It is answered, and the turn comes back empty again.
+		port.push(chatId, assistant([text("Next (Slide 4)."), quizCall("call_2")]), answer("call_2"), assistant([text("")]));
+		const second = await engine.view(session, lecture);
+		assert.deepEqual([second.status, second.teacherNudged, nudges()], ["thinking", true, 2], "a new answer earns the teacher one more ask");
+		// Asked, and it stops again without a question: that is the end, not a loop.
+		port.push(chatId, assistant([text("")]));
+		const third = await engine.view(session, lecture);
+		assert.deepEqual([third.status, third.endedEarly, nudges()], ["done", true, 2]);
+	});
+
 	it("two overlapping screen updates ask the teacher once (X-1)", async () => {
 		const { port, engine, session: prepared, chatId } = await withQuestion();
 		const session = { ...prepared, state: "active" as const };

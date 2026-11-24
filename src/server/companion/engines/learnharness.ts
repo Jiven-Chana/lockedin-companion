@@ -51,6 +51,23 @@ function lastUserText(messages: LhMessage[]): string | null {
 	return Array.isArray(c) ? c.map((p: { type?: string; text?: string }) => (p?.type === "text" ? (p.text ?? "") : "")).join("") : null;
 }
 
+/**
+ * Has the teacher already been asked for a question since the learner last
+ * answered? "Once" is once per stop: after a nudge, a new answer earns the
+ * teacher one more if it stops again. (Before v1.0 the check was "is the
+ * newest typed message the nudge", which stays true for the rest of the
+ * session because answers aren't typed messages: one stop used up the only
+ * nudge, and the next one ended the session at 2 of 5.)
+ */
+function askedSinceLastAnswer(messages: readonly LhMessage[]): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if (m.role === "toolResult" && (SUPPORTED_QUESTION_TOOLS as readonly string[]).includes(m.toolName)) return false;
+		if (m.role === "user") return lastUserText(messages.slice(0, i + 1))?.trim() === TEACHER_RULES.continueText;
+	}
+	return false;
+}
+
 /** The probe-handoff marker sits between the prober's turn and the teacher's. */
 function teacherSpoke(messages: LhMessage[]): boolean {
 	const handoff = messages.findIndex((m) => m.role === "custom" && String(m.id).startsWith("steer_probe_"));
@@ -128,7 +145,7 @@ export class LearnHarnessEngine implements SessionEngine {
 				if (++idle >= maxIdle && messages.some((m) => m.role === "assistant")) {
 					if (!hasProbeDone(messages)) throw new EngineError("probe_not_done");
 					// The teacher set its plan and stopped (T-1): ask once for the question (V-22).
-					if (lastUserText(messages)?.trim() === TEACHER_RULES.continueText) throw new EngineError("no_question");
+					if (askedSinceLastAnswer(messages)) throw new EngineError("no_question");
 					await this.askForQuestion(chatId);
 					onNudge?.();
 					idle = 0;
@@ -148,8 +165,8 @@ export class LearnHarnessEngine implements SessionEngine {
 		const seeded = session.spec.seedAnswer ? 1 : 0;
 		const mapped = mapChatToView({ messages, running: this.port.running(chatId), failure: this.port.failure(chatId), session: { ...session, budget: session.budget - seeded }, lecture });
 		const v = seeded ? { ...mapped, answered: mapped.answered + seeded, budget: mapped.budget + seeded } : mapped;
-		// The teacher gave feedback and stopped before the budget: ask once for the next question (TEACHER_RULES).
-		if (v.status === "done" && v.endedEarly && v.answered < v.budget && lastUserText(messages)?.trim() !== TEACHER_RULES.continueText) {
+		// The teacher gave feedback (or nothing at all) and stopped before the budget: ask once per stop for the next question (TEACHER_RULES).
+		if (v.status === "done" && v.endedEarly && v.answered < v.budget && !askedSinceLastAnswer(messages)) {
 			const thinking = { ...v, status: "thinking" as const, endedEarly: undefined, activity: SESSION_COPY.writing(v.answered + 1) };
 			try {
 				// A second screen update while the request is on its way shows the wait and logs nothing (X-1).
