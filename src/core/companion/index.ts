@@ -29,3 +29,4 @@ export * from "./plan-week.ts";
 export * from "./checkin.ts";
 export * from "./routine.ts";
 export * from "./sync.ts";
+export * from "./diagram.ts";
