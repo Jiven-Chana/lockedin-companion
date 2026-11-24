@@ -8,9 +8,11 @@
  */
 
 import { useState } from "react";
+import { MATERIALS_COPY, MATERIALS_RULES, PACK_COPY } from "@/src/core";
 import { ApiError, lockedIn, type MaterialProposal } from "./api";
 
-interface Row { file: number; title: string; week: number; pages: [number, number]; keep: boolean }
+/** `short`: too little text to study from (V-24), so the unit can't be kept. */
+interface Row { file: number; title: string; week: number; pages: [number, number]; keep: boolean; short: boolean }
 
 const WEEKS = Array.from({ length: 20 }, (_, i) => i + 1);
 
@@ -35,7 +37,10 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 			}
 			const p = await lockedIn.proposeMaterials(code, form);
 			setProposal(p);
-			setRows(p.files.flatMap((f) => f.units.map((u) => ({ file: f.file, title: u.title, week: u.week, pages: u.pages, keep: true }))));
+			setRows(p.files.flatMap((f) => f.units.map((u) => {
+				const short = u.chars < MATERIALS_RULES.minUnitChars;
+				return { file: f.file, title: u.title, week: u.week, pages: u.pages, keep: !short, short };
+			})));
 		} catch (e) {
 			setError(e instanceof ApiError ? e.message : "Couldn't read those files.");
 		} finally {
@@ -48,7 +53,7 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 		setBusy("saving");
 		setError(null);
 		try {
-			const units = rows.filter((r) => r.keep && r.title.trim()).map(({ keep: _k, ...r }) => ({ ...r, title: r.title.trim() }));
+			const units = rows.filter((r) => r.keep && !r.short && r.title.trim()).map(({ keep: _k, short: _s, ...r }) => ({ ...r, title: r.title.trim() }));
 			const r = await lockedIn.saveMaterials(code, { uploadId: proposal.uploadId, units });
 			void lockedIn.event("settings_changed", { changed: ["materials"], module: code, units: r.units.length });
 			onSaved(r.units.length);
@@ -72,7 +77,7 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 					onDragLeave={() => setOver(false)}
 					onDrop={(e) => { e.preventDefault(); setOver(false); setFiles((f) => [...f, ...Array.from(e.dataTransfer.files)]); }}
 				>
-					<b>Drop slides or notes here, or click to choose</b>
+					<b>{MATERIALS_COPY.drop}</b>
 					<span className="li-small li-muted">PDF, Markdown or text · 25 MB each · one lecture, one week, or a whole semester</span>
 					<input type="file" multiple accept=".pdf,.md,.markdown,.txt,application/pdf,text/plain,text/markdown" className="li-sr" onChange={(e) => setFiles((f) => [...f, ...Array.from(e.target.files ?? [])])} />
 				</label>
@@ -83,7 +88,7 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 				) : null}
 				<label className="li-stack" style={{ gap: 6 }}>
 					<span className="li-small"><b>Or paste text</b>, e.g. the weekly summaries from Canvas</span>
-					<textarea className="li-input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder="Week 1: …" />
+					<textarea className="li-input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder={MATERIALS_COPY.pastePlaceholder} />
 				</label>
 				{error ? <div className="li-note" role="alert">{error}</div> : null}
 				<button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy !== null || (files.length === 0 && !text.trim())} onClick={propose}>
@@ -93,6 +98,7 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 		);
 	}
 
+	const kept = rows.filter((r) => r.keep && !r.short).length;
 	return (
 		<div className="li-card li-stack" style={{ gap: 14 }}>
 			<div className="li-row"><b style={{ flexGrow: 1 }}>Check the units for {name}</b><button type="button" className="li-btn" onClick={onClose} disabled={busy !== null}>Cancel</button></div>
@@ -108,21 +114,22 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 					{rows.map((r, i) =>
 						r.file !== f.file ? null : (
 							<div key={i} className="li-row li-opt" style={{ gap: 10, flexWrap: "wrap" }}>
-								<input type="checkbox" checked={r.keep} onChange={(e) => set(i, { keep: e.target.checked })} aria-label={`Keep ${r.title}`} />
+								<input type="checkbox" checked={r.keep} disabled={r.short} onChange={(e) => set(i, { keep: e.target.checked })} aria-label={`Keep ${r.title}`} />
 								<input className="li-input" style={{ flex: "1 1 240px" }} value={r.title} onChange={(e) => set(i, { title: e.target.value })} aria-label="Unit title" />
 								<select className="li-input" style={{ width: "auto" }} value={r.week} onChange={(e) => set(i, { week: Number(e.target.value) })} aria-label="Week">
 									<option value={0}>Week unknown</option>
 									{WEEKS.map((w) => <option key={w} value={w}>Week {w}</option>)}
 								</select>
 								<span className="li-small li-muted">{r.pages[0] === r.pages[1] ? `p. ${r.pages[0]}` : `pp. ${r.pages[0]}–${r.pages[1]}`}</span>
+								{r.short ? <span className="li-small" role="note" style={{ flexBasis: "100%" }}>{PACK_COPY.tooShort}</span> : null}
 							</div>
 						),
 					)}
 				</div>
 			))}
 			{error ? <div className="li-note" role="alert">{error}</div> : null}
-			<button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy !== null || !rows.some((r) => r.keep && r.title.trim())} onClick={save}>
-				{busy === "saving" ? "Saving…" : `Save ${rows.filter((r) => r.keep).length} units`}
+			<button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy !== null || !rows.some((r) => r.keep && !r.short && r.title.trim())} onClick={save}>
+				{busy === "saving" ? "Saving…" : `Save ${kept} ${kept === 1 ? "unit" : "units"}`}
 			</button>
 		</div>
 	);

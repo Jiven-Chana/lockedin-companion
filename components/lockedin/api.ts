@@ -42,7 +42,7 @@ export interface PackData { meta: PackMeta | null; explainers: Explainer[]; ques
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
-	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number] }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
+	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
 }
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }

@@ -27,10 +27,10 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES, SESSION_COPY } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, NUDGE_RULES, PACK_COPY, PREPARE_RULES, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
-import { CourseMaterials, type UploadedFile } from "./materials.ts";
+import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
@@ -39,7 +39,7 @@ import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
-import { checkProposal, currentWeek, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
+import { checkProposal, currentWeek, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
@@ -90,6 +90,8 @@ export interface CompanionServiceDeps {
 	autoFallback?: boolean;
 	readyTimeoutMs?: number;
 	convertPdf?: PdfConverter;
+	/** Test seam: the waits between a study pack's tries. */
+	packSleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 	/** Draws one page of a PDF as a PNG (the engine's renderer); null when the page can't be drawn. */
 	renderPdfPage?: (pdfPath: string, page: number) => Promise<Uint8Array | null>;
 	/** Fetches a calendar link (network guards live in the default implementation). */
@@ -126,6 +128,7 @@ export class CompanionService {
 	/** Page pictures being drawn right now, so two requests for one page draw it once. */
 	private readonly drawingPages = new Map<string, Promise<string>>();
 	private aiReady = false;
+	private packsResumed = false;
 	/** Connect your AI (F-101). Null when the engine isn't wired (tests). */
 	readonly ai: CompanionAi | null;
 
@@ -154,6 +157,8 @@ export class CompanionService {
 					promptsDir: deps.promptsDir ?? "companion/prompts",
 					log: (type, data) => this.log(type, data),
 					now: () => this.now(),
+					...(deps.ai ? { connected: async () => (this.ai ? this.ai.ready() : true) } : {}),
+					...(deps.packSleep ? { sleep: deps.packSleep } : {}),
 				})
 			: null;
 		this.phone = deps.relay ? new PhoneLink(this, deps.store, new RelayClient(deps.relay.url, deps.relay.fetch)) : null;
@@ -165,6 +170,30 @@ export class CompanionService {
 	private noteAiReady(ready: boolean) {
 		if (ready && !this.aiReady && this.deps.engineWhenAiReady) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
 		this.aiReady = ready;
+		if (ready && !this.packsResumed) {
+			this.packsResumed = true;
+			this.resumePacks();
+		}
+	}
+
+	/**
+	 * Once the student's AI is ready after a start: pick up the study packs
+	 * that were queued or being written when the app last stopped, and write
+	 * the ones for uploaded units that never got one (saved while the AI
+	 * wasn't connected). Failed and cancelled packs wait for the student (V-23).
+	 */
+	resumePacks(): string[] {
+		const packs = this.packs;
+		if (!packs || !this.store.profile()) return [];
+		const started: string[] = [];
+		for (const unit of this.store.lectures()) {
+			if (!unit.source || !unit.hasMaterials) continue;
+			if (packs.interrupted(unit.id) || !packs.exists(unit.id)) {
+				packs.start(unit.id);
+				started.push(unit.id);
+			}
+		}
+		return started;
 	}
 
 	/** The engine new sessions use (F-102): the student's AI when it's ready, otherwise the declared fallback. */
@@ -478,6 +507,8 @@ export class CompanionService {
 			const units = chosen.filter((c) => c.fileIndex === i).map((c) => c.unit);
 			const problem = units.length ? checkProposal(units, f.pages.length) : null;
 			if (problem) throw badRequest(`${f.name}: ${problem}`);
+			const short = units.find((u) => unitTooShort(unitPages(f.pages), u.pages, MATERIALS_RULES.minUnitChars));
+			if (short) throw badRequest(`${short.title || f.name}: ${PACK_COPY.tooShort}`);
 		}
 		const all = this.store.allLectures();
 		let order = Math.max(0, ...all.filter((l) => l.module === code).map((l) => l.order));

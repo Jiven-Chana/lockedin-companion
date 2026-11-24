@@ -8,13 +8,18 @@
  * the first unfinished stage. A call's output is checked item by item:
  * the model retries within the call while too few items pass, and items
  * that still fail are dropped and logged (spec F-105).
+ *
+ * Packs run one at a time. A stage that fails is tried again after a wait
+ * (PACK_RULES.retryDelaysMs). While the student's AI connection is down the
+ * pack waits instead, without using up a try, so one bad minute no longer
+ * fails every pack queued behind it (v1.0 T-4, V-23).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { splitNodeLabel } from "../../core/companion/concept-map.ts";
-import { PACK_RULES } from "../../core/companion/policy.ts";
-import { parseSlides } from "../../core/companion/slides.ts";
+import { MATERIALS_RULES, PACK_COPY, PACK_RULES } from "../../core/companion/policy.ts";
+import { parseSlides, trimSlides } from "../../core/companion/slides.ts";
 import {
 	checkExplainer,
 	stripQuestionIds,
@@ -38,9 +43,35 @@ export interface StudyPackDeps {
 	mapSource: (lectureId: string) => string | null;
 	generate: Generate;
 	promptsDir: string;
-	log: (type: "pack_started" | "pack_stage" | "pack_ready" | "pack_failed", data: Record<string, unknown>) => void;
+	log: (type: "pack_started" | "pack_stage" | "pack_retry" | "pack_ready" | "pack_failed", data: Record<string, unknown>) => void;
 	now: () => Date;
+	/** Is the student's AI reachable right now? After a failed try this decides between waiting for it and trying again. Default: yes. */
+	connected?: () => Promise<boolean>;
+	/** Test seam: the waits between tries. Rejects when the pack is cancelled. */
+	sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
+
+/** A failure that trying again can't fix (nothing to read, too little to study from). */
+class PackStop extends Error {
+	constructor(readonly failure: NonNullable<PackMeta["failure"]>, readonly says: string) {
+		super(says);
+	}
+}
+
+const realSleep = (ms: number, signal: AbortSignal) =>
+	new Promise<void>((resolve, reject) => {
+		if (signal.aborted) return reject(new Error("cancelled"));
+		const done = () => {
+			signal.removeEventListener("abort", stop);
+			resolve();
+		};
+		const timer = setTimeout(done, ms);
+		const stop = () => {
+			clearTimeout(timer);
+			reject(new Error("cancelled"));
+		};
+		signal.addEventListener("abort", stop, { once: true });
+	});
 
 const read = <T>(file: string): T | null => {
 	try {
@@ -108,9 +139,19 @@ export class StudyPacks {
 
 	status(lectureId: string): PackMeta | null {
 		const meta = read<PackMeta>(this.file(lectureId, "pack.json"));
-		// A pack marked generating with no job behind it was interrupted (a restart): report it as resumable.
-		if (meta?.state === "generating" && !this.running.has(lectureId)) return { ...meta, state: "cancelled" };
+		// A pack marked queued or generating with no job behind it was interrupted (a restart): report it as resumable.
+		if (meta && this.interrupted(lectureId, meta)) return { ...meta, state: "cancelled", waiting: undefined };
 		return meta;
+	}
+
+	/** Queued or being written when the app last stopped, and not picked up again yet. */
+	interrupted(lectureId: string, meta: PackMeta | null = read<PackMeta>(this.file(lectureId, "pack.json"))): boolean {
+		return !!meta && (meta.state === "generating" || meta.state === "queued") && !this.running.has(lectureId);
+	}
+
+	/** Has a pack ever been asked for here (whatever became of it)? */
+	exists(lectureId: string): boolean {
+		return read<PackMeta>(this.file(lectureId, "pack.json")) !== null;
 	}
 	bank(lectureId: string): BankQuestion[] | null {
 		return read<BankQuestion[]>(this.file(lectureId, "bank.json"));
@@ -138,6 +179,8 @@ export class StudyPacks {
 		const meta = newPackMeta(lectureId, this.deps.now().toISOString());
 		if (prev && !opts.fresh) for (const s of Object.keys(meta.stages) as PackStage[]) if (prev.stages[s] === "done" || prev.stages[s] === "skipped") meta.stages[s] = prev.stages[s];
 		if (opts.fresh) for (const f of ["bank.json", "explainers.json"]) fs.rmSync(/* turbopackIgnore: true */ this.file(lectureId, f), { force: true });
+		// Packs run one at a time: behind another one, this pack waits its turn.
+		if (this.running.size > 0) meta.state = "queued";
 		const controller = new AbortController();
 		this.running.set(lectureId, controller);
 		this.save(meta);
@@ -167,24 +210,63 @@ export class StudyPacks {
 			meta.models[stage] = r.model;
 			if (r.cost !== null) meta.costUsd = (meta.costUsd ?? 0) + r.cost;
 		};
+		const sleep = this.deps.sleep ?? realSleep;
+		const connected = async () => (this.deps.connected ? this.deps.connected().catch(() => false) : true);
+		const delays = PACK_RULES.retryDelaysMs;
 		const stage = async (s: PackStage, fn: () => Promise<"done" | "skipped">) => {
 			if (meta.stages[s] === "done" || meta.stages[s] === "skipped") return;
-			if (signal.aborted) throw new Error("cancelled");
-			meta.stages[s] = "running";
-			this.save(meta);
-			meta.stages[s] = await fn();
+			for (let retries = 0; ; ) {
+				if (signal.aborted) throw new Error("cancelled");
+				meta.stages[s] = "running";
+				meta.waiting = undefined;
+				this.save(meta);
+				try {
+					meta.stages[s] = await fn();
+					break;
+				} catch (err) {
+					if (signal.aborted || err instanceof PackStop) throw err;
+					const error = err instanceof Error ? err.message : String(err);
+					meta.stages[s] = "pending";
+					if (!(await connected())) {
+						// The AI connection is down: wait for it. That isn't a try, and the packs queued behind this one wait too.
+						meta.waiting = { for: "connection" };
+						this.save(meta);
+						this.deps.log("pack_retry", { lectureId: id, stage: s, reason: "connection", error });
+						do await sleep(PACK_RULES.connectionCheckMs, signal);
+						while (!(await connected()));
+						continue;
+					}
+					if (retries >= delays.length) {
+						meta.stages[s] = "failed";
+						throw new Error(error);
+					}
+					const ms = delays[retries++]!;
+					meta.waiting = { for: "retry", seconds: Math.round(ms / 1000), until: new Date(this.deps.now().getTime() + ms).toISOString() };
+					this.save(meta);
+					this.deps.log("pack_retry", { lectureId: id, stage: s, reason: "error", attempt: retries, waitMs: ms, error });
+					await sleep(ms, signal);
+				}
+			}
 			this.save(meta);
 			this.deps.log("pack_stage", { lectureId: id, stage: s, state: meta.stages[s] });
 		};
 		try {
+			if (meta.state !== "generating") {
+				meta.state = "generating";
+				this.save(meta);
+			}
 			// 1. Read
 			const md = this.deps.slidesMarkdown(id);
-			if (!md) throw new Error("this unit has no slides");
+			if (!md) throw new PackStop("no_material", PACK_COPY.noMaterial);
 			const slides = parseSlides(md);
+			if (slides.length === 0) throw new PackStop("no_material", PACK_COPY.noMaterial);
+			// Too little to make two ideas and twelve questions from (V-24): say so instead of asking the model.
+			if (slides.reduce((n, sl) => n + sl.body.length, 0) < MATERIALS_RULES.minUnitChars) throw new PackStop("too_short", PACK_COPY.tooShort);
 			const slideSet = new Set(slides.map((s) => s.number));
-			const budget = PACK_RULES.slideTokenBudget * 4;
-			const slidesText = md.length > budget ? `${md.slice(0, budget)}\n\n(… the rest of the slides were trimmed)` : md;
-			await stage("read", async () => (slides.length ? "done" : Promise.reject(new Error("no slides found"))));
+			// Long notes are trimmed evenly across their pages, never cut off at the end: the
+			// validators accept a citation to every slide, so every slide must be in the text (v1.0 T-3).
+			const slidesText = trimSlides(md, PACK_RULES.slideTokenBudget).markdown;
+			await stage("read", async () => "done");
 
 			// 2. Map (an authored or saved map is kept unless regenerating)
 			let nodes: PackNode[] = [];
@@ -263,9 +345,21 @@ export class StudyPacks {
 		} catch (err) {
 			const cancelled = signal.aborted;
 			meta.state = cancelled ? "cancelled" : "failed";
+			meta.waiting = undefined;
 			for (const s of Object.keys(meta.stages) as PackStage[]) if (meta.stages[s] === "running") meta.stages[s] = cancelled ? "pending" : "failed";
-			meta.error = cancelled ? undefined : err instanceof Error ? err.message : String(err);
-			if (!cancelled) this.deps.log("pack_failed", { lectureId: id, error: meta.error });
+			if (cancelled) {
+				meta.error = undefined;
+				meta.errorDetail = undefined;
+				meta.failure = undefined;
+			} else {
+				const detail = err instanceof Error ? err.message : String(err);
+				const tries = delays.length + 1;
+				meta.failure = err instanceof PackStop ? err.failure : "no_answer";
+				// The screen gets plain words; the model's or provider's own message goes to the log.
+				meta.error = err instanceof PackStop ? err.says : PACK_COPY.failed(tries);
+				meta.errorDetail = detail;
+				this.deps.log("pack_failed", { lectureId: id, failure: meta.failure, error: detail, ...(err instanceof PackStop ? {} : { tries }) });
+			}
 		} finally {
 			meta.ms += Date.now() - started;
 			meta.finishedAt = this.deps.now().toISOString();

@@ -121,6 +121,21 @@ export const PACK_RULES = {
 	slots: { map: "strong", explainers: "strong", bank: "cheap" } as const,
 	/** Slides text sent to the model, in estimated tokens (~4 characters each). */
 	slideTokenBudget: 12_000,
+	/** A failed stage is tried again after each of these waits (V-23). */
+	retryDelaysMs: [10_000, 30_000, 90_000],
+	/** While the AI connection is down, look again this often. Waiting doesn't use up a try. */
+	connectionCheckMs: 30_000,
+} as const;
+
+/** What the lecture page says about a study pack that isn't being written right now (v1.0 T-4, T-5). */
+export const PACK_COPY = {
+	queued: "Waiting its turn.",
+	retrying: (seconds: number) => `Your AI was busy. Trying again in ${seconds} seconds.`,
+	waitingForConnection: "Waiting for your AI connection.",
+	failed: (tries: number) => `Your AI didn't answer after ${tries} tries.`,
+	tooShort: "There's too little here to study from. Add more material.",
+	noMaterial: "This unit has no slides or notes yet.",
+	tryAgain: "Try again",
 } as const;
 
 /**
@@ -206,10 +221,19 @@ export const MATERIALS_RULES = {
 	textPageChars: 2_500,
 	/** A proposal waits this long for the student to confirm it. */
 	pendingUploadHours: 24,
+	/** A unit needs at least this much text to be saved or to get a study pack (V-24): a pack is at least 2 ideas and 12 questions. */
+	minUnitChars: 500,
 	/** The slide panel's picture of a PDF page (V-21): sharp on a laptop screen, a few hundred KB a page. */
 	pageImageDpi: 120,
 	/** Above this many slides the panel hides its row of dots (a long deck would be a strip of 80). */
 	maxSlideDots: 20,
+} as const;
+
+/** The upload screen's wording (v1.0 S-4, T-5). */
+export const MATERIALS_COPY = {
+	drop: "Drop all your slides and notes here. Several files at once is fine.",
+	/** Was "Week 1: …", which invited typing a week label on its own. */
+	pastePlaceholder: "Paste your notes here",
 } as const;
 
 /** Five days away or more earns a "welcome back" (J6, R-6). */

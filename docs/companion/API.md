@@ -64,11 +64,17 @@ When units are saved and the student's AI is ready, each unit's pack is written 
 3. 12 to 20 three-option questions (`bank.json`), on the Cheap slot;
 4. one explainer per idea (`explainers.json`): ≤ 120 words, one mermaid diagram, slide citations, and a "Try it" question from the bank. Strong slot.
 
-Every item is checked (`study-pack.ts`). The model retries while too few pass, and items that still fail are dropped and listed in `meta.dropped`. The bank is also the scripted engine's question set for that unit. Events: `pack_started`, `pack_stage`, `pack_ready`, `pack_failed`.
+Every item is checked (`study-pack.ts`). The model retries while too few pass, and items that still fail are dropped and listed in `meta.dropped`. The bank is also the scripted engine's question set for that unit. Events: `pack_started`, `pack_stage`, `pack_retry`, `pack_ready`, `pack_failed`.
+
+Since v1.0 (V-23), a pack survives a bad minute:
+- a stage that fails is tried again after 10 s, 30 s and 90 s (`PACK_RULES.retryDelaysMs`), then the pack fails with `meta.error` in plain words and the provider's own message in `meta.errorDetail` and the `pack_failed` event;
+- while the AI connection is down the pack waits (`meta.waiting.for: "connection"`) without using up a try, and the packs behind it stay `queued`;
+- when the app next starts with the AI ready, packs that were queued or being written are picked up, and uploaded units with no pack get one. Failed and cancelled packs wait for the student;
+- a unit with under 500 characters of text fails at once with `failure: "too_short"` (and can no longer be saved, V-24).
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/lectures/:id/pack` | | `{ meta: { state, stages: { read, map, bank, explainers }, models, costUsd, ms, dropped, counts, error? } \| null, explainers, questions, running }` |
+| GET | `/lectures/:id/pack` | | `{ meta: { state: "queued" \| "generating" \| "ready" \| "failed" \| "cancelled", waiting?, failure?, stages: { read, map, bank, explainers }, models, costUsd, ms, dropped, counts, error?, errorDetail? } \| null, explainers, questions, running }`. `packStatusLine(meta)` is the one line the lecture page shows |
 | POST | `/lectures/:id/pack` | `{ fresh?: boolean }` | Starts or resumes (from the first unfinished stage); `fresh` regenerates everything. `409 not_connected` without a ready AI |
 | DELETE | `/lectures/:id/pack` | | Cancels; resumable |
 
@@ -82,8 +88,8 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 |---|---|---|---|
 | GET | `/course` | | `[{ code, name, weekOneStart?, readingWeeks?, week, reading, units: LectureWithStatus[] }]` |
 | PUT | `/modules/:code` | `{ week: 1–52 \| null, readingWeeks?: number[], inReadingWeek?: boolean }` | "This is week N": the module with `{ week, reading }` |
-| POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to] }], via: "name" \| "ai" \| "fallback", note }] }`. Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
-| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages |
+| POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to], chars }], via: "name" \| "ai" \| "fallback", note }] }`. `chars` is how much text the unit holds: under 500 it can't be saved (V-24). Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
+| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages, or a unit with too little text |
 
 ## Nudges
 

@@ -424,6 +424,7 @@ export const COMPANION_EVENT_TYPES = [
 	// v0.1 F-105, F-106
 	"pack_started",
 	"pack_stage",
+	"pack_retry",
 	"pack_ready",
 	"pack_failed",
 	"explainer_opened",

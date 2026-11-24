@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { SlidePage } from "../src/core/companion/index.ts";
-import { parseSlides } from "../src/core/companion/index.ts";
+import { MATERIALS_RULES, PACK_COPY, parseSlides } from "../src/core/companion/index.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
 import { CompanionContent } from "../src/server/companion/content.ts";
 import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
@@ -25,12 +25,14 @@ const PROMPTS = path.join(import.meta.dirname, "..", "companion", "prompts");
 const NOW = new Date(2026, 10, 23, 12); // Mon 23 Nov 2026
 
 /** A fake PDF: the bytes are the page titles joined by "|". */
+/** Enough text on each page for a unit to be worth studying (MATERIALS_RULES.minUnitChars). */
+const FILL = " It explains the idea step by step, with a worked example and a short check.".repeat(4);
 const pdf = (...titles: string[]) => new Uint8Array([0x25, 0x50, 0x44, 0x46, ...new TextEncoder().encode(titles.join("|"))]);
 /** Like the real PDF reader, the fake one uses up the bytes it is given (v1.0 S-2: the stored PDF came out empty). */
 const pdfToPages = async (data: Uint8Array): Promise<SlidePage[]> => {
 	const titles = new TextDecoder().decode(data.slice(4)).split("|");
 	data.fill(0);
-	return titles.map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.` }));
+	return titles.map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.${FILL}` }));
 };
 
 async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) => unknown } = {}) {
@@ -75,7 +77,8 @@ describe("proposing course units", () => {
 	it("a weekly-labelled PDF is one unit, with no AI call", async () => {
 		const { svc, calls } = await setup({ aiReady: true });
 		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week2_nash.pdf", bytes: pdf("Nash equilibrium", "Best responses") }]);
-		assert.deepEqual(r.files[0]!.units, [{ title: "Nash equilibrium", week: 2, pages: [1, 2] }]);
+		assert.deepEqual(r.files[0]!.units.map(({ chars: _chars, ...u }) => u), [{ title: "Nash equilibrium", week: 2, pages: [1, 2] }]);
+		assert.ok(r.files[0]!.units[0]!.chars >= MATERIALS_RULES.minUnitChars, "the proposal says how much text each unit holds");
 		assert.equal(r.files[0]!.via, "name");
 		assert.equal(calls.length, 0);
 	});
@@ -201,6 +204,19 @@ describe("saving the confirmed units", () => {
 		assert.equal(fs.readFileSync(await svc.slidePage(id, 2), "utf-8"), "png of page 2");
 	});
 
+	it("a unit with too little text can't be saved, and the proposal says how little it holds (T-5, V-24)", async () => {
+		const { svc, store } = await setup();
+		// What a student actually did: the words "Week 8" typed into the paste box.
+		const r = await svc.proposeMaterials("GT", [{ name: "Game Theory notes.md", bytes: new TextEncoder().encode("Week 8") }]);
+		assert.equal(r.files[0]!.units.length, 1);
+		assert.ok(r.files[0]!.units[0]!.chars < MATERIALS_RULES.minUnitChars);
+		assert.throws(
+			() => svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) }),
+			(e: CompanionError) => e.status === 400 && e.message.includes(PACK_COPY.tooShort),
+		);
+		assert.equal(store.lectures().filter((l) => l.source).length, 0, "nothing was saved");
+	});
+
 	it("units are quizzable straight away, with no timetable", async () => {
 		const { svc, r } = await proposed();
 		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
@@ -246,7 +262,7 @@ describe("calendar re-imports merge (F-104)", () => {
 
 	it("units and 'I wasn't there' survive; a vanished event is archived, not deleted", async () => {
 		const { svc, store } = await setup();
-		const r = await svc.proposeMaterials("GT", [{ name: "Week 2.pdf", bytes: pdf("Nash") }]);
+		const r = await svc.proposeMaterials("GT", [{ name: "Week 2.pdf", bytes: pdf("Nash", "Best responses") }]);
 		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
 		svc.importIcs(ics(["Lecture A", "Lecture B"]));
 		const [a, b] = store.lectures().filter((l) => l.start);

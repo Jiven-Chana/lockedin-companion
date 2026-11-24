@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, type SessionKind } from "@/src/core";
+import { moduleHue, PACK_COPY, packStatusLine, type SessionKind } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -208,6 +208,7 @@ function PackProgress({ data, onStart, onCancel }: { data: PackData | null; onSt
 			</div>
 		);
 	}
+	const line = packStatusLine(meta);
 	return (
 		<div className="li-row li-note" style={{ gap: 10 }} role="status" aria-live="polite">
 			<span style={{ flexGrow: 1 }}>
@@ -223,11 +224,13 @@ function PackProgress({ data, onStart, onCancel }: { data: PackData | null; onSt
 					);
 				})}
 				{meta.state === "ready" && meta.counts ? <span className="li-small li-muted"> · {meta.counts.questions} {meta.counts.questions === 1 ? "question" : "questions"}, {meta.counts.explainers} {meta.counts.explainers === 1 ? "explainer" : "explainers"}{meta.costUsd ? ` · $${meta.costUsd.toFixed(3)}` : ""}</span> : null}
-				{meta.state === "failed" ? <span className="li-small"> · {meta.error ?? "Something went wrong."}</span> : null}
+				{line ? <span className="li-small"> · {line}</span> : null}
 				{meta.state === "cancelled" ? <span className="li-small"> · paused</span> : null}
 			</span>
 			{data?.running ? <button type="button" className="li-btn" onClick={onCancel}>Cancel</button> : null}
-			{!data?.running && (meta.state === "failed" || meta.state === "cancelled") ? <button type="button" className="li-btn primary" onClick={() => onStart(false)}>Resume</button> : null}
+			{!data?.running && meta.state === "cancelled" ? <button type="button" className="li-btn primary" onClick={() => onStart(false)}>Resume</button> : null}
+			{/* Trying again only helps when the AI didn't answer: a unit with too little in it needs more material. */}
+			{!data?.running && meta.state === "failed" && (meta.failure ?? "no_answer") === "no_answer" ? <button type="button" className="li-btn primary" onClick={() => onStart(false)}>{PACK_COPY.tryAgain}</button> : null}
 			{!data?.running && meta.state === "ready" ? <button type="button" className="li-btn ghost" onClick={() => onStart(true)}>Regenerate</button> : null}
 		</div>
 	);

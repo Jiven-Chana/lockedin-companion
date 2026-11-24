@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { checkProposal, currentWeek, proposeWithoutAi, titleFromName, wantsAiSplit, weekFromName, weekOneStartFor, type UnitPage } from "../src/core/companion/index.ts";
+import { checkProposal, currentWeek, proposeWithoutAi, titleFromName, unitChars, unitTooShort, wantsAiSplit, weekFromName, weekOneStartFor, type UnitPage } from "../src/core/companion/index.ts";
 
 const pages = (...titles: string[]): UnitPage[] => titles.map((title, i) => ({ number: i + 1, title, chars: title ? 200 : 0 }));
 
@@ -64,6 +64,21 @@ describe("checking an AI proposal", () => {
 			if (problem) assert.match(r ?? "", problem);
 			else assert.equal(r, null);
 		});
+});
+
+describe("too little to study from (V-24)", () => {
+	const page = (number: number, chars: number) => ({ number, title: "t", chars });
+	const cases: Array<[string, ReturnType<typeof page>[], [number, number], boolean]> = [
+		["the words 'Week 8' on one page", [page(1, 6)], [1, 1], true],
+		["an image-only scan", [page(1, 0), page(2, 0)], [1, 2], true],
+		["one full page of notes", [page(1, 2_400)], [1, 1], false],
+		["two ordinary slides", [page(1, 270), page(2, 270)], [1, 2], false],
+		["only the unit's own pages count", [page(1, 5_000), page(2, 40), page(3, 5_000)], [2, 2], true],
+		["exactly the minimum is enough", [page(1, 500)], [1, 1], false],
+	];
+	for (const [name, pages, range, short] of cases) it(name, () => assert.equal(unitTooShort(pages, range, 500), short));
+
+	it("counts the text across a range", () => assert.equal(unitChars([page(1, 10), page(2, 20), page(3, 30)], [2, 3]), 50));
 });
 
 describe("the module calendar", () => {
