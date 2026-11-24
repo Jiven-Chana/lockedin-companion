@@ -7,7 +7,8 @@ Each version records what it ships, how it works, what is missing, and the evide
 | Version | Date | Git | Status | Spec |
 |---|---|---|---|---|
 | **v0.0** | 14 Nov 2026 | `6ff961b` on `main`, tag `lockedin-v0.0` | Shipped (laptop web app at `/app`) | [`plan.md`](plan.md), `mvp1-plan.md` (branch `docs/mvp1-plan`), [`DECISIONS.md`](DECISIONS.md) B-1–B-15 |
-| **v0.1** | planned, test slice by Wed 25 Nov 2026 | branch `feat/v0.1` | Specified, not built | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-14 |
+| **v0.1** | test slice by Wed 25 Nov 2026 | branch `feat/v0.1` | Phase A built (stages 1–13, 23–24 Nov); phase B not started | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-18, [`demos/`](demos/) |
+| **v1.0** | planned | — | Issues listed from real use (24 Nov); decisions pending, then a plan | [`v1.0-issues.md`](v1.0-issues.md) |
 
 ---
 
