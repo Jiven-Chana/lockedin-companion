@@ -145,7 +145,7 @@ describe("J3: Maya's missed lecture, and resume", () => {
 });
 
 describe("J4: the resurfaced miss", () => {
-	it("a miss comes back in a later retest with fresh wording and becomes solid", async () => {
+	it("a miss comes back in a later retest with fresh wording, and one right answer is half of closing it", async () => {
 		const { svc, clock, store } = setup();
 		svc.demoScenario({ name: "tayo" });
 		clock.set(at(17, 13, 5));
@@ -170,7 +170,8 @@ describe("J4: the resurfaced miss", () => {
 		assert.notEqual(rv.question?.id, "q1", "never the same wording: a sibling question");
 		const right = rv.question!.options.findIndex((o) => /specific person|focus/i.test(o.label)) + 1;
 		await svc.answer(retest!, { questionId: rv.question!.id, indices: [right], confidence: 90 });
-		assert.equal(store.misses()[0]?.status, "solid");
+		// One sure right answer is half of what closes a gap (V-43): the idea stays on the list until a second, on another day.
+		assert.equal(store.misses()[0]?.status, "open");
 	});
 });
 

@@ -36,6 +36,7 @@ import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
 import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { closeGaps, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
 import { earnedMilestones, needsAttention, type AttentionLine } from "../../core/companion/milestones.ts";
@@ -1663,6 +1664,38 @@ export class CompanionService {
 		return { ...v, ...this.studyOf(session, lecture, v.budget), ...(v.status === "done" ? this.doneExtras(session, now) : {}) };
 	}
 
+	/** Every right answer in the history, for the gap rule (V-43): laptop answers, and the phone's. */
+	private rightAnswers(): RightAnswer[] {
+		const nodeOf = new Map<string, string | undefined>();
+		const node = (lectureId: string, questionId: string) => {
+			const k = `${lectureId}|${questionId}`;
+			if (!nodeOf.has(k)) nodeOf.set(k, this.packs?.bank(lectureId)?.find((q) => q.id === questionId)?.node);
+			return nodeOf.get(k);
+		};
+		const out: RightAnswer[] = [];
+		for (const e of this.store.events()) {
+			const d = e.data as { lectureId?: unknown; questionId?: unknown; nodeId?: unknown; correct?: unknown; graded?: unknown; dontKnow?: unknown; confidence?: unknown; source?: unknown };
+			const laptop = e.type === "answer" && d.graded !== false;
+			const phone = e.type === "answered" && d.source === "phone";
+			if ((!laptop && !phone) || d.correct !== true || d.dontKnow === true) continue;
+			if (typeof d.lectureId !== "string" || typeof d.questionId !== "string") continue;
+			const nodeId = (typeof d.nodeId === "string" && d.nodeId) || node(d.lectureId, d.questionId) || GENERAL_IDEA;
+			out.push({ ideaKey: `${d.lectureId}#${nodeId}`, questionId: d.questionId, at: new Date(e.t), confidence: typeof d.confidence === "number" ? d.confidence : null });
+		}
+		return out;
+	}
+
+	/** Close the gaps that have earned it (V-43), after any answer. */
+	private settleGaps(): void {
+		const misses = this.store.misses();
+		if (!misses.some((m) => m.status === "open")) return;
+		const next = closeGaps(misses, this.rightAnswers(), this.now());
+		if (next === misses) return;
+		const closed = next.filter((m, i) => m.status === "solid" && misses[i]!.status === "open");
+		this.store.saveMisses(next);
+		for (const key of new Set(closed.map(ideaKeyOfMiss))) this.log("gap_closed", { idea: key, questions: closed.filter((m) => ideaKeyOfMiss(m) === key).length });
+	}
+
 	/** Learn or Practise, for the header (V-40, V-50). A round across a module is named after the module. */
 	private studyOf(session: CompanionSession, lecture: Pick<Lecture, "module">, budget: number): Pick<SessionView, "study" | "practiseOf"> & { goal?: string } {
 		const study = session.spec.study ?? "learn";
@@ -1812,7 +1845,10 @@ export class CompanionService {
 			why: !!record.why, whyLength: record.why?.length ?? 0, assisted: (session.hintedQuestionIds ?? []).includes(record.questionId),
 			msOnQuestion: session.questionShownAt ? now.getTime() - new Date(session.questionShownAt).getTime() : null,
 			miss: miss?.reason ?? null,
+			// What was chosen (V-39). The typed reason stays out of the log; it is kept with the miss.
+			chosen: record.chosen ?? [],
 		});
+		this.settleGaps();
 		return { correct: record.correct, graded: record.graded };
 	}
 

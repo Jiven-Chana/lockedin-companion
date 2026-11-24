@@ -112,6 +112,7 @@ export function answerRecordFrom(ad: QuestionAnswerData, questionId: string, nod
 		...(ad.confidence !== undefined ? { confidence: ad.confidence } : {}),
 		shown,
 		correctLabels: (ad.options ?? []).filter((o) => correctSet.has(o.index)).map((o) => o.label),
+		...(ad.kind === "quiz" && !ad.dontKnow && ad.answers.length ? { chosen: ad.answers.map((a) => a.label) } : {}),
 		...(ad.explanation ? { explanation: ad.explanation } : {}),
 		...(ad.thinking && !shown ? { why: ad.thinking } : {}),
 		answeredAt: ad.answeredAt,

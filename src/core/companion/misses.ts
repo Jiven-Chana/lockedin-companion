@@ -6,7 +6,7 @@
  * at ≥ 70% confidence in a retest.
  */
 
-import { LOW_CONFIDENCE, MISS_SPACING_DAYS, SOLID_CONFIDENCE } from "./policy.ts";
+import { LOW_CONFIDENCE, MISS_SPACING_DAYS } from "./policy.ts";
 import { addDays } from "./time.ts";
 import type { AnswerRecord, Miss, MissReason } from "./types.ts";
 
@@ -37,6 +37,8 @@ export function missFromAnswer(a: AnswerRecord, ctx: { sessionId: string; lectur
 		...(a.nodeId ? { nodeId: a.nodeId } : {}),
 		questionText: a.questionText,
 		correctLabels: a.correctLabels,
+		...(a.chosen?.length ? { chosen: a.chosen } : {}),
+		...(a.why ? { why: a.why } : {}),
 		...(a.explanation ? { explanation: a.explanation } : {}),
 		...(a.confidence !== undefined ? { confidence: a.confidence } : {}),
 		reason,
@@ -64,9 +66,7 @@ export function applyRetestAnswer(misses: Miss[], missIds: readonly string[], or
 	const targetId = missIds[(ordinal - 1) % missIds.length];
 	return misses.map((m) => {
 		if (m.id !== targetId || m.status === "solid") return m;
-		if (a.correct && !a.dontKnow && (a.confidence ?? 0) >= SOLID_CONFIDENCE) {
-			return { ...m, status: "solid", timesSeen: m.timesSeen + 1, solidAt: now.toISOString() };
-		}
+		// A revisit no longer clears a miss by itself (V-43): an idea closes on two sure right answers on different days, wherever they are given (gaps.ts). A revisit only moves when it is offered next.
 		const timesSeen = m.timesSeen + 1;
 		return { ...m, timesSeen, nextDue: nextDueAfter(timesSeen, now).toISOString() };
 	});

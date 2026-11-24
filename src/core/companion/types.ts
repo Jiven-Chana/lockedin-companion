@@ -156,6 +156,8 @@ export interface AnswerRecord {
 	/** A "show me first" request, not an attempt. */
 	shown: boolean;
 	correctLabels: string[];
+	/** What the student chose (V-39): the labels of the options picked. Empty for "I don't know". */
+	chosen?: string[];
 	explanation?: string;
 	why?: string;
 	answeredAt: string;
@@ -408,6 +410,9 @@ export interface Miss {
 	nodeId?: string;
 	questionText: string;
 	correctLabels: string[];
+	/** What the student chose, and the reason they gave (V-39): what new questions on this idea are written around. */
+	chosen?: string[];
+	why?: string;
 	explanation?: string;
 	confidence?: number;
 	reason: MissReason;
@@ -514,6 +519,7 @@ export const COMPANION_EVENT_TYPES = [
 	// v1.1: Progress and the Week timetable (V-34 to V-37)
 	"milestone_earned",
 	"plan_module_set",
+	"gap_closed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

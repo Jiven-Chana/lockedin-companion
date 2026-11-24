@@ -223,6 +223,14 @@ export const CONFIDENCE_TAPS = [
 ] as const;
 
 /**
+ * Gaps by idea (V-39, V-43). An idea leaves the list after `rightAnswers`
+ * right answers on different questions, on different days, each at
+ * `sureConfidence` or above ("Fairly sure" or "Certain"). `newQuestions` is how
+ * many the AI writes for "Practise this idea".
+ */
+export const GAP_RULES = { rightAnswers: 2, sureConfidence: 70, newQuestions: 5 } as const;
+
+/**
  * Practise (V-40): a round's size, and how much of it may go to repair.
  * `gapShare` keeps a round mixed: at most this share goes to ideas with a gap
  * or fading while other ideas are available.
