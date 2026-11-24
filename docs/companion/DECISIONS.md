@@ -57,6 +57,26 @@ Taken while building stage 2 (spec §9 step 2). V-15 and V-17 change the spec; [
 | O-3 | The first taste is **3 questions on the bundled HCI "Personas and scenarios" lecture**, labelled as a sample, on the student's AI, prepared while they confirm their modules | Nobody has added slides at that point; it has real authored slides | spec §12 O-3 |
 | B-16 | ChatGPT **background use** is shown after sign-in as LearnHarness's toggle, **on by default**, with "LockedIn prepares your questions in the background, so this needs to be on." Off blocks sessions with a plain reason | The prober → teacher hand-off is a background turn; with background use off it is refused and question 1 never appears (`src/server/jobs.ts`, spec F-102 risk) | — |
 
+## Made for v1.0 (24 Nov 2026, Jiven)
+
+The plan is [`v1.0-plan.md`](v1.0-plan.md). It follows [`v1.0-issues.md`](v1.0-issues.md), with the causes corrected in the plan's section 1.
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-19 | **Three versions.** v1.0 fixes what fails, misleads or corrupts data. v2.0 is the polish stage ([`v2.0-direction.md`](v2.0-direction.md)). v3.0 is the desktop app, code clean-up and whatever v2.0 turns up | Jiven: a stable base to test first, then polish in detail. Large refactors would hide new bugs among old ones | `v1.0-issues.md` "ships as a desktop app"; V-12 phase B |
+| V-20 | **Release route.** v0.1 merged into `main` as it stood and tagged `lockedin-v0.1`. v1.0 is built on `feat/v1.0`, merged when CI is green, tagged `lockedin-v1.0`, and tested from a production build | A tagged v0.1 to compare against if a fix makes something worse | — |
+| V-21 | **Slides show the real PDF page**, drawn on the laptop by the engine's PDF renderer and kept on disk. The text view stays only where there is no PDF (sample lectures, pasted text). No AI-written summary in v1.0 | INT-01-g; both the issue list and the v2.0 direction say "show the real page" | The Markdown slide panel (v0.0) |
+| V-22 | **The safety net also runs before question 1:** one "Next question, please.", then a plain error with a working "Try again" | The 23 Nov rule, extended. Verified twice: the teacher set its plan and ended its turn | — |
+| V-23 | **Study packs retry** a failed stage 3 times (10 s, 30 s, 90 s), wait while the AI connection is down, and resume on their own after a restart | One dropped request failed five packs on 23 Nov | — |
+| V-24 | **The smallest unit is 500 characters of text** | A pack needs at least 2 ideas and 12 questions. The failing unit was the words "Week 8" | — |
+| V-25 | **An unknown week reads "Week not set"**, with a one-tap "Set week" on the unit | "Week 0" means nothing to a student | — |
+| V-26 | **Sample lectures are hidden** once a real upload is saved or a real calendar is imported. Nothing is deleted; facilitator scenarios bring them back | The sample "Games in normal form" sat beside the student's own | — |
+| V-27 | **`/` redirects to `/app` always.** The engine's pages stay reachable at their own addresses | The engine's home screen confused real use | spec F-117 "when running as the desktop app" |
+| V-28 | **Deadline events are never lectures:** a title with due, deadline, assignment, coursework, submission or hand-in is treated like a lab. Not "quiz" or "test", which can be taught sessions | A Canvas deadline would send "HCI just finished" at midnight | — |
+| V-29 | **The phone install is a guided web install**, and the pairing is carried into the Home Screen app | iPhones only allow notifications from an installed web app. A native wrapper is considered only if this fails on a real phone | — |
+| V-30 | **Event log:** double counts are fixed in v1.0. Renaming events and giving each type one shape waits for v3.0 | Renames two days before the 26 Nov test could break its analysis | — |
+| V-31 | **Next.js 16.4.6** (the security patch) goes in last, behind the full test suite. If the gate fails it is reverted and moves to v3.0 | The warning interrupts every start | — |
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:

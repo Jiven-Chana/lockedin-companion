@@ -7,9 +7,10 @@ Each version records what it ships, how it works, what is missing, and the evide
 | Version | Date | Git | Status | Spec |
 |---|---|---|---|---|
 | **v0.0** | 14 Nov 2026 | `6ff961b` on `main`, tag `lockedin-v0.0` | Shipped (laptop web app at `/app`) | [`plan.md`](plan.md), `mvp1-plan.md` (branch `docs/mvp1-plan`), [`DECISIONS.md`](DECISIONS.md) B-1–B-15 |
-| **v0.1** | test slice by Wed 25 Nov 2026 | branch `feat/v0.1` | Phase A built (stages 1–13, 23–24 Nov); phase B not started | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-18, [`demos/`](demos/) |
-| **v1.0** | planned | — | Issues listed from real use (24 Nov); decisions pending, then a plan | [`v1.0-issues.md`](v1.0-issues.md) |
+| **v0.1** | 24 Nov 2026 | `99f701d` on `main`, tag `lockedin-v0.1` | Phase A shipped as built (stages 1–13, 23–24 Nov). Its known issues are the v1.0 list | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-18, [`demos/`](demos/) |
+| **v1.0** | in progress | branch `feat/v1.0` | Fixes everything broken in v0.1; no redesigns, no packaging (V-19) | [`v1.0-issues.md`](v1.0-issues.md), [`v1.0-plan.md`](v1.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-19–V-31 |
 | **v2.0** | after v1.0 is stable | — | Direction only (24 Nov): streamline the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
+| **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
 
 ---
 
