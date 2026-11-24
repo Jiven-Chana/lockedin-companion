@@ -185,6 +185,16 @@ export const CALENDAR_RULES = {
 	lookaheadDays: 120,
 } as const;
 
+/** Onboarding step 2's "Where do I find my link?" (decided 24 Nov; the Birmingham route was found 24 Nov). */
+export const CALENDAR_COPY = {
+	findLinkLabel: "Where do I find my link?",
+	findLink: [
+		"University of Birmingham: in the myUoB app, open Calendar → Go to event → Download, then copy the link it gives you.",
+		"Google, Outlook or Apple: use the calendar's “secret iCal address” or “publish” link.",
+		"Keep it private: anyone with it can see your timetable.",
+	],
+} as const;
+
 /** Course material (F-104, V-18). */
 export const MATERIALS_RULES = {
 	/** Per file, as v0.0's upload. */

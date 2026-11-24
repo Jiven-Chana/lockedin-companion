@@ -11,7 +11,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { moduleHue, SESSION_COPY, type DetectedModule } from "@/src/core";
+import { CALENDAR_COPY, moduleHue, SESSION_COPY, type DetectedModule } from "@/src/core";
 import { ApiError, api, lockedIn, type FirstTaste } from "../api";
 import { Icon, Logo } from "../icons";
 import { Tint } from "../root";
@@ -159,6 +159,14 @@ export function WelcomeScreen() {
 											<b className="li-small">Calendar link</b>
 											<input className="li-input" type="url" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://… or webcal://…" autoFocus />
 										</label>
+									) : null}
+									{source === "link" ? (
+										<details className="li-small" style={{ paddingLeft: 8 }}>
+											<summary style={{ cursor: "pointer" }}>{CALENDAR_COPY.findLinkLabel}</summary>
+											<div className="li-stack" style={{ gap: 4, marginTop: 6 }}>
+												{CALENDAR_COPY.findLink.map((line) => <span key={line} className="li-muted">{line}</span>)}
+											</div>
+										</details>
 									) : null}
 									{option("file", <Icon.upload />, "Upload a calendar file", "An .ics export, read once")}
 									{source === "file" ? (
