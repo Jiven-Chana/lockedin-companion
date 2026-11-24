@@ -13,7 +13,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.0.2** | 24 Nov 2026 | tag `lockedin-v1.0.2` on `main` | The iPhone install no longer depends on Safari re-reading the manifest, and an unpaired Home Screen app can take the pairing link | [`v1.0-release.md`](v1.0-release.md) section 7, `relay/README.md` |
 | **v1.0.3** | 24 Nov 2026 | tag `lockedin-v1.0.3` on `main` | Pairing by a 6-digit code: one clear panel on the laptop, and the iPhone's Home Screen app asks for the code (V-32). Replaces the manifest routes of v1.0 and v1.0.2 | [`v1.0-release.md`](v1.0-release.md) section 8, `relay/README.md` |
 | **v1.0.4** | 24 Nov 2026 | tag `lockedin-v1.0.4` on `main` | "Send a test question to my phone" in Me → Phone; a retest no longer spends the day's notification before a lecture whose material is in course units | [`v1.0-release.md`](v1.0-release.md) section 9 |
-| **v1.1** | in progress | branch `feat/v1.1` | Progress as a learning score over time with module attribution, attention on gaps and milestones; the Week page as a draggable timetable (V-34 to V-38). The first slice of the v2.0 polish | [`v1.1-plan.md`](v1.1-plan.md), [`v1.1-research.md`](v1.1-research.md) |
+| **v1.1** | 24 Nov 2026 | tag `lockedin-v1.1` on `main` | Progress as a learning score over time with module attribution, attention on gaps and milestones; the Week page as a timetable whose study blocks can be dragged (V-34 to V-38). The first slice of the v2.0 polish | [`v1.1-release.md`](v1.1-release.md), [`v1.1-plan.md`](v1.1-plan.md), [`v1.1-research.md`](v1.1-research.md) |
 | **v2.0** | after v1.0 passes Jiven's test | — | Direction only (24 Nov): the polish stage, streamlining the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
 | **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
 
@@ -158,3 +158,26 @@ Every issue in the v1.0 list that fails, misleads or corrupts data is fixed, and
 - **v2.0:** Teach and Practice as modes, teaching by idea, notes versus slides, progress as a picture, a short Me ([`v2.0-direction.md`](v2.0-direction.md)).
 - **v3.0:** the desktop app, the relay on a team account, code clean-up, and one name and shape per event.
 - **Not yet confirmed on a device:** the iPhone install and a real notification (P-1, P-2).
+
+---
+
+## v1.1: progress that means something, and a week you can move (24 Nov 2026)
+
+Tag `lockedin-v1.1`. The plan is [`v1.1-plan.md`](v1.1-plan.md), the evidence behind it [`v1.1-research.md`](v1.1-research.md), and what shipped, how it was checked and the test checklist are in [`v1.1-release.md`](v1.1-release.md).
+
+### In one paragraph
+Progress stops being a second copy of the Library. It is now the history of what the student has learned: one learning score, drawn over the week, month or term against a steady-pace line, with the modules it came from, the gaps that need attention and fifteen milestones that are kept once earned (V-34 to V-36). The Week page is a timetable: lectures and commitments sit at their real times, and study blocks can be dragged to any free time or day (V-37). A visible score departs from the team's earlier decision to drop points (T20, R-6); it is recorded as Jiven's decision and owed a design-log entry.
+
+### What changed in how it works
+- **The score is replayed, not stored.** `replayScore` (`src/core/companion/score.ts`) reads the event log and the study blocks and works the score out again each time, so it can never drift from the history and the numbers can be changed in one place (`SCORE_RULES` in `policy.ts`).
+- **Milestones are stored** the first time they are earned (`milestones.json`, event `milestone_earned`), so a later change to the rules can't take one away.
+- **Study blocks carry a module** (`StudyBlock.module`, event `plan_module_set`). "Plan my week" gives each new block the module of the unit it studies; the student can change it.
+- **A block can't land on a lecture.** `placementProblem` (`plan-week.ts`) is the one rule; the timetable uses it for the fast answer and `PUT /blocks/:id` uses it for the real one (`409 block_overlaps`).
+- **`GET /progress` is a new shape** and `GET /plan` gained `quietHours` and `modules` ([`API.md`](API.md)).
+
+### What is still missing
+- **Not in v1.1:** stretching a block by dragging its edge, and adding a block by clicking an empty slot.
+- **Still open from the same feedback:** a chapter that spans several weeks, and timetable week numbers that match the university's (V-38 hides them on Progress; it does not renumber them).
+- **v2.0:** Teach and Practice as modes, teaching by idea, LockedIn-drawn visuals (V-33), a short Me ([`v2.0-direction.md`](v2.0-direction.md)).
+- **v3.0:** the desktop app, the relay on a team account, code clean-up.
+- **Owed to the group:** the design-log entry for the score and milestones, and `LIT` ids for the eleven sources in the research note.
