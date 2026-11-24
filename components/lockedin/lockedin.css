@@ -261,3 +261,33 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-pair-code { font: 700 2.6em/1.1 ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.08em; padding: 12px 20px; border-radius: 16px; background: var(--li-soft); color: var(--li-ink); align-self: flex-start; white-space: nowrap; user-select: all; }
 .li-pair-status { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: 14px; background: var(--li-soft); }
 .li-pair-status[data-state="paired"] { background: var(--li-solid-bg); color: var(--li-solid-ink); font-weight: 700; }
+
+/* v1.1 (V-34 to V-36): Progress as the history of what you have learned. */
+.li-score { font-size: 3em; line-height: 1; }
+.li-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.li-chart-grid { stroke: var(--li-line); stroke-width: 1; }
+.li-chart-axis { fill: var(--li-muted); font-size: 12px; font-family: inherit; }
+.li-chart-axis[data-on="true"] { fill: var(--li-ink); font-weight: 700; }
+.li-chart-line { fill: none; stroke: var(--li-accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.li-chart-pace { fill: none; stroke: var(--li-muted); stroke-width: 2; stroke-dasharray: 6 6; }
+.li-chart-point { cursor: pointer; outline: none; }
+.li-chart-dot { fill: var(--li-surface); stroke: var(--li-accent); stroke-width: 2.5; transition: r var(--li-m-fast, 120ms) ease; }
+.li-chart-point[data-on="true"] .li-chart-dot { fill: var(--li-accent); }
+.li-chart-dot-future { fill: var(--li-surface); stroke: var(--li-muted); stroke-width: 2; }
+.li-chart-cursor { stroke: var(--li-accent); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
+.li-chart-point:focus-visible .li-chart-cursor { stroke-width: 2; opacity: 1; }
+.li-chart-milestone { fill: var(--li-solid); stroke: var(--li-surface); stroke-width: 1.5; }
+.li-chart-detail { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px; border-radius: 14px; background: var(--li-soft); min-height: 46px; margin: 0; }
+.li-key { display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--li-accent); }
+.li-key-pace { border-top: 2px dashed var(--li-muted); }
+.li-progress-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .li-progress-two { grid-template-columns: 1fr; } }
+.li-share { display: flex; flex-direction: column; gap: 6px; }
+.li-bar { display: block; height: 8px; border-radius: 999px; background: var(--li-line); overflow: hidden; }
+.li-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--li-accent); min-width: 0; transition: width var(--li-m-medium, 240ms) ease; }
+.li-attention { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border-radius: 14px; background: var(--li-soft); }
+.li-attention > span { flex: 1 1 220px; }
+.li-milestones { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.li-milestone { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; border: 1.5px dashed var(--li-line); color: var(--li-muted); }
+.li-milestone[data-earned="true"] { border: 1.5px solid var(--li-solid); background: var(--li-solid-bg); color: var(--li-solid-ink); }
+

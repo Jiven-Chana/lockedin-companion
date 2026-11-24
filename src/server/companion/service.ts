@@ -1875,6 +1875,8 @@ export class CompanionService {
 			})),
 			attention,
 			milestones,
+			// Today's "this week" line still reads these.
+			week: weekSummary(state, now),
 			welcomeBack: welcomeBack(state, now),
 		};
 	}
