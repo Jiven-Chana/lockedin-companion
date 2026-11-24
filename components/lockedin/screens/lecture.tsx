@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, PACK_COPY, packStatusLine, type SessionKind } from "@/src/core";
+import { moduleHue, PACK_COPY, packStatusLine, weekLabel, type SessionKind } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -11,6 +11,7 @@ import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
 import { StatusTag } from "../icons";
 import { Prose } from "../prose";
 import { Tint, useLockedIn } from "../root";
+import { SetWeek } from "../set-week";
 import { SlidePage } from "../slide-page";
 
 type Tab = "map" | "explainers" | "slides" | "revisit";
@@ -58,9 +59,12 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · Week ${lecture.week}` : ""}</Link>
+						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · ${weekLabel(lecture.week)}` : ""}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
-						<span className="li-muted">{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : lecture.week > 0 ? `Week ${lecture.week} · from your course material` : "From your course material"}{lecture.attended === false ? " · you weren't there" : ""}</span>
+						<span className="li-muted li-row" style={{ gap: 8 }}>
+							{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : `${weekLabel(lecture.week)} · from your course material`}{lecture.attended === false ? " · you weren't there" : ""}
+							{!lecture.start && !(lecture.week > 0) ? <SetWeek lectureId={lecture.id} title={lecture.title} onSaved={() => void lectures.reload()} /> : null}
+						</span>
 					</div>
 				</header>
 				<div className="li-row">

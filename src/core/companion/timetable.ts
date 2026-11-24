@@ -312,6 +312,22 @@ export function mergeTimetable(existing: readonly Lecture[], incoming: readonly 
 	return { lectures: [...out, ...added], added: added.length, kept, archived };
 }
 
+/**
+ * Hide the sample timetable once the student has real content (v1.0 V-2,
+ * V-26): every timed entry is archived (hidden everywhere, history kept),
+ * and course units are left alone. Only call this on a profile whose
+ * timetable is the sample; a facilitator scenario brings the sample back.
+ */
+export function hideSampleTimetable(lectures: readonly Lecture[]): { lectures: Lecture[]; hidden: number } {
+	let hidden = 0;
+	const out = lectures.map((l) => {
+		if (!isTimed(l) || l.archived) return l;
+		hidden++;
+		return { ...l, archived: true };
+	});
+	return { lectures: out, hidden };
+}
+
 /** "What I read" (R-7, Q-10). Location is never read. */
 export function readsSummary(lectures: Lecture[], source: "sample" | "ics" | "none", readAt: string | undefined, via: "file" | "link" = "file") {
 	return {

@@ -46,6 +46,7 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |
 | GET | `/lectures` | `?module=HCI&q=personas` | `{ lectures: (Lecture & { status: "answered" \| "revisit" \| "not-started", revisit })[] }` |
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
+| PUT | `/lectures/:id/week` | `{ week: 1–52 }` | The unit, with its week set (v1.0, V-25: "Set week" on a unit that reads "Week not set"). `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
 | GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }], hasPdf }` for the slide panel. Slide numbers are the original file's page numbers, so a unit can run 18 to 38. `hasPdf` is true only when the stored PDF has content |
@@ -89,7 +90,7 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 | GET | `/course` | | `[{ code, name, weekOneStart?, readingWeeks?, week, reading, units: LectureWithStatus[] }]` |
 | PUT | `/modules/:code` | `{ week: 1–52 \| null, readingWeeks?: number[], inReadingWeek?: boolean }` | "This is week N": the module with `{ week, reading }` |
 | POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to], chars }], via: "name" \| "ai" \| "fallback", note }] }`. `chars` is how much text the unit holds: under 500 it can't be saved (V-24). Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
-| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages, or a unit with too little text |
+| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages, or a unit with too little text. On a profile still on the sample timetable, saving hides the sample lectures (archived, never deleted) and logs `sample_hidden` (V-26) |
 
 ## Nudges
 

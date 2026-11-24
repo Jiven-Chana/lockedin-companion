@@ -163,6 +163,7 @@ export const lockedIn = {
 	cancelPack: (id: string) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`, { method: "DELETE" }),
 	// v0.1 course material and module weeks (F-104, V-18)
 	course: () => api<CourseModule[]>("/course"),
+	setUnitWeek: (lectureId: string, week: number) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/week`, { method: "PUT", body: { week } }),
 	setModuleWeek: (code: string, body: { week: number | null; readingWeeks?: number[]; inReadingWeek?: boolean }) => api<CourseModule>(`/modules/${encodeURIComponent(code)}`, { method: "PUT", body }),
 	proposeMaterials: (code: string, form: FormData) => api<MaterialProposal>(`/modules/${encodeURIComponent(code)}/materials`, { raw: form }),
 	saveMaterials: (code: string, body: { uploadId: string; units: { file: number; title: string; week: number; pages: [number, number] }[] }) => api<{ units: Lecture[] }>(`/modules/${encodeURIComponent(code)}/materials`, { method: "PUT", body }),

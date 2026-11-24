@@ -229,6 +229,13 @@ export const MATERIALS_RULES = {
 	maxSlideDots: 20,
 } as const;
 
+/** A unit whose material doesn't say which week it belongs to has week 0. It never reads "Week 0" (v1.0 V-25). */
+export const WEEK_COPY = {
+	week: (n: number) => `Week ${n}`,
+	notSet: "Week not set",
+	set: "Set week",
+} as const;
+
 /** The upload screen's wording (v1.0 S-4, T-5). */
 export const MATERIALS_COPY = {
 	drop: "Drop all your slides and notes here. Several files at once is fine.",

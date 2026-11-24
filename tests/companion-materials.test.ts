@@ -256,9 +256,69 @@ describe("the module calendar", () => {
 	});
 });
 
+const ics = (titles: string[]) =>
+	["BEGIN:VCALENDAR", ...titles.flatMap((t, i) => ["BEGIN:VEVENT", `UID:e${i}`, `SUMMARY:GT: ${t}`, `DTSTART:202611${24 + i}T100000Z`, `DTEND:202611${24 + i}T110000Z`, "END:VEVENT"]), "END:VCALENDAR"].join("\r\n");
+
+describe("a unit's week and the sample timetable (v1.0 V-25, V-26)", () => {
+	it("Set week: a unit with no week gets one, in one call", async () => {
+		const { svc, store, events } = await setup();
+		const r = await svc.proposeMaterials("GT", [{ name: "notes.pdf", bytes: pdf("Dominance", "Nash") }]);
+		const [unit] = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) }).units;
+		assert.equal(unit!.week, 0, "the material didn't say");
+		assert.equal(svc.setUnitWeek(unit!.id, { week: 4 }).week, 4);
+		assert.equal(store.lectures().find((l) => l.id === unit!.id)?.week, 4);
+		assert.equal(events().filter((e) => e === "unit_week_set").length, 1);
+		for (const bad of [0, 53, 2.5, "3", null]) assert.throws(() => svc.setUnitWeek(unit!.id, { week: bad }), (e: CompanionError) => e.status === 400);
+		assert.throws(() => svc.setUnitWeek("nope", { week: 2 }), (e: CompanionError) => e.status === 404);
+	});
+
+	it("a timetabled lecture's week comes from the calendar, not from Set week", async () => {
+		const { svc, store } = await setup();
+		svc.importIcs(ics(["Lecture A"]));
+		const timed = store.lectures().find((l) => l.start)!;
+		assert.throws(() => svc.setUnitWeek(timed.id, { week: 2 }), (e: CompanionError) => e.status === 400);
+	});
+
+	it("saving your own material hides the sample lectures; nothing is deleted", async () => {
+		const { svc, store, events } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const sample = store.lectures().filter((l) => l.start);
+		assert.ok(sample.some((l) => l.id === "gt-w1-dominance"), "the sample's own 'Games in normal form'");
+		assert.equal(svc.reads().label, "Sample timetable");
+		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week1.pdf", bytes: pdf("Games in Normal Form", "Dominance") }]);
+		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const live = store.lectures();
+		assert.deepEqual(live.map((l) => l.title), ["Games in Normal Form"], "only the student's own unit is left on screen");
+		assert.equal(store.allLectures().filter((l) => l.archived).length, sample.length, "the sample is kept as history");
+		assert.equal(svc.reads().label, "No timetable connected");
+		assert.deepEqual(store.events().filter((e) => e.type === "sample_hidden").map((e) => [e.data.lectures, e.data.via]), [[sample.length, "materials"]]);
+		// A second upload has nothing left to hide.
+		const again = await svc.proposeMaterials("GT", [{ name: "GT_Week2.pdf", bytes: pdf("Nash", "Best responses") }]);
+		svc.saveMaterials("GT", { uploadId: again.uploadId, units: again.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		assert.equal(events().filter((e) => e === "sample_hidden").length, 1);
+		assert.equal(store.lectures().length, 2);
+	});
+
+	it("a real calendar hides the sample lectures too", async () => {
+		const { svc, store } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const sample = store.lectures().filter((l) => l.start).length;
+		svc.importIcs(ics(["Lecture A"]));
+		assert.deepEqual(store.lectures().filter((l) => l.start).map((l) => l.title), ["Lecture A"]);
+		assert.deepEqual(store.events().filter((e) => e.type === "sample_hidden").map((e) => [e.data.lectures, e.data.via]), [[sample, "calendar"]]);
+	});
+
+	it("a facilitator scenario brings the sample back", async () => {
+		const { svc, store } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week1.pdf", bytes: pdf("Games in Normal Form", "Dominance") }]);
+		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		svc.demoScenario({ name: "tayo" });
+		assert.ok(store.lectures().some((l) => l.id === "gt-w1-dominance"));
+	});
+});
+
 describe("calendar re-imports merge (F-104)", () => {
-	const ics = (titles: string[]) =>
-		["BEGIN:VCALENDAR", ...titles.flatMap((t, i) => ["BEGIN:VEVENT", `UID:e${i}`, `SUMMARY:GT: ${t}`, `DTSTART:202611${24 + i}T100000Z`, `DTEND:202611${24 + i}T110000Z`, "END:VEVENT"]), "END:VCALENDAR"].join("\r\n");
 
 	it("units and 'I wasn't there' survive; a vanished event is archived, not deleted", async () => {
 		const { svc, store } = await setup();

@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { MATERIALS_COPY, MATERIALS_RULES, PACK_COPY } from "@/src/core";
+import { MATERIALS_COPY, MATERIALS_RULES, PACK_COPY, WEEK_COPY } from "@/src/core";
 import { ApiError, lockedIn, type MaterialProposal } from "./api";
 
 /** `short`: too little text to study from (V-24), so the unit can't be kept. */
@@ -117,8 +117,8 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 								<input type="checkbox" checked={r.keep} disabled={r.short} onChange={(e) => set(i, { keep: e.target.checked })} aria-label={`Keep ${r.title}`} />
 								<input className="li-input" style={{ flex: "1 1 240px" }} value={r.title} onChange={(e) => set(i, { title: e.target.value })} aria-label="Unit title" />
 								<select className="li-input" style={{ width: "auto" }} value={r.week} onChange={(e) => set(i, { week: Number(e.target.value) })} aria-label="Week">
-									<option value={0}>Week unknown</option>
-									{WEEKS.map((w) => <option key={w} value={w}>Week {w}</option>)}
+									<option value={0}>{WEEK_COPY.notSet}</option>
+									{WEEKS.map((w) => <option key={w} value={w}>{WEEK_COPY.week(w)}</option>)}
 								</select>
 								<span className="li-small li-muted">{r.pages[0] === r.pages[1] ? `p. ${r.pages[0]}` : `pp. ${r.pages[0]}–${r.pages[1]}`}</span>
 								{r.short ? <span className="li-small" role="note" style={{ flexBasis: "100%" }}>{PACK_COPY.tooShort}</span> : null}

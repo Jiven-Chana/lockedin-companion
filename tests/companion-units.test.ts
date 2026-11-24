@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { checkProposal, currentWeek, proposeWithoutAi, titleFromName, unitChars, unitTooShort, wantsAiSplit, weekFromName, weekOneStartFor, type UnitPage } from "../src/core/companion/index.ts";
+import { checkProposal, currentWeek, proposeWithoutAi, titleFromName, unitChars, unitTooShort, wantsAiSplit, weekFromName, weekLabel, weekOneStartFor, type UnitPage } from "../src/core/companion/index.ts";
 
 const pages = (...titles: string[]): UnitPage[] => titles.map((title, i) => ({ number: i + 1, title, chars: title ? 200 : 0 }));
 
@@ -64,6 +64,12 @@ describe("checking an AI proposal", () => {
 			if (problem) assert.match(r ?? "", problem);
 			else assert.equal(r, null);
 		});
+});
+
+describe("a week in words (V-25)", () => {
+	const cases: Array<[number | null | undefined, string]> = [[3, "Week 3"], [12, "Week 12"], [0, "Week not set"], [null, "Week not set"], [undefined, "Week not set"], [-1, "Week not set"]];
+	for (const [week, label] of cases) it(`${week} → ${label}`, () => assert.equal(weekLabel(week), label));
+	it("never 'Week 0'", () => assert.doesNotMatch(weekLabel(0), /0/));
 });
 
 describe("too little to study from (V-24)", () => {

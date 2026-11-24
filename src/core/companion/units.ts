@@ -5,6 +5,7 @@
  * work out which teaching week a module is in.
  */
 
+import { WEEK_COPY } from "./policy.ts";
 import { addDays, dateKey, startOfWeek } from "./time.ts";
 import type { ModuleInfo } from "./types.ts";
 
@@ -90,6 +91,11 @@ export function checkProposal(units: readonly ProposedUnit[], pageCount: number)
 		last = to;
 	}
 	return null;
+}
+
+/** "Week 3", or "Week not set" for a unit whose week is unknown (0): the one place a week number becomes words (V-25). */
+export function weekLabel(week: number | null | undefined): string {
+	return typeof week === "number" && week > 0 ? WEEK_COPY.week(week) : WEEK_COPY.notSet;
 }
 
 /** How much text a run of pages holds. */

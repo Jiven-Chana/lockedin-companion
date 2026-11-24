@@ -45,7 +45,7 @@ import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type 
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
 import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
 import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay } from "../../core/companion/time.ts";
-import { icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
+import { hideSampleTimetable, icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
 import {
 	CLIENT_EVENT_TYPES,
 	COMPANION_EVENT_TYPES,
@@ -527,7 +527,15 @@ export class CompanionService {
 			}
 			created.push({ id, module: code, title: c.unit.title, week: c.unit.week, order: ++order, kind: "lecture", hasMaterials: true, source: { file: c.file.name, pages: c.unit.pages } });
 		}
-		this.store.saveLectures([...all, ...created]);
+		// The student's own material has arrived: the sample timetable gives way to it (V-26).
+		const profile = this.requireProfile();
+		const kept = profile.timetableSource === "sample" ? hideSampleTimetable(all) : { lectures: all, hidden: 0 };
+		this.store.saveLectures([...kept.lectures, ...created]);
+		if (profile.timetableSource === "sample") {
+			const { timetableRead: _read, ...rest } = profile;
+			this.store.saveProfile({ ...rest, timetableSource: "none" });
+			this.log("sample_hidden", { lectures: kept.hidden, via: "materials", module: code });
+		}
 		this.courseMaterials.discard(b.uploadId);
 		// Write each unit's study pack in the background when the student's AI is ready (F-105).
 		if (this.packs && this.aiReady) for (const u of created) this.packs.start(u.id);
@@ -589,6 +597,19 @@ export class CompanionService {
 		return updated;
 	}
 
+	/** "Set week" on a course unit whose material didn't say (V-25). Body: { week: 1–52 }. */
+	setUnitWeek(lectureId: string, body: unknown): Lecture {
+		assertSafeId(lectureId, "lecture id");
+		const unit = this.store.lectures().find((l) => l.id === lectureId);
+		if (!unit) throw notFound("lecture");
+		if (isTimed(unit)) throw badRequest("a timetabled lecture's week comes from your calendar");
+		const week = (body as { week?: unknown } | null)?.week;
+		if (!Number.isInteger(week) || (week as number) < 1 || (week as number) > 52) throw badRequest("week must be 1 to 52");
+		const updated = this.store.updateLecture(lectureId, (l) => ({ ...l, week: week as number }))!;
+		this.log("unit_week_set", { lectureId, module: unit.module, from: unit.week, to: week });
+		return updated;
+	}
+
 	/** "This is week N" and reading weeks for one module (spec §5.5). */
 	setModuleWeek(code: string, body: unknown) {
 		const profile = this.requireProfile();
@@ -626,6 +647,7 @@ export class CompanionService {
 		const merged = mergeTimetable(this.store.allLectures(), incoming);
 		this.store.saveLectures(merged.lectures);
 		const lectures = merged.lectures.filter((l) => !l.archived && isTimed(l));
+		if (profile.timetableSource === "sample" && merged.archived > 0) this.log("sample_hidden", { lectures: merged.archived, via: "calendar" });
 		this.store.saveProfile({ ...profile, timetableSource: "ics", timetableRead: { at: now.toISOString(), events: lectures.length, modules: profile.modules.map((m) => m.code) } });
 		return { added: lectures.length, unmapped: unmapped.map((e) => ({ summary: e.summary, start: e.start.toISOString(), end: e.end.toISOString() })) };
 	}
