@@ -85,6 +85,23 @@ describe("pairing (J9)", () => {
 		assert.equal(svc.today().phonePaired, true);
 	});
 
+	it("the pairing comes with a 6-digit code and the short address, and a phone that types the code is paired (v1.0.3)", async () => {
+		const { svc, phone, clock } = await setup();
+		const p = await svc.requirePhone().pair();
+		assert.match(p.code ?? "", /^\d{6}$/);
+		assert.equal(p.address, "relay.test/p", "what to type when the camera won't scan: no token in it");
+		assert.equal((await svc.requirePhone().pair()).code, p.code, "showing the panel again shows the same code while it lasts");
+		// The phone types it into the installed app.
+		const claimed = (await phone("POST", "/v1/claim", "", { code: p.code })) as { pairId: string; token: string };
+		assert.equal(claimed.pairId, fromLink(p.url).pairId);
+		const s = (await phone("GET", `/v1/pairs/${claimed.pairId}/schedule`, claimed.token)) as { nudges: unknown[] };
+		assert.ok(s.nudges.length > 0, "the phone that typed the code reads the week");
+		assert.ok((await svc.requirePhone().status()).phoneSeenAt, "and the laptop sees it arrive");
+		// The code is used up: the panel gets a new one.
+		clock.advanceMinutes(1);
+		assert.notEqual((await svc.requirePhone().pair()).code, p.code);
+	});
+
 	it("unpair deletes the relay's data; so does Delete all my data", async () => {
 		const { svc, phone } = await setup();
 		const { pairId, token } = fromLink((await svc.requirePhone().pair()).url);

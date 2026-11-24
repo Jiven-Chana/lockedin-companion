@@ -38,3 +38,14 @@ CREATE TABLE IF NOT EXISTS events (
 	acked_at TEXT,
 	UNIQUE (pair_id, id)
 );
+-- v1.0.3: pairing by a 6-digit code typed on the phone. A code names a pair for ten
+-- minutes and is deleted when used. It holds no token: claiming it mints the phone a new one.
+CREATE TABLE IF NOT EXISTS pair_codes (
+	code TEXT PRIMARY KEY,
+	pair_id TEXT NOT NULL,
+	expires_at TEXT NOT NULL
+);
+-- Wrong codes typed in the last minute, across the relay (the limit on guessing). No address or device is kept.
+CREATE TABLE IF NOT EXISTS claim_failures (
+	at TEXT NOT NULL
+);

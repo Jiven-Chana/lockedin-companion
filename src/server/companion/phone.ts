@@ -49,6 +49,8 @@ export class RelayClient {
 	putSchedule = (p: Pairing, s: RelaySchedule) => this.call<{ accepted: boolean; version: number }>("PUT", `/v1/pairs/${p.pairId}/schedule`, p.laptopSecret, s);
 	events = (p: Pairing, after: number) => this.call<{ events: PhoneEvent[]; cursor: number }>("GET", `/v1/pairs/${p.pairId}/events?after=${after}`, p.laptopSecret);
 	ack = (p: Pairing, cursor: number) => this.call<void>("POST", `/v1/pairs/${p.pairId}/events/ack`, p.laptopSecret, { cursor });
+	/** The 6-digit code a phone types to pair (v1.0.3): the current one while it lasts, a fresh one after. */
+	code = (p: Pairing) => this.call<{ code: string; expiresAt: string }>("POST", `/v1/pairs/${p.pairId}/code`, p.laptopSecret);
 }
 
 export class PhoneLink {
@@ -83,7 +85,11 @@ export class PhoneLink {
 			await this.sync({ force: true }).catch(() => undefined);
 		}
 		const url = this.phoneUrl(p);
-		return { url, qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }), ...(await this.status()) };
+		// The code an iPhone's Home Screen app asks for (it can't see a pairing the browser saved). Null when the relay can't be reached.
+		const code = await this.relay.code(p).catch(() => null);
+		// The phone app's address without the pairing: short enough to type when the camera won't scan.
+		const address = `${new URL(this.relay.baseUrl).host}/p`;
+		return { url, qrSvg: await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" }), code: code?.code ?? null, codeExpiresAt: code?.expiresAt ?? null, address, ...(await this.status()) };
 	}
 
 	async status() {

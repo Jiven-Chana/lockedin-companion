@@ -11,7 +11,7 @@ const COPY = {
 	done: "Done for now",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 	offline: "Can't reach LockedIn right now. Your answers are saved and will be sent when you're back online.",
-	// The guided install on an iPhone (v1.0 P-1, V-29).
+	// Pairing an iPhone (v1.0.3): add LockedIn to the Home Screen, then type the code the laptop shows.
 	install: {
 		title: "Add LockedIn to your Home Screen",
 		why: "iPhones only allow notifications from apps on the Home Screen. It takes three taps.",
@@ -20,21 +20,26 @@ const COPY = {
 		shareWhereOther: "the square with an arrow, next to the address at the top",
 		add: "Scroll down and tap “Add to Home Screen”",
 		open: "Tap Add, then open LockedIn from your Home Screen",
-		openNote: "It opens already paired with your laptop.",
-		installed: "✓ Installed",
-		allow: "Now tap Allow notifications.",
-		tryTitle: "Try one now",
-		tryNote: "A sample question. Nothing you tap here is sent to your laptop.",
-		tried: "That's how a question looks. Yours arrive after your lectures, once LockedIn is on your Home Screen.",
+		openNote: "It will ask for the 6-digit code on your laptop.",
+		tryTitle: "Try a sample question while you're here",
+		tryNote: "A sample. Nothing you tap here is sent to your laptop.",
+		tried: "That's how a question looks. Yours arrive after your lectures.",
 	},
-	// No pairing on this phone (v1.0.2).
-	unpaired: {
-		browser: "Open the link or QR code from your laptop: LockedIn → Me → Phone.",
-		installed: "This app isn't paired with your laptop yet.",
-		paste: "On your laptop, open Me → Phone and press Copy link. Then paste it here.",
-		box: "Pairing link",
+	code: {
+		title: "Enter the code on your laptop",
+		label: "The 6-digit code",
+		where: "It's on your laptop, under Me → Phone.",
 		pair: "Pair",
-		notALink: "That isn't a LockedIn pairing link. Copy it again from Me → Phone on your laptop.",
+		checking: "Checking…",
+		wrong: "That code isn't right. Check your laptop and try again.",
+		expired: "That code has run out. Your laptop is showing a new one.",
+		wait: "Too many tries. Wait a minute, then try again.",
+		offline: "Can't reach LockedIn. Check your connection and try again.",
+	},
+	paired: {
+		title: "✓ Paired with your laptop",
+		allow: "One last step: allow notifications, so your questions can reach you.",
+		done: "You're all set.",
 	},
 };
 /** The sample on the install screen: the bundled HCI "Personas" lecture's first question, cut to three options. */
@@ -161,22 +166,9 @@ function nextQuestionText(s) {
 	return `Your next question comes after ${moduleName} ${day}.`;
 }
 
-/**
- * An iPhone gives a Home Screen app its own storage, so a pairing saved in
- * Safari is gone once LockedIn is installed. The manifest decides the
- * address the installed app opens at: this pair's own manifest has a start
- * address that carries the pairing (v1.0 P-1). The install page is served
- * already pointing at it (v1.0.2: an iPhone ignored a manifest set after
- * the page had loaded); setting it here as well costs nothing.
- */
-function usePairManifest() {
-	const link = document.querySelector('link[rel="manifest"]');
-	if (link && PAIR) link.setAttribute("href", `/v1/manifest?pair=${PAIR.pairId}.${PAIR.token}`);
-}
-
-/** The sample question on the install screen. It sends no events: the laptop replays those as real answers. */
+/** The sample question on the install screen, folded away under its title. It sends no events: the laptop replays those as real answers. */
 function sampleQuestion() {
-	const box = h("section", { class: "card" }, h("p", { class: "eyebrow" }, `${COPY.install.tryTitle} · ${SAMPLE.title}`), h("h2", {}, SAMPLE.stem));
+	const box = h("details", { class: "card" }, h("summary", {}, COPY.install.tryTitle), h("p", { class: "eyebrow" }, SAMPLE.title), h("h2", {}, SAMPLE.stem));
 	const options = h("div", { class: "options", role: "group", "aria-label": "Answers" }, SAMPLE.options.map((o, i) => h("button", { class: "btn option", onclick: () => {
 		const right = i === SAMPLE.correct;
 		options.replaceWith(h("p", { class: right ? "result right" : "result" }, right ? COPY.right(SAMPLE.explanation) : COPY.wrong(SAMPLE.options[SAMPLE.correct], SAMPLE.explanation)), h("p", { class: "muted small" }, COPY.install.tried));
@@ -185,11 +177,10 @@ function sampleQuestion() {
 	return box;
 }
 
-/** iPhone, in the browser: the three taps to the Home Screen, with pictures, and a question to try meanwhile. */
+/** iPhone, in the browser: the three taps to the Home Screen, with pictures. Pairing happens in the installed app, with the code. */
 function installGuide() {
-	usePairManifest();
 	// Tells the relay this phone opened the link, so the laptop stops saying "Waiting for your phone…".
-	void schedule();
+	if (PAIR) void schedule();
 	const otherBrowser = /crios|fxios|edgios/i.test(navigator.userAgent);
 	const step = (picture, text, note) => h("li", { class: "step" }, h("span", { class: "step-icon" }, picture), h("span", {}, h("b", {}, text), note ? h("span", { class: "muted small step-note" }, note) : null));
 	show(
@@ -206,7 +197,50 @@ function installGuide() {
 	);
 }
 
-async function pairScreen() {
+/**
+ * No pairing on this phone: type the 6 digits the laptop shows (v1.0.3). This is how every
+ * iPhone pairs (its Home Screen app can't see what Safari stored), and the way back in for any
+ * phone whose pairing is gone.
+ */
+function codeScreen() {
+	const msg = h("p", { class: "muted", role: "status" });
+	const box = h("input", { class: "code", type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", placeholder: "000 000", "aria-label": COPY.code.label });
+	const digits = () => (box.value || "").replace(/\D/g, "").slice(0, 6);
+	let busy = false;
+	const claim = async () => {
+		const code = digits();
+		if (busy || code.length !== 6) return;
+		busy = true;
+		btn.disabled = true;
+		msg.textContent = COPY.code.checking;
+		try {
+			const res = await fetch("/v1/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+			if (res.ok) {
+				const p = await res.json();
+				PAIR = { pairId: p.pairId, token: p.token };
+				await kv("pair", PAIR);
+				return pairScreen(true);
+			}
+			msg.textContent = res.status === 410 ? COPY.code.expired : res.status === 429 ? COPY.code.wait : COPY.code.wrong;
+		} catch {
+			msg.textContent = COPY.code.offline;
+		}
+		busy = false;
+		btn.disabled = false;
+	};
+	const btn = h("button", { class: "btn primary", disabled: true, onclick: claim }, COPY.code.pair);
+	box.addEventListener("input", () => {
+		const d = digits();
+		box.value = d.length > 3 ? `${d.slice(0, 3)} ${d.slice(3)}` : d;
+		btn.disabled = d.length !== 6;
+		// The sixth digit is the tap: nothing else to press.
+		if (d.length === 6) void claim();
+	});
+	show(h("main", {}, h("h1", {}, COPY.code.title), box, btn, msg, h("p", { class: "muted" }, COPY.code.where)));
+}
+
+/** Paired; notifications are the last step. `byCode`: this phone just typed the laptop's code. */
+async function pairScreen(byCode = false) {
 	const msg = h("p", { class: "muted", role: "status" });
 	const btn = h("button", { class: "btn primary", onclick: async () => {
 		btn.disabled = true;
@@ -215,15 +249,13 @@ async function pairScreen() {
 			await enablePush();
 			local.set("pushOn", true);
 			const s = await schedule();
-			show(h("main", {}, h("h1", {}, "Paired with your laptop."), h("p", {}, nextQuestionText(s)), h("button", { class: "btn", onclick: () => render() }, "OK")));
+			show(h("main", {}, h("h1", {}, COPY.paired.done), h("p", {}, nextQuestionText(s)), h("button", { class: "btn", onclick: () => render() }, "OK")));
 		} catch (e) {
 			msg.textContent = e.message;
 			btn.disabled = false;
 		}
 	} }, "Allow notifications");
-	if (isIos && !standalone) return installGuide();
-	// Opened from the Home Screen: say the install worked, then the one thing left.
-	if (isIos && standalone) return show(h("main", {}, h("h1", {}, COPY.install.installed), h("p", {}, COPY.install.allow), btn, msg));
+	if (byCode) return show(h("main", {}, h("h1", {}, COPY.paired.title), h("p", {}, COPY.paired.allow), btn, msg));
 	show(h("main", {}, h("h1", {}, "Get questions on your phone"), h("p", {}, "One question after a lecture, never more than you chose. Answering here is the first step; your laptop continues."), btn, msg));
 }
 
@@ -310,7 +342,7 @@ async function home() {
 	if (s.unpaired) {
 		await kv("pair", null);
 		PAIR = null;
-		return show(h("main", {}, h("h1", {}, "Not paired"), h("p", {}, "Pair again from your laptop: Me → Phone.")));
+		return isIos && !standalone ? installGuide() : codeScreen();
 	}
 	const answered = new Set(local.get("answered", []));
 	const now = Date.now();
@@ -343,59 +375,24 @@ async function home() {
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
-/**
- * The pairing in this page's address. It can arrive three ways:
- *   /p#<pairId>.<token>        the laptop's QR code and link;
- *   /p/i/<pairId>.<token>      the iPhone install page (below);
- *   /p?pair=<pairId>.<token>   how an installed iPhone app opens (the manifest's start address).
- */
-const PAIR_RE = /([0-9a-f]{32})\.([0-9a-f]{32})/;
-function pairIn(text) {
-	const m = PAIR_RE.exec(text || "");
-	return m ? { pairId: m[1], token: m[2] } : null;
-}
-function pairFromAddress() {
-	if (/^#[0-9a-f]{32}\.[0-9a-f]{32}$/.test(location.hash)) return pairIn(location.hash);
-	if (/^\/p\/i\/[0-9a-f]{32}\.[0-9a-f]{32}$/.test(location.pathname)) return pairIn(location.pathname);
-	const q = new URLSearchParams(location.search).get("pair");
-	return q && /^[0-9a-f]{32}\.[0-9a-f]{32}$/.test(q) ? pairIn(q) : null;
-}
-
-/** No pairing here. In the browser that is a wrong turn; in the installed app it must not be a dead end. */
-function unpairedScreen() {
-	if (!standalone) return show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, COPY.unpaired.browser)));
-	const msg = h("p", { class: "muted", role: "status" });
-	const box = h("input", { class: "input", type: "url", inputmode: "url", autocomplete: "off", autocapitalize: "off", placeholder: COPY.unpaired.box, "aria-label": COPY.unpaired.box });
-	const pair = async () => {
-		const found = pairIn(box.value);
-		if (!found) return void (msg.textContent = COPY.unpaired.notALink);
-		PAIR = found;
-		await kv("pair", PAIR);
-		return pairScreen();
-	};
-	show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, COPY.unpaired.installed), h("p", {}, COPY.unpaired.paste), box, h("button", { class: "btn primary", onclick: pair }, COPY.unpaired.pair), msg));
-}
-
 async function render() {
-	const arrived = pairFromAddress();
-	if (arrived) {
-		PAIR = arrived;
-		await kv("pair", PAIR);
-		if (isIos && !standalone) {
-			// An iPhone gives a Home Screen app its own storage, and reads the page's manifest as the page was served.
-			// So the page that gets added must be served already knowing this pair: the install page.
-			const installPage = `/p/i/${PAIR.pairId}.${PAIR.token}`;
-			if (location.pathname !== installPage) return location.replace(installPage);
-			// The address keeps the pairing while it waits to be added, in case the phone saves it instead of the manifest's.
-			return pairScreen();
-		}
+	const m = /^#([0-9a-f]{32})\.([0-9a-f]{32})$/.exec(location.hash);
+	if (m) {
+		const scanned = { pairId: m[1], token: m[2] };
 		history.replaceState(null, "", "/p"); // the token never stays in the address bar
-		// An installed iPhone app opens at its pairing address every time: once notifications are on, that is just the app opening.
+		// An iPhone in the browser can't be the paired phone: its Home Screen app has storage of its own and pairs
+		// there, with the code. The scanned link only tells the laptop that this phone has arrived.
+		if (isIos && !standalone) {
+			PAIR = scanned;
+			return installGuide();
+		}
+		PAIR = scanned;
+		await kv("pair", PAIR);
 		const ready = local.get("pushOn", false) && typeof Notification !== "undefined" && Notification.permission === "granted";
 		if (!ready) return pairScreen();
 	}
 	PAIR = PAIR || (await kv("pair"));
-	if (!PAIR) return unpairedScreen();
+	if (!PAIR) return isIos && !standalone ? installGuide() : codeScreen();
 	void flush();
 	const id = new URLSearchParams(location.search).get("n");
 	if (id) {

@@ -44,16 +44,23 @@ Then set `COMPANION_RELAY_URL=https://lockedin-relay.<account>.workers.dev` on t
 
 **After any change under `relay/`** (the Worker or the phone app in `web/`), run `npm run deploy` again from the account that owns the relay. Phones pick up the new phone app the next time they open it online.
 
-## Installing on an iPhone (v1.0 P-1, reworked in v1.0.2)
+## Pairing a phone (v1.0.3)
 
-iPhones only allow notifications from a web app on the Home Screen, and they give that app its own storage: a pairing saved in the browser doesn't reach it. An iPhone also reads a page's manifest as the page was served. Setting the manifest from the page afterwards (v1.0) was ignored on a real phone, and the Home Screen app opened unpaired. So:
+The laptop shows one panel (Me → Phone): a QR code, three steps, a **6-digit code**, and a status line.
 
-1. The laptop's QR code opens `/p#<pairId>.<token>`. On an iPhone in the browser, the phone app goes straight to the **install page**, `/p/i/<pairId>.<token>`.
-2. The Worker serves that page as the phone app with its manifest link already set to `/v1/manifest?pair=<pairId>.<token>`. That manifest is the plain `web/manifest.webmanifest` with `start_url` set to `/p?pair=<pairId>.<token>`.
-3. The page shows the guided install (three steps with pictures, and a sample question that sends nothing) and keeps the pairing in its address while it waits. Whether the phone saves the manifest's start address or the page's own, the Home Screen app opens with the pairing.
-4. The installed app takes the pairing out of the address, says "✓ Installed" and asks for notifications. Once they are on, it opens as the app.
-5. **If the installed app still has no pairing,** it is not a dead end: it asks for the pairing link, which the laptop copies with **Me → Phone → Copy link**.
+**iPhone.** iPhones only allow notifications from a web app on the Home Screen, and they give that app its own storage, so nothing the browser saves reaches it. Two attempts to carry the pairing across through the app's manifest (v1.0, v1.0.2) did not work on a real phone and were removed. So:
+1. Scanning the QR code opens the phone app in the browser, which shows how to add it to the Home Screen (three steps with pictures). Nothing is paired there.
+2. The Home Screen app asks for the code on the laptop. The sixth digit pairs it.
+3. It then asks for notifications, and says when the next question will come.
 
-Both routes only echo the pair they are given (two 32-character hex strings) and never look it up. The token is the phone's own, and it already travels to the relay on every call. The service worker leaves `/p/i/…` alone, so the page with the pairing in its address is never stored.
+**Android and desktop browsers** share storage with the installed app: scanning pairs them (the link is `/p#<pairId>.<token>`), and they go straight to notifications.
 
-Android and desktop browsers share storage with the installed app, so they keep the plain manifest and skip the install step.
+**Any phone with no pairing** (the link was lost, or another phone took the pair) gets the same code screen.
+
+### The code
+- `POST /v1/pairs/:id/code` (the laptop's secret) → `{ code, expiresAt }`: the pair's current code while it lasts (10 minutes), a fresh one after.
+- `POST /v1/claim` `{ code }` (no token) → `{ pairId, token }`. The phone gets a **new** token; the pair's previous phone token, the one in the QR link, stops working, and so do its push subscriptions. A pair has one phone.
+- A code holds no token (`pair_codes`: code, pair, expiry), works once, and is deleted when used, when it expires or when the pair is deleted.
+- Guessing: more than 20 wrong codes in a minute across the relay and every claim gets `429` for the rest of that minute (`claim_failures` holds only timestamps: no address, no device).
+
+**After a schema change** (this version adds `pair_codes` and `claim_failures`), run `npm run db:remote` before `npm run deploy`. The statements are `CREATE TABLE IF NOT EXISTS`, so it is safe to run again.

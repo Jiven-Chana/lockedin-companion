@@ -1,9 +1,9 @@
 /**
- * The phone web app's first open (v1.0 P-1, V-29), run as the plain script
- * it is, in a simulated phone: an iPhone in the browser gets the guided
- * install and a manifest that carries the pairing; the installed app says
- * so and asks for notifications; once set up it just opens; other phones
- * skip the install step. The sample question sends nothing.
+ * The phone web app's pairing (v1.0.3), run as the plain script it is, in a
+ * simulated phone. An iPhone pairs in its Home Screen app by typing the 6
+ * digits the laptop shows: the browser only shows how to install it.
+ * Android and desktop browsers pair from the scanned link, as before, and
+ * any phone with no pairing gets the same code screen.
  */
 
 import assert from "node:assert/strict";
@@ -12,10 +12,10 @@ import path from "node:path";
 import { describe, it } from "node:test";
 import vm from "node:vm";
 import { parseHTML } from "linkedom";
-import { handle, type RelayEnv } from "../relay/src/relay.ts";
 
 const WEB = path.join(import.meta.dirname, "..", "relay", "web");
 const PAIR = `${"a".repeat(32)}.${"b".repeat(32)}`;
+const CODE = "482915";
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
 const IPHONE_CHROME = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0 Mobile/15E148 Safari/604.1";
 const ANDROID = "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36";
@@ -30,6 +30,9 @@ interface Phone {
 	pathname?: string;
 	/** The address's "?pair=pairId.token" (how an installed iPhone app opens). */
 	search?: string;
+	/** How the relay answers a typed code (default: 200 for CODE, 404 otherwise). */
+	claim?: (code: string) => number;
+	offline?: boolean;
 	/** Notifications already turned on in this app. */
 	pushOn?: boolean;
 	permission?: "default" | "granted" | "denied";
@@ -56,7 +59,13 @@ async function open(opts: Phone) {
 			}),
 		},
 		fetch: async (url: string, init: { method?: string; body?: string } = {}) => {
-			requests.push({ method: init.method ?? "GET", url, body: init.body ? JSON.parse(init.body) : null });
+			const body = init.body ? JSON.parse(init.body) : null;
+			requests.push({ method: init.method ?? "GET", url, body });
+			if (url === "/v1/claim") {
+				if (opts.offline) throw new TypeError("Load failed");
+				const answer = (opts.claim ?? ((code: string) => (code === CODE ? 200 : 404)))(body.code);
+				return new Response(JSON.stringify(answer === 200 ? { pairId: "c".repeat(32), token: "d".repeat(32) } : { error: "no" }), { status: answer });
+			}
 			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: [], blocks: [] } : {}), { status: 200 });
 		},
 		Notification: { permission: opts.permission ?? "default", requestPermission: async () => opts.permission ?? "default" },
@@ -73,9 +82,14 @@ async function open(opts: Phone) {
 		requests,
 		location,
 		kv,
-		type: (selector: string, value: string) => {
-			(app.querySelector(selector) as unknown as { value: string }).value = value;
+		/** Type into a box, as the keypad does: the value, then an input event. */
+		type: async (selector: string, value: string) => {
+			const box = app.querySelector(selector)!;
+			(box as unknown as { value: string }).value = value;
+			box.dispatchEvent(new DomEvent("input"));
+			await new Promise((r) => setTimeout(r, 30));
 		},
+		value: (selector: string) => (app.querySelector(selector) as unknown as { value: string }).value,
 		tap: async (selector: string, nth = 0) => {
 			app.querySelectorAll(selector)[nth]!.dispatchEvent(new DomEvent("click"));
 			await new Promise((r) => setTimeout(r, 30));
@@ -83,138 +97,122 @@ async function open(opts: Phone) {
 	};
 }
 
-const INSTALL_PAGE = `/p/i/${PAIR}`;
-
-describe("an iPhone opening the pairing link in the browser", () => {
-	it("is sent to the install page, whose own address and manifest carry the pairing", async () => {
-		// Jiven's iPhone, 24 Nov: pointing the manifest at the pair after the page had loaded was ignored, and the
-		// Home Screen app opened unpaired. The page that gets added must be served already knowing the pair.
+describe("an iPhone opening the laptop's link in the browser", () => {
+	it("gets the three steps with pictures, and is told the app will ask for the code", async () => {
 		const p = await open({ ua: IPHONE, hash: `#${PAIR}` });
-		assert.equal(p.location.replacedWith, INSTALL_PAGE);
-	});
-
-	it("on the install page, gets the three steps with pictures, and no dead end", async () => {
-		const p = await open({ ua: IPHONE, pathname: INSTALL_PAGE });
 		assert.match(p.text(), /Add LockedIn to your Home Screen/);
 		const steps = [...p.app.querySelectorAll(".step")];
 		assert.deepEqual(steps.map((s) => s.querySelector("b")!.textContent), ["Tap the Share button", "Scroll down and tap “Add to Home Screen”", "Tap Add, then open LockedIn from your Home Screen"]);
 		assert.equal(steps.filter((s) => s.querySelector("svg, img")).length, 3, "each step has its picture");
 		assert.match(steps[0]!.textContent ?? "", /at the bottom of Safari/);
+		assert.match(steps[2]!.textContent ?? "", /It will ask for the 6-digit code on your laptop/);
 	});
 
-	it("keeps the pairing in the address while it waits to be added, in case the phone saves the address instead of the manifest's", async () => {
-		const p = await open({ ua: IPHONE, pathname: INSTALL_PAGE });
-		assert.equal(p.location.pathname, INSTALL_PAGE);
-		assert.equal(p.location.replacedWith, null, "no second redirect");
-		assert.equal(p.manifest(), `/v1/manifest?pair=${PAIR}`);
+	it("does not keep the pairing in the browser, where the Home Screen app could never see it", async () => {
+		const p = await open({ ua: IPHONE, hash: `#${PAIR}` });
+		assert.equal(p.kv.has("/kv/pair"), false);
+		assert.equal(p.location.hash, "", "and the token doesn't stay in the address bar");
+		assert.equal(p.manifest(), "/manifest.webmanifest", "one manifest for everyone");
 	});
 
 	it("tells the relay it arrived, so the laptop stops waiting", async () => {
-		const p = await open({ ua: IPHONE, pathname: INSTALL_PAGE });
+		const p = await open({ ua: IPHONE, hash: `#${PAIR}` });
 		assert.deepEqual(p.requests.map((r) => [r.method, r.url]), [["GET", `/v1/pairs/${"a".repeat(32)}/schedule`]]);
 	});
 
-	it("has a sample question to try, and answering it sends nothing", async () => {
-		const p = await open({ ua: IPHONE, pathname: INSTALL_PAGE });
-		assert.equal(p.app.querySelectorAll(".option").length, 3);
+	it("the sample question is folded away, and answering it sends nothing", async () => {
+		const p = await open({ ua: IPHONE, hash: `#${PAIR}` });
+		assert.equal(p.app.querySelectorAll("details .option").length, 3, "inside the fold, so the steps are the page");
 		const before = p.requests.length;
 		await p.tap(".option");
 		assert.match(p.text(), /✓ Right\./);
-		assert.match(p.text(), /Nothing you tap here is sent to your laptop/);
 		assert.equal(p.requests.length, before, "no event reaches the relay");
 	});
 
+	it("opened with no link at all (the address typed by hand), still shows how to install", async () => {
+		const p = await open({ ua: IPHONE });
+		assert.match(p.text(), /Add LockedIn to your Home Screen/);
+		assert.deepEqual(p.requests, [], "nothing to tell the relay about");
+	});
+
 	it("in another browser, says where its Share button is", async () => {
-		const p = await open({ ua: IPHONE_CHROME, pathname: INSTALL_PAGE });
+		const p = await open({ ua: IPHONE_CHROME, hash: `#${PAIR}` });
 		assert.match(p.text(), /next to the address at the top/);
 	});
 });
 
-describe("the installed iPhone app", () => {
-	// Three ways the pairing can reach it: the manifest's start address (?pair=), the install page's own address, an older icon's #.
-	const arrivals: Array<[string, Partial<Phone>]> = [
-		["the manifest's start address", { search: `?pair=${PAIR}` }],
-		["the install page's own address", { pathname: INSTALL_PAGE }],
-		["an address with the pairing after #", { hash: `#${PAIR}` }],
+describe("the iPhone app on the Home Screen", () => {
+	it("asks for the code on the laptop, and nothing else", async () => {
+		const p = await open({ ua: IPHONE, standalone: true });
+		assert.match(p.text(), /Enter the code on your laptop/);
+		assert.match(p.text(), /It's on your laptop, under Me → Phone\./);
+		assert.deepEqual(p.buttons(), ["Pair"]);
+		assert.equal(p.app.querySelectorAll("input").length, 1);
+		const box = p.app.querySelector("input")!;
+		assert.deepEqual([box.getAttribute("inputmode"), box.getAttribute("autocomplete")], ["numeric", "one-time-code"], "the number keypad, and a code from Messages can fill it");
+		assert.deepEqual(p.requests, []);
+	});
+
+	it("the sixth digit pairs it: no button to find", async () => {
+		const p = await open({ ua: IPHONE, standalone: true });
+		await p.type("input", "482");
+		assert.equal(p.requests.length, 0, "nothing is sent for half a code");
+		await p.type("input", "482915");
+		assert.deepEqual(p.requests.map((r) => [r.method, r.url, r.body]), [["POST", "/v1/claim", { code: CODE }]]);
+		assert.match(p.text(), /✓ Paired with your laptop/);
+		assert.match(p.text(), /One last step: allow notifications/);
+		assert.deepEqual(p.buttons(), ["Allow notifications"]);
+		assert.deepEqual(JSON.parse(p.kv.get("/kv/pair")!), { pairId: "c".repeat(32), token: "d".repeat(32) });
+	});
+
+	it("the code reads back in two groups of three, like the laptop shows it, however it is typed", async () => {
+		const p = await open({ ua: IPHONE, standalone: true, claim: () => 404 });
+		await p.type("input", "4829");
+		assert.equal(p.value("input"), "482 9");
+		await p.type("input", "48 29-15 77");
+		assert.equal(p.value("input"), "482 915");
+	});
+
+	const refusals: Array<[string, Partial<Phone>, RegExp]> = [
+		["a wrong code", { claim: () => 404 }, /That code isn't right\. Check your laptop and try again\./],
+		["a code that has run out", { claim: () => 410 }, /That code has run out\. Your laptop is showing a new one\./],
+		["too many tries", { claim: () => 429 }, /Too many tries\. Wait a minute, then try again\./],
+		["no connection", { offline: true }, /Can't reach LockedIn\. Check your connection and try again\./],
 	];
-	for (const [name, address] of arrivals) {
-		it(`opened for the first time from ${name}: says it worked and asks for notifications`, async () => {
-			const p = await open({ ua: IPHONE, standalone: true, ...address });
-			assert.match(p.text(), /✓ Installed/);
-			assert.match(p.text(), /Now tap Allow notifications\./);
-			assert.deepEqual(p.buttons(), ["Allow notifications"]);
-			assert.ok(p.kv.has("/kv/pair"), "the pairing came with the app's own address");
-			assert.deepEqual([p.location.pathname, p.location.search, p.location.hash], ["/p", "", ""], "and it is taken out of the address");
+	for (const [name, how, says] of refusals) {
+		it(`${name}: says so in plain words, and the code can be tried again`, async () => {
+			const p = await open({ ua: IPHONE, standalone: true, ...how });
+			await p.type("input", "111111");
+			assert.match(p.text(), says);
+			assert.match(p.text(), /Enter the code on your laptop/, "still on the code screen");
+			assert.equal(p.kv.has("/kv/pair"), false);
+			await p.tap("button");
+			assert.equal(p.requests.filter((r) => r.url === "/v1/claim").length, 2, "Pair tries again");
 		});
 	}
 
-	it("once notifications are on, opening it is just the app, not the pairing screen again", async () => {
-		const p = await open({ ua: IPHONE, standalone: true, search: `?pair=${PAIR}`, pushOn: true, permission: "granted" });
-		assert.doesNotMatch(p.text(), /Installed|Allow notifications/);
+	it("once paired and notifications are on, opening it is just the app", async () => {
+		const first = await open({ ua: IPHONE, standalone: true });
+		await first.type("input", CODE);
+		// The same phone, later: its pairing is stored, notifications are on.
+		const p = await open({ ua: IPHONE, standalone: true, hash: `#${PAIR}`, pushOn: true, permission: "granted" });
+		assert.doesNotMatch(p.text(), /Enter the code|Allow notifications/);
 		assert.match(p.text(), /This week/);
-	});
-
-	it("with no pairing at all it is not a dead end: the pairing link can be pasted in", async () => {
-		const p = await open({ ua: IPHONE, standalone: true });
-		assert.match(p.text(), /isn't paired with your laptop yet/);
-		assert.match(p.text(), /Copy link/);
-		p.type("input", "nonsense");
-		await p.tap("button");
-		assert.match(p.text(), /That isn't a LockedIn pairing link/);
-		p.type("input", `  https://lockedin-relay.example.workers.dev/p#${PAIR} `);
-		await p.tap("button");
-		assert.match(p.text(), /✓ Installed/);
-		assert.deepEqual(p.buttons(), ["Allow notifications"]);
-		assert.equal(JSON.parse(p.kv.get("/kv/pair")!).token, "b".repeat(32));
-	});
-
-	it("in a browser with no pairing, it only says where to get one", async () => {
-		const p = await open({ ua: ANDROID });
-		assert.match(p.text(), /Open the link or QR code from your laptop/);
-		assert.equal(p.app.querySelector("input"), null);
 	});
 });
 
 describe("Android and desktop browsers", () => {
-	it("skip the install step and go straight to notifications", async () => {
+	it("pair from the scanned link and go straight to notifications: no install step, no code", async () => {
 		const p = await open({ ua: ANDROID, hash: `#${PAIR}` });
-		assert.doesNotMatch(p.text(), /Home Screen/);
+		assert.doesNotMatch(p.text(), /Home Screen|Enter the code/);
 		assert.deepEqual(p.buttons(), ["Allow notifications"]);
-		assert.equal(p.manifest(), "/manifest.webmanifest", "the plain manifest: Android shares storage with the installed app");
-	});
-});
-
-describe("the relay's manifest for one pair", () => {
-	const assets = { fetch: async (req: Request) => (new URL(req.url).pathname === "/manifest.webmanifest" ? new Response(fs.readFileSync(path.join(WEB, "manifest.webmanifest"), "utf-8")) : new Response("", { status: 404 })) };
-	const env = { DB: null as never, ASSETS: assets } as RelayEnv;
-	const get = (query: string) => handle(new Request(`https://relay.test/v1/manifest${query}`), env);
-
-	it("is the plain manifest with the pair in its start address", async () => {
-		const res = await get(`?pair=${PAIR}`);
-		assert.equal(res.status, 200);
-		assert.equal(res.headers.get("content-type"), "application/manifest+json");
-		assert.equal(res.headers.get("cache-control"), "no-store");
-		const plain = JSON.parse(fs.readFileSync(path.join(WEB, "manifest.webmanifest"), "utf-8"));
-		assert.deepEqual(await res.json(), { ...plain, start_url: `/p?pair=${PAIR}` }, "a query, not a #: start addresses with a query are the well-trodden path");
-		assert.equal(plain.display, "standalone", "iPhones need a standalone manifest for notifications");
+		assert.ok(p.kv.has("/kv/pair"));
 	});
 
-	it("the install page is the phone app, served already pointing at this pair's manifest", async () => {
-		const page = { fetch: async (req: Request) => (new URL(req.url).pathname === "/" ? new Response(fs.readFileSync(path.join(WEB, "index.html"), "utf-8")) : assets.fetch(req)) };
-		const res = await handle(new Request(`https://relay.test${INSTALL_PAGE}`), { DB: null as never, ASSETS: page } as RelayEnv);
-		assert.equal(res.status, 200);
-		assert.match(res.headers.get("content-type") ?? "", /^text\/html/);
-		assert.equal(res.headers.get("cache-control"), "no-store");
-		const html = await res.text();
-		assert.ok(html.includes(`<link rel="manifest" href="/v1/manifest?pair=${PAIR}" />`));
-		assert.ok(!html.includes('href="/manifest.webmanifest"'), "no trace of the plain manifest");
-		assert.ok(html.includes('src="/app.js"'), "the same app");
-		// Not a pair: the page isn't made up.
-		const bad = await handle(new Request("https://relay.test/p/i/<script>"), { DB: null as never, ASSETS: page } as RelayEnv);
-		assert.equal(bad.status, 404);
-	});
-
-	it("refuses anything that isn't a pair", async () => {
-		for (const bad of ["", "?pair=abc", `?pair=${PAIR}x`, `?pair=${PAIR.replace(".", "/")}`, "?pair=javascript:alert(1)"]) assert.equal((await get(bad)).status, 400, bad);
+	it("with no pairing (the link was lost, or another phone took the pair), get the same code screen", async () => {
+		const p = await open({ ua: ANDROID });
+		assert.match(p.text(), /Enter the code on your laptop/);
+		await p.type("input", CODE);
+		assert.match(p.text(), /✓ Paired with your laptop/);
 	});
 });

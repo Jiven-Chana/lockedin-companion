@@ -77,6 +77,13 @@ The plan is [`v1.0-plan.md`](v1.0-plan.md). It follows [`v1.0-issues.md`](v1.0-i
 | V-30 | **Event log:** double counts are fixed in v1.0. Renaming events and giving each type one shape waits for v3.0 | Renames two days before the 26 Nov test could break its analysis | — |
 | V-31 | **Next.js 16.4.6** (the security patch) goes in last, behind the full test suite. If the gate fails it is reverted and moves to v3.0 | The warning interrupts every start | — |
 
+## Made after Jiven's test of v1.0 (24 Nov 2026)
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-32 | **A phone pairs by a 6-digit code shown on the laptop.** On an iPhone the code is the way to pair every time: scanning only shows how to add LockedIn to the Home Screen, and the app there asks for the code. Android and desktop browsers still pair by scanning. Any phone with no pairing gets the code screen. The laptop shows one panel: QR code, three steps, the code, a live status line | On a real iPhone the Home Screen app never received the pairing (v1.0, v1.0.2), and the fallback asked for a long link the laptop did not clearly show. Jiven: "why can't I see my code? … We need solid design around this flow." He chose "always type the code on iPhone" over "code as a safety net", so the flow is the same for everyone | V-29 "the pairing is carried into the Home Screen app" |
+| V-33 | **Visuals are drawn by LockedIn, from data the AI supplies** (the concept map first, then the explainer shapes). Not SVG written by the AI. For v2.0; not built yet | His concept maps came out as large tangled mermaid graphs. LockedIn's own drawing is always valid, tidy and in the app's style | Mermaid as the way maps and diagrams are drawn (V-6), once built |
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:
