@@ -137,7 +137,7 @@ button.li-chip:hover { border-color: var(--li-accent); }
 /* ── status ───────────────────────────────────────────────────────── */
 /* v1.0 V-1: a status pill never wraps ("Not / yet") and never gives way to a long title. */
 .li-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.85em; padding: 2px 10px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
-.li-week { flex: 0 0 auto; min-width: 64px; white-space: nowrap; }
+.li-week-label { flex: 0 0 auto; min-width: 64px; white-space: nowrap; }
 .li-status.solid { background: var(--li-solid-bg); color: var(--li-solid-ink); }
 .li-status.revisit { background: var(--li-revisit-bg); color: var(--li-revisit-ink); }
 .li-status.notyet { border: 1px dashed var(--li-notyet); color: var(--li-muted); }

@@ -74,7 +74,7 @@ export function ProgressScreen() {
 							<div className="li-row" style={{ gap: 8 }}><ModuleDot code={code} /><b className="li-display" style={{ fontSize: "1.2em" }}>{code}</b></div>
 							{list.map((l) => (
 								<Link key={l.id} href={`/app/library/${l.id}`} className="li-row" style={{ flexWrap: "nowrap" }}>
-									<span className="li-small li-muted li-week">{weekLabel(l.week)}</span>
+									<span className="li-small li-muted li-week-label">{weekLabel(l.week)}</span>
 									<span style={{ flexGrow: 1, minWidth: 0 }}>{l.title}</span>
 									<StatusTag status={l.status === "revisit" ? "revisit" : l.status === "answered" ? "answered" : "notyet"} />
 								</Link>
