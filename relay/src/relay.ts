@@ -33,6 +33,10 @@ export const LIMITS = {
 	eventsPage: 200,
 	/** Acknowledged events are deleted this long after the laptop acknowledged them (§5.3). */
 	ackedRetentionDays: 7,
+	/** A pairing code lasts this long (v1.0.3). */
+	codeMinutes: 10,
+	/** Wrong codes per minute, across the relay, before every claim waits. With a handful of live codes among a million, guessing is not worth it. */
+	claimFailuresPerMinute: 20,
 } as const;
 
 /** Event types the phone may append (spec §5.2). */
@@ -93,14 +97,57 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 			return json({ pairId, laptopSecret, phoneToken }, 201);
 		}
 
+		// The phone types the 6-digit code shown on the laptop (v1.0.3). The code names a pair; claiming it
+		// gives this phone a token of its own and retires the pair's previous phone token: a pair has one phone.
+		if (path === "/v1/claim" && req.method === "POST") {
+			const body = (await readJson(req, 200)) as { code?: unknown };
+			const code = typeof body.code === "string" ? body.code.replace(/\s+/g, "") : typeof body.code === "number" ? String(body.code) : "";
+			if (!/^\d{6}$/.test(code)) return fail(400, "the code is 6 digits");
+			const iso = now.toISOString();
+			const failures = await env.DB.prepare("SELECT COUNT(*) AS n FROM claim_failures WHERE at > ?").bind(new Date(now.getTime() - 60_000).toISOString()).first<{ n: number }>();
+			if ((failures?.n ?? 0) >= LIMITS.claimFailuresPerMinute) return fail(429, "too_many_tries");
+			const row = await env.DB.prepare("SELECT pair_id, expires_at FROM pair_codes WHERE code = ?").bind(code).first<{ pair_id: string; expires_at: string }>();
+			if (!row || row.expires_at <= iso) {
+				await env.DB.prepare("INSERT INTO claim_failures (at) VALUES (?)").bind(iso).run();
+				if (row) await env.DB.prepare("DELETE FROM pair_codes WHERE code = ?").bind(code).run();
+				return row ? fail(410, "expired_code") : fail(404, "wrong_code");
+			}
+			const phoneToken = token();
+			await env.DB.batch([
+				env.DB.prepare("UPDATE pairs SET phone_hash = ?, phone_seen_at = ? WHERE id = ?").bind(await hash(phoneToken), iso, row.pair_id),
+				env.DB.prepare("DELETE FROM pair_codes WHERE pair_id = ?").bind(row.pair_id),
+				// The previous phone's notifications stop with its token.
+				env.DB.prepare("DELETE FROM subscriptions WHERE pair_id = ?").bind(row.pair_id),
+			]);
+			return json({ pairId: row.pair_id, token: phoneToken });
+		}
+
 		const m = /^\/v1\/pairs\/([0-9a-f]{32})(\/.*)?$/.exec(path);
 		if (m) {
 			const pairId = m[1]!;
 			const rest = m[2] ?? "";
 
+			// The code the laptop shows for this pair: the current one while it lasts, a fresh one after.
+			if (rest === "/code" && req.method === "POST") {
+				if (!(await authorise(env, req, pairId, ["laptop"]))) return fail(401, "unauthorised");
+				const iso = now.toISOString();
+				const current = await env.DB.prepare("SELECT code, expires_at FROM pair_codes WHERE pair_id = ? AND expires_at > ?").bind(pairId, iso).first<{ code: string; expires_at: string }>();
+				if (current) return json({ code: current.code, expiresAt: current.expires_at });
+				await env.DB.prepare("DELETE FROM pair_codes WHERE pair_id = ? OR expires_at <= ?").bind(pairId, iso).run();
+				const expiresAt = new Date(now.getTime() + LIMITS.codeMinutes * 60_000).toISOString();
+				for (let attempt = 0; attempt < 8; attempt++) {
+					const code = String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0");
+					const taken = await env.DB.prepare("SELECT 1 AS x FROM pair_codes WHERE code = ?").bind(code).first<{ x: number }>();
+					if (taken) continue;
+					await env.DB.prepare("INSERT INTO pair_codes (code, pair_id, expires_at) VALUES (?, ?, ?)").bind(code, pairId, expiresAt).run();
+					return json({ code, expiresAt });
+				}
+				return fail(503, "no code free; try again");
+			}
+
 			if (rest === "" && req.method === "DELETE") {
 				if (!(await authorise(env, req, pairId, ["laptop", "phone"]))) return fail(401, "unauthorised");
-				await env.DB.batch(["DELETE FROM nudges WHERE pair_id = ?", "DELETE FROM events WHERE pair_id = ?", "DELETE FROM subscriptions WHERE pair_id = ?", "DELETE FROM pairs WHERE id = ?"].map((s) => env.DB.prepare(s).bind(pairId)));
+				await env.DB.batch(["DELETE FROM nudges WHERE pair_id = ?", "DELETE FROM events WHERE pair_id = ?", "DELETE FROM subscriptions WHERE pair_id = ?", "DELETE FROM pair_codes WHERE pair_id = ?", "DELETE FROM pairs WHERE id = ?"].map((s) => env.DB.prepare(s).bind(pairId)));
 				return noContent();
 			}
 
@@ -203,33 +250,6 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 			return fail(404, "not found");
 		}
 
-		// The phone app's manifest for one pair (v1.0 P-1). An iPhone gives a Home Screen
-		// app its own storage, so the pairing must be in the address the installed app
-		// opens at: the same manifest as the plain one, with the pair in its start address
-		// (as a query: start addresses with a query are the well-trodden path).
-		// The pair is only echoed, never looked up: a made-up one opens an app that isn't paired.
-		if (path === "/v1/manifest" && req.method === "GET") {
-			const pair = url.searchParams.get("pair") ?? "";
-			if (!/^[0-9a-f]{32}\.[0-9a-f]{32}$/.test(pair)) return fail(400, "pair must be <pairId>.<token>");
-			if (!env.ASSETS) return fail(404, "not found");
-			const res = await env.ASSETS.fetch(new Request(new URL("/manifest.webmanifest", url)));
-			if (!res.ok) return fail(404, "not found");
-			const manifest = (await res.json()) as Record<string, unknown>;
-			return new Response(JSON.stringify({ ...manifest, start_url: `/p?pair=${pair}` }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
-		}
-
-		// The iPhone install page (v1.0.2): the phone app, served already pointing at this pair's
-		// manifest. An iPhone reads the manifest as the page was served, so setting it from the
-		// page afterwards (v1.0) left the Home Screen app unpaired.
-		const install = /^\/p\/i\/([0-9a-f]{32}\.[0-9a-f]{32})$/.exec(path);
-		if (install && req.method === "GET" && env.ASSETS) {
-			const res = await env.ASSETS.fetch(new Request(new URL("/", url)));
-			if (!res.ok) return fail(404, "not found");
-			const html = (await res.text()).replace('href="/manifest.webmanifest"', `href="/v1/manifest?pair=${install[1]}"`);
-			return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
-		}
-		if (path.startsWith("/p/i/")) return fail(404, "not found");
-
 		// The phone app (/p, /p#<pairId>.<token>) and its files.
 		if (env.ASSETS && req.method === "GET") {
 			// Cloudflare's asset server serves index.html at "/" (and redirects "/index.html" there).
@@ -267,6 +287,8 @@ export async function cron(env: RelayEnv, now = new Date(), fetchImpl: typeof fe
 		await env.DB.prepare("UPDATE nudges SET sent_at = ? WHERE pair_id = ? AND sent_at IS NULL AND fire_at <= ?").bind(iso, pairId, iso).run();
 	}
 	await env.DB.prepare("DELETE FROM nudges WHERE expires_at <= ?").bind(iso).run();
+	await env.DB.prepare("DELETE FROM pair_codes WHERE expires_at <= ?").bind(iso).run();
+	await env.DB.prepare("DELETE FROM claim_failures WHERE at <= ?").bind(new Date(now.getTime() - 3_600_000).toISOString()).run();
 	await env.DB.prepare("DELETE FROM events WHERE acked_at IS NOT NULL AND acked_at <= ?").bind(new Date(now.getTime() - LIMITS.ackedRetentionDays * 86_400_000).toISOString()).run();
 	return { sent, gone };
 }

@@ -154,7 +154,7 @@ On when `COMPANION_RELAY_URL` is set (`501` otherwise). The laptop talks to the 
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/phone` | | `{ paired, relay, phoneSeenAt?, pushReady?, uploadedAt?, holds, reachable? }`. `holds` is the plain-words list of what the relay stores (R-7) |
-| POST | `/phone/pair` | | `{ url, qrSvg, ...status }`. A new pair (replacing any old one); `url` is `<relay>/p#<pairId>.<phoneToken>`, the QR is its SVG. Uploads the week at once |
+| POST | `/phone/pair` | | `{ url, qrSvg, code, codeExpiresAt, address, …status }`. Pairs, or shows the pairing again. `url` is what the QR code holds; `code` is the 6-digit code an iPhone's Home Screen app asks for (v1.0.3; `null` when the relay can't be reached; it lasts 10 minutes and asking again returns the same one while it lasts); `address` is the phone app's address without the pairing, for typing when the camera won't scan |
 | POST | `/phone/unpair` | | `{ paired: false }`. Deletes the pair and everything the relay holds for it |
 | POST | `/phone/sync` | | `{ uploaded, replayed }`. Upload now and pull events now (Me → Phone → Sync now) |
 

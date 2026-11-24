@@ -25,6 +25,8 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
 	return data as T;
 }
 
+/** The pairing panel: the QR code, the 6-digit code an iPhone's app asks for (null when the relay can't be reached), and the short address. */
+export type PhonePairing = PhoneStatus & { url: string; qrSvg: string; code: string | null; codeExpiresAt: string | null; address: string };
 export interface PhoneStatus { paired: boolean; relay: string; phoneSeenAt?: string | null; pushReady?: boolean; uploadedAt?: string | null; holds: string; reachable?: boolean }
 export interface PlanData {
 	week: string;
@@ -143,7 +145,7 @@ export const lockedIn = {
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
 	// v0.1 the phone (F-112)
 	phone: () => api<PhoneStatus>("/phone"),
-	pairPhone: () => api<PhoneStatus & { url: string; qrSvg: string }>("/phone/pair", { method: "POST" }),
+	pairPhone: () => api<PhonePairing>("/phone/pair", { method: "POST" }),
 	unpairPhone: () => api<{ paired: false }>("/phone/unpair", { method: "POST" }),
 	syncPhone: () => api<{ uploaded: boolean; replayed: number }>("/phone/sync", { method: "POST" }),
 	// v0.1 the week (F-109, F-110, F-111)

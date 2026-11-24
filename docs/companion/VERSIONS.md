@@ -11,6 +11,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.0** | 24 Nov 2026 | tag `lockedin-v1.0` on `main` (PR #6) | Shipped: everything broken in v0.1 is fixed; no redesigns, no packaging (V-19). Awaiting Jiven's own test and the iPhone check | [`v1.0-release.md`](v1.0-release.md), [`v1.0-plan.md`](v1.0-plan.md), [`v1.0-issues.md`](v1.0-issues.md), [`DECISIONS.md`](DECISIONS.md) V-19–V-31 |
 | **v1.0.1** | 24 Nov 2026 | tag `lockedin-v1.0.1` on `main` | Two bugs from Jiven's first test: diagram labels can no longer be a syntax error, and the relay is deployed with the v1.0 phone app | [`v1.0-release.md`](v1.0-release.md) section 6 |
 | **v1.0.2** | 24 Nov 2026 | tag `lockedin-v1.0.2` on `main` | The iPhone install no longer depends on Safari re-reading the manifest, and an unpaired Home Screen app can take the pairing link | [`v1.0-release.md`](v1.0-release.md) section 7, `relay/README.md` |
+| **v1.0.3** | 24 Nov 2026 | tag `lockedin-v1.0.3` on `main` | Pairing by a 6-digit code: one clear panel on the laptop, and the iPhone's Home Screen app asks for the code (V-32). Replaces the manifest routes of v1.0 and v1.0.2 | [`v1.0-release.md`](v1.0-release.md) section 8, `relay/README.md` |
 | **v2.0** | after v1.0 passes Jiven's test | — | Direction only (24 Nov): the polish stage, streamlining the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
 | **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
 

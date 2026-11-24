@@ -13,7 +13,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
 import type { Db, Stmt } from "../relay/src/db.ts";
 import { fromB64url, generateVapidKeys, vapidJwt } from "../relay/src/push.ts";
-import { cron, handle, type RelayEnv } from "../relay/src/relay.ts";
+import { cron, handle, LIMITS, type RelayEnv } from "../relay/src/relay.ts";
 
 function sqliteDb(): Db {
 	const db = new DatabaseSync(":memory:");
@@ -56,6 +56,73 @@ describe("pairing and scopes (§5.3)", () => {
 		assert.equal((await call("POST", `/v1/pairs/${pairId}/events`, laptopSecret, [])).status, 401, "the laptop never writes events");
 		assert.equal((await call("GET", `/v1/pairs/${pairId}/schedule`)).status, 401, "no token, nothing");
 		assert.equal((await call("GET", `/v1/pairs/${"0".repeat(32)}/schedule`, phoneToken)).status, 401, "a token for another pair");
+	});
+});
+
+describe("pairing with a 6-digit code (v1.0.3)", () => {
+	const getCode = async (s: Awaited<ReturnType<typeof setup>>, now = T0) => (await s.call("POST", `/v1/pairs/${s.pairId}/code`, s.laptopSecret, undefined, now)).body as { code: string; expiresAt: string };
+
+	it("the laptop gets a code for its pair, good for ten minutes, and the same one while it lasts", async () => {
+		const s = await setup();
+		const first = await getCode(s);
+		assert.match(first.code, /^\d{6}$/);
+		assert.equal(first.expiresAt, at(LIMITS.codeMinutes).toISOString());
+		assert.deepEqual(await getCode(s, at(3)), first, "asking again while it lasts doesn't change what is on screen");
+		const later = await getCode(s, at(LIMITS.codeMinutes + 1));
+		assert.notEqual(later.expiresAt, first.expiresAt, "an expired code is replaced");
+		assert.equal((await s.call("POST", `/v1/pairs/${s.pairId}/code`, s.phoneToken)).status, 401, "only the laptop can ask for a code");
+	});
+
+	it("a phone that types the code is paired: it gets the pair and a token of its own", async () => {
+		const s = await setup();
+		const { code } = await getCode(s);
+		const claimed = await s.call("POST", "/v1/claim", undefined, { code });
+		assert.equal(claimed.status, 200);
+		assert.equal(claimed.body.pairId, s.pairId);
+		assert.match(claimed.body.token, /^[0-9a-f]{32}$/);
+		assert.equal((await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, claimed.body.token)).status, 200, "the new token works");
+		assert.equal((await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, s.phoneToken)).status, 401, "a pair has one phone: the QR code's token stops working");
+		assert.ok((await s.call("GET", `/v1/pairs/${s.pairId}/status`, s.laptopSecret)).body.phoneSeenAt, "and the laptop sees the phone arrive");
+	});
+
+	it("a code works once, however it is typed", async () => {
+		const s = await setup();
+		const { code } = await getCode(s);
+		assert.equal((await s.call("POST", "/v1/claim", undefined, { code: ` ${code.slice(0, 3)} ${code.slice(3)} ` })).status, 200, "spaces don't matter");
+		const again = await s.call("POST", "/v1/claim", undefined, { code });
+		assert.deepEqual([again.status, again.body.error], [404, "wrong_code"]);
+	});
+
+	it("a wrong or expired code is refused, and says which", async () => {
+		const s = await setup();
+		const { code } = await getCode(s);
+		const wrong = String((Number(code) + 1) % 1_000_000).padStart(6, "0");
+		assert.deepEqual((await s.call("POST", "/v1/claim", undefined, { code: wrong })).body, { error: "wrong_code" });
+		for (const bad of ["", "12345", "abcdef", "1234567", null, 123456]) assert.equal((await s.call("POST", "/v1/claim", undefined, { code: bad })).status, bad === 123456 ? 404 : 400, String(bad));
+		const late = await s.call("POST", "/v1/claim", undefined, { code }, at(LIMITS.codeMinutes + 1));
+		assert.deepEqual([late.status, late.body.error], [410, "expired_code"]);
+		assert.equal((await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, s.phoneToken)).status, 200, "a refused code changes nothing");
+	});
+
+	it("guessing is cut off: after too many wrong codes in a minute, every claim waits", async () => {
+		const s = await setup();
+		const { code } = await getCode(s);
+		const wrong = String((Number(code) + 1) % 1_000_000).padStart(6, "0");
+		for (let i = 0; i < LIMITS.claimFailuresPerMinute; i++) assert.equal((await s.call("POST", "/v1/claim", undefined, { code: wrong })).status, 404);
+		assert.equal((await s.call("POST", "/v1/claim", undefined, { code: wrong })).status, 429);
+		assert.equal((await s.call("POST", "/v1/claim", undefined, { code })).status, 429, "even the right code waits, so a guesser learns nothing");
+		assert.equal((await s.call("POST", "/v1/claim", undefined, { code }, at(2))).status, 200, "a minute later it works");
+	});
+
+	it("unpairing and the every-minute job clear codes away", async () => {
+		const s = await setup();
+		const { code } = await getCode(s);
+		await s.call("DELETE", `/v1/pairs/${s.pairId}`, s.laptopSecret);
+		assert.equal((await s.call("POST", "/v1/claim", undefined, { code })).status, 404);
+		const t = await setup();
+		await getCode(t);
+		await cron(t.env, at(LIMITS.codeMinutes + 1));
+		assert.equal((await t.env.DB.prepare("SELECT COUNT(*) AS n FROM pair_codes").first<{ n: number }>())?.n, 0);
 	});
 });
 

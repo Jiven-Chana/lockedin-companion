@@ -86,20 +86,24 @@ export const HANDOFF_COPY = {
 	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 } as const;
 
-/** Me → Phone on the laptop while a phone pairs (v1.0 P-1). The phone's own guide has the pictures. */
+/**
+ * Me → Phone on the laptop (v1.0.3): one panel with the QR code, three
+ * steps, the 6-digit code, and a status line that changes by itself.
+ */
 export const PHONE_PAIR_COPY = {
-	waiting: "Waiting for your phone to open the link…",
-	opened: "Your phone opened the link. Finish there: on an iPhone, add LockedIn to your Home Screen and open it from there, then allow notifications.",
-	paired: "✓ Paired. Your phone gets your questions, even when this laptop is closed.",
-	steps: [
-		"Point your phone's camera at the code and open the link.",
-		"Your phone shows what to do next. On an iPhone that is three taps to add LockedIn to your Home Screen.",
-		"Tap Allow notifications on your phone.",
-	],
-	/** The fallback when a Home Screen app opens unpaired (v1.0.2): it takes the link pasted in. */
-	orLink: "Or open this link on your phone. If the app on your Home Screen says it isn't paired, press Copy link and paste it there:",
-	copyLink: "Copy link",
-	copied: "Copied",
+	title: "Get questions on your phone",
+	steps: ["Scan this with your phone's camera", "Add LockedIn to your Home Screen and open it", "Type this code into it:"],
+	/** "482915" → "482 915": read aloud in two groups, as the phone shows it back. */
+	code: (code: string) => `${code.slice(0, 3)} ${code.slice(3)}`,
+	noCode: "Can't reach the phone relay to get a code. Check your connection.",
+	android: "On Android there is nothing to add or type: scan, then allow notifications.",
+	cantScan: "Can't scan?",
+	openAddress: (address: string) => `Open ${address} in your phone's browser instead.`,
+	waiting: "Waiting for your phone…",
+	opened: "Your phone opened it. Finish there.",
+	paired: "✓ Paired. Questions reach your phone, even when this laptop is closed.",
+	start: "Get questions on your phone",
+	showAgain: "Pair a phone again",
 } as const;
 
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */

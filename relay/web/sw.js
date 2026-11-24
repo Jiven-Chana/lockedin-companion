@@ -19,8 +19,7 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
 	const url = new URL(e.request.url);
-	// The install page (/p/i/<pair>) goes straight to the network: it is made per pair, and its address holds the pairing.
-	if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/v1/") || url.pathname.startsWith("/p/i/")) return;
+	if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/v1/")) return;
 	// App shell: network first (so updates land), cache when offline.
 	e.respondWith(
 		fetch(e.request)
