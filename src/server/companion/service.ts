@@ -27,7 +27,7 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, type UploadedFile } from "./materials.ts";
@@ -1356,13 +1356,7 @@ export class CompanionService {
 			const patch = await engine.start(session, { title: `${lecture.module} · ${lecture.title}`, openingMessage: text, misses });
 			const started2 = this.store.updateSession(sessionId, (s) => ({ ...s, ...patch }));
 			if (!started2) return;
-			await engine.waitUntilReady(started2, this.deps.readyTimeoutMs ?? PREPARE_RULES.readyTimeoutMs);
-			this.store.updateSession(sessionId, (s) => ({
-				...s,
-				readyAt: this.now().toISOString(),
-				state: s.state === "preparing" ? (s.openedAt ? "active" : "ready") : s.state,
-			}));
-			this.log("session_prepared", { sessionId, engine: session.engine, kind: session.spec.kind, latencyMs: Date.now() - started, chatId: started2.chatId ?? null });
+			await this.untilReady(started2, engine, started);
 		} catch (err) {
 			const code = err instanceof CompanionError ? err.code : "prepare_failed";
 			const message = err instanceof Error ? err.message : String(err);
@@ -1371,9 +1365,28 @@ export class CompanionService {
 				this.log("engine_fallback", { sessionId, from: "learnharness", to: "scripted", code, message });
 				return this.prepare(sessionId, 1);
 			}
-			this.store.updateSession(sessionId, (s) => ({ ...s, state: "error", error: code }));
-			this.log("error", { where: "prepare", sessionId, engine: session.engine, code, message });
+			this.prepareFailed(session, err);
 		}
+	}
+
+	/** Wait for question 1, then mark the session ready. */
+	private async untilReady(session: CompanionSession, engine: SessionEngine, started: number): Promise<void> {
+		await engine.waitUntilReady(session, this.deps.readyTimeoutMs ?? PREPARE_RULES.readyTimeoutMs, () =>
+			this.log("teacher_nudged", { sessionId: session.id, answered: 0, budget: session.budget, engine: session.engine }),
+		);
+		this.store.updateSession(session.id, (s) => ({
+			...s,
+			readyAt: this.now().toISOString(),
+			state: s.state === "preparing" ? (s.openedAt ? "active" : "ready") : s.state,
+		}));
+		this.log("session_prepared", { sessionId: session.id, engine: session.engine, kind: session.spec.kind, latencyMs: Date.now() - started, chatId: session.chatId ?? null });
+	}
+
+	private prepareFailed(session: CompanionSession, err: unknown): void {
+		const code = err instanceof CompanionError ? err.code : "prepare_failed";
+		const message = err instanceof Error ? err.message : String(err);
+		this.store.updateSession(session.id, (s) => ({ ...s, state: "error", error: code }));
+		this.log("error", { where: "prepare", sessionId: session.id, engine: session.engine, code, message });
 	}
 
 	private safeHasScripted(lectureId: string): boolean {
@@ -1405,11 +1418,12 @@ export class CompanionService {
 				goal: goalFor(session.spec, lecture, session.budget), answered: 0, budget: session.budget, canHint: false, slideRefs: [],
 			};
 			return session.state === "error"
-				? { ...base, status: "error", error: session.error ?? "prepare_failed" }
-				: { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` };
+				? { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) }
+				: { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) };
 		}
 		// A hand-off's phone answer (F-112) is counted by each engine itself.
-		const { teacherNudged, ...v } = await engine.view(session, lecture);
+		const { teacherNudged, ...mapped } = await engine.view(session, lecture);
+		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
 		this.markOpened(session, now);
 		this.store.updateSession(session.id, (s) => {
@@ -1540,8 +1554,46 @@ export class CompanionService {
 			this.preparing.set(id, run);
 			return;
 		}
+		if (session.state === "error" && !session.readyAt) {
+			// Started, but question 1 never arrived (T-1): recover the turn, or keep
+			// waiting for one that is still running, then wait for question 1 again.
+			try {
+				await engine.retry(session);
+			} catch (err) {
+				if (!(err instanceof CompanionError && err.code === "turn_running")) throw err;
+			}
+			const waiting = this.store.updateSession(id, (s) => ({ ...s, state: "preparing", error: undefined }))!;
+			const started = Date.now();
+			const run = this.untilReady(waiting, engine, started)
+				.catch((err) => this.prepareFailed(waiting, err))
+				.finally(() => this.preparing.delete(id));
+			this.preparing.set(id, run);
+			return;
+		}
 		await engine.retry(session);
 		this.store.updateSession(id, (s) => ({ ...s, state: s.openedAt ? "active" : "ready", error: undefined }));
+	}
+
+	/** A failed session can offer the lecture's own question bank instead (T-6). */
+	private canPractise(session: CompanionSession): boolean {
+		return session.engine !== "scripted" && !!this.deps.engines.scripted && this.safeHasScripted(session.spec.lectureId);
+	}
+
+	/**
+	 * "Use practice questions" on a failed session: the same session spec on
+	 * the lecture's question bank, without the AI. The student chose it, and
+	 * the session screen labels it, so the switch is declared (B-11).
+	 */
+	practiceInstead(id: string): { sessionId: string } {
+		const { session } = this.requireSession(id);
+		if (session.state !== "error" && !session.error) throw conflict("session_not_failed", "this session is working: carry on with it");
+		if (!this.canPractise(session)) throw new CompanionError("no_scripted_set", 422, "there are no practice questions for this lecture yet");
+		const { seedAnswer: _seed, ...spec } = session.spec;
+		const next = this.createSession(spec, { engine: "scripted" });
+		this.store.updateSession(next.sessionId, (s) => ({ ...s, fellBackFrom: session.engine }));
+		this.log("engine_fallback", { sessionId: next.sessionId, from: session.engine, to: "scripted", code: session.error ?? null, chosen: true, failedSessionId: id });
+		if (session.state !== "done" && session.state !== "stopped") this.store.updateSession(id, (s) => ({ ...s, state: "stopped", endedAt: this.now().toISOString() }));
+		return next;
 	}
 
 	sessionCost(id: string) {

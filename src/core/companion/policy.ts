@@ -218,7 +218,49 @@ export const PREPARE_RULES = {
 	pollMs: 500,
 	/** Opening-message slide budget, in estimated tokens (~4 chars each). */
 	slideTokenBudget: 8_000,
+	/** After the teacher is asked for question 1 (V-22), wait at least this long for it. */
+	afterNudgeMs: 30_000,
 } as const;
+
+/**
+ * A session that failed says what happened and offers one main action
+ * (v1.0 T-6). `sessionFailure` maps an engine code to one of these.
+ */
+export const SESSION_FAILURES = {
+	no_question: { says: "The teacher didn't ask a question.", action: "retry" },
+	timeout: { says: "Writing the question took too long.", action: "retry" },
+	no_answer: { says: "Your AI didn't answer. Check your internet connection.", action: "retry" },
+	not_connected: { says: "Your AI isn't connected.", action: "connect" },
+	other: { says: "Something went wrong on our side.", action: "retry" },
+} as const;
+
+export const SESSION_FAILURE_ACTIONS = {
+	retry: "Try again",
+	connect: "Connect",
+	practice: "Use practice questions",
+	another: "Pick another lecture",
+} as const;
+
+export type SessionFailureKind = keyof typeof SESSION_FAILURES;
+
+const FAILURE_KIND: Record<string, SessionFailureKind> = {
+	no_question: "no_question",
+	probe_not_done: "no_question",
+	timeout: "timeout",
+	turn_failed: "no_answer",
+	engine_error: "no_answer",
+	chat_missing: "no_answer",
+	models_not_configured: "not_connected",
+	provider_key_missing: "not_connected",
+	not_connected: "not_connected",
+	engine_unavailable: "not_connected",
+};
+
+/** The plain reason and main action for a session error code. A code that isn't a known one (a provider's own message) reads as "your AI didn't answer". */
+export function sessionFailure(code: string | undefined): (typeof SESSION_FAILURES)[SessionFailureKind] & { kind: SessionFailureKind } {
+	const kind: SessionFailureKind = !code ? "other" : (FAILURE_KIND[code] ?? (/^[a-z_:]+$/.test(code) ? "other" : "no_answer"));
+	return { kind, ...SESSION_FAILURES[kind] };
+}
 
 export const NUDGE_TEXT = {
 	n1: (module: string, questions: number, minutes: number) =>
@@ -279,6 +321,9 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** What the session screen says while it waits. */
+	reading: (module: string) => `Reading your ${module} slides → writing question 1`,
+	writing: (n: number) => `Writing question ${n}…`,
 	/** Try-now card (J1). */
 	tryNow: () => {
 		const b = SESSION_BUDGETS["try-now"];

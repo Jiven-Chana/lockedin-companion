@@ -100,6 +100,8 @@ export interface SessionView {
 	teacherNudged?: boolean;
 	/** Machine-readable reason when status is "error". */
 	error?: string;
+	/** status "error" and the lecture has a question bank: "Use practice questions" can replace this session (T-6). */
+	practiceAvailable?: boolean;
 	/** Every (Slide n) referenced in prose + feedback, for the slide sheet. */
 	slideRefs: number[];
 }

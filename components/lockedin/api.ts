@@ -136,6 +136,7 @@ export const lockedIn = {
 	more: (id: string) => api<{ budget: number }>(`/sessions/${encodeURIComponent(id)}/more`, { body: {} }),
 	stop: (id: string) => api(`/sessions/${encodeURIComponent(id)}/stop`, { method: "POST" }),
 	retry: (id: string) => api(`/sessions/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+	practiceInstead: (id: string) => api<{ sessionId: string }>(`/sessions/${encodeURIComponent(id)}/practice`, { method: "POST" }),
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),

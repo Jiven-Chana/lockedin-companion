@@ -37,12 +37,17 @@ class FakePort implements LhPort {
 	failure(id: string) {
 		return this.failures.get(id);
 	}
+	/** What the teacher does after a message that isn't the opening one. */
+	onSend: (() => void) | null = null;
+	sendDelayMs = 0;
 	async send(chatId: string, input: ChatInput): Promise<LhSendResult> {
 		this.sent.push({ chatId, input });
+		if (this.sendDelayMs) await new Promise((r) => setTimeout(r, this.sendDelayMs));
 		if (this.nextSend.status !== 200) return this.nextSend;
 		const record = this.chats.get(chatId)!;
 		if (input.type === "text") record.push(newUserMessage(input.text));
 		if (input.type === "answer") record.push(newAnswerResult(input.toolCallId, "quiz", input.answer));
+		if (this.sent.length > 1) this.onSend?.();
 		return { status: 200 };
 	}
 	async askSide(chatId: string, anchor: string, t: string) {
@@ -104,13 +109,49 @@ describe("start + waitUntilReady", () => {
 		a.port.isRunning.add(a.chatId);
 		await assert.rejects(a.engine.waitUntilReady(a.session, 20), (e: unknown) => e instanceof EngineError && e.code === "timeout");
 
+		// The teacher is asked once (V-22); a teacher that still doesn't ask is an error.
 		const b = await started();
 		b.port.push(b.chatId, ...probeDone(b.chatId), assistant([text("Here is the plan. Shall we start?")]));
+		b.port.onSend = () => b.port.push(b.chatId, assistant([text("Whenever you're ready.")]));
 		await assert.rejects(b.engine.waitUntilReady(b.session, 2_000), (e: unknown) => e instanceof EngineError && e.code === "no_question");
+		assert.equal(b.port.sent.filter((s) => s.input.type === "text" && s.input.text === TEACHER_RULES.continueText).length, 1, "asked once, not twice");
 
 		const c = await started();
 		c.port.failures.set(c.chatId, "provider error");
 		await assert.rejects(c.engine.waitUntilReady(c.session, 2_000), (e: unknown) => e instanceof EngineError && e.code === "turn_failed");
+	});
+});
+
+describe("a teacher that sets its plan and stops (T-1, V-22)", () => {
+	const planOnly = (chatId: string) => [...probeDone(chatId), assistant([text("The plan is set. We'll start by checking why image data is structured.")])];
+
+	it("is asked once for the question, and question 1 then arrives", async () => {
+		const { port, engine, session, chatId } = await started();
+		port.push(chatId, ...planOnly(chatId));
+		port.onSend = () => port.push(chatId, assistant([text("Start here (Slide 3)."), quizCall("call_1")]));
+		let nudges = 0;
+		await engine.waitUntilReady(session, 2_000, () => nudges++);
+		assert.equal(nudges, 1);
+		assert.deepEqual(port.sent.at(-1)!.input, { type: "text", text: TEACHER_RULES.continueText });
+		assert.equal((await engine.view(session, lecture)).status, "question");
+	});
+
+	it("a prober that never finished is not asked: that is a different failure", async () => {
+		const { port, engine, session, chatId } = await started();
+		port.push(chatId, assistant([text("Let me think about where to begin.")]));
+		await assert.rejects(engine.waitUntilReady(session, 2_000), (e: unknown) => e instanceof EngineError && e.code === "probe_not_done");
+		assert.equal(port.sent.length, 1, "only the opening message");
+	});
+
+	it("Try again asks for the question again instead of doing nothing", async () => {
+		const { port, engine, session, chatId } = await started();
+		port.push(chatId, ...planOnly(chatId));
+		port.onSend = () => port.push(chatId, assistant([text("Whenever you're ready.")]));
+		await assert.rejects(engine.waitUntilReady(session, 2_000));
+		port.onSend = () => port.push(chatId, assistant([text("Start here (Slide 3)."), quizCall("call_1")]));
+		await engine.retry({ ...session, state: "error", error: "no_question" });
+		assert.deepEqual(port.sent.at(-1)!.input, { type: "text", text: TEACHER_RULES.continueText });
+		await engine.waitUntilReady(session, 2_000);
 	});
 });
 
@@ -176,6 +217,17 @@ describe("answering", () => {
 		assert.equal(again.status, "done");
 		assert.equal(again.endedEarly, true);
 		assert.equal(port.sent.length, sent, "only once");
+	});
+
+	it("two overlapping screen updates ask the teacher once (X-1)", async () => {
+		const { port, engine, session: prepared, chatId } = await withQuestion();
+		const session = { ...prepared, state: "active" as const };
+		port.push(chatId, newAnswerResult("call_1", "quiz", { kind: "quiz", questionText: "Q", dontKnow: false, answers: [], correct: true, answeredAt: "" }), assistant([text("Right (Slide 3).")]));
+		port.sendDelayMs = 10;
+		const [a, b] = await Promise.all([engine.view(session, lecture), engine.view(session, lecture)]);
+		assert.equal(port.sent.filter((s) => s.input.type === "text" && s.input.text === TEACHER_RULES.continueText).length, 1);
+		assert.deepEqual([a.status, b.status], ["thinking", "thinking"]);
+		assert.equal([a, b].filter((v) => v.teacherNudged).length, 1, "logged once");
 	});
 
 	it("a hand-off session owes the chat one question fewer: the phone answer counts", async () => {

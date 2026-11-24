@@ -105,7 +105,8 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 | POST | `/sessions/:id/show-me` | `{ questionId }` | 204, then poll: a worked example, then a fresh question on the same idea |
 | POST | `/sessions/:id/more` | `{ questions?: number }` (default 3) | `{ budget }`: "Keep going" |
 | POST | `/sessions/:id/stop` | | 204. No model call; reopening resumes on the same question |
-| POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn |
+| POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn. On a session that never reached question 1 it asks the teacher again and the view goes back to `preparing` |
+| POST | `/sessions/:id/practice` | | `{ sessionId }`: "Use practice questions". A new session for the same lecture on its question bank, without the AI. Only for a failed session whose view has `practiceAvailable: true`; logged as `engine_fallback {chosen: true}` |
 | GET | `/sessions/:id/cost` | **demo.** | `{ sessionId, engine, cost }` (USD; checkpoint criterion 4) |
 
 `SessionView` (see `types.ts`): `{ id, engine, kind, mode, lecture, goal, status: "preparing" | "question" | "thinking" | "done" | "error", activity?, answered, budget, prose?, question?: { id, kind: "quiz" | "ask", stem, context?, options: [{ index, label }], multi, role }, feedback?: { questionId, correct, dontKnow, shown, correctLabels, explanation?, slideRefs }, canHint, endedEarly?, error?, slideRefs }`.

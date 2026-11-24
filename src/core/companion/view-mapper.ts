@@ -10,6 +10,7 @@ import { failedOutputCallIds, pendingQuestionOf, userFacingTextOf, type LhMessag
 import type { QuestionAnswerData } from "../question-core.ts";
 import { sideSegmentId } from "../side-chat.ts";
 import { goalFor } from "./nudges.ts";
+import { SESSION_COPY } from "./policy.ts";
 import { answerRecordFrom, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { parseSlideRefs } from "./slides.ts";
 import type { AnswerRecord, CompanionSession, Lecture, SessionFeedback, SessionView } from "./types.ts";
@@ -129,13 +130,13 @@ export function mapChatToView(input: LhViewInput): SessionView {
 	if (pending && !supported) return { ...base, status: "error", error: `unsupported_question:${pending.tool}` };
 	if (running) {
 		return records.length === 0
-			? { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` }
-			: { ...base, status: "thinking", activity: `Writing question ${answered + 1}…` };
+			? { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) }
+			: { ...base, status: "thinking", activity: SESSION_COPY.writing(answered + 1) };
 	}
 	// Between the prober's turn and the teacher's (the probe-handoff wake),
 	// nothing runs for a moment: a session still preparing is still preparing.
 	if (session.state === "preparing") {
-		return { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` };
+		return { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) };
 	}
 	if (!hasAssistant) return { ...base, status: "error", error: "no_question" };
 	return { ...base, status: "done", endedEarly: true };

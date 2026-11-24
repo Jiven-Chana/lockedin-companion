@@ -12,7 +12,7 @@
 
 import type { ChatInput } from "../../../core/input-events.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
-import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
+import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
 import type { AnswerInput, CompanionSession, Lecture } from "../../../core/companion/types.ts";
@@ -59,6 +59,8 @@ function teacherSpoke(messages: LhMessage[]): boolean {
 
 export class LearnHarnessEngine implements SessionEngine {
 	readonly name = "learnharness" as const;
+	/** Chats with a "Next question, please." on its way, so overlapping screen updates ask once. */
+	private readonly asking = new Set<string>();
 
 	constructor(
 		private readonly port: LhPort,
@@ -92,11 +94,23 @@ export class LearnHarnessEngine implements SessionEngine {
 		return { chatId };
 	}
 
-	async waitUntilReady(session: CompanionSession, timeoutMs: number): Promise<void> {
+	/** Ask the teacher for the next question. False when a request is already on its way. */
+	private async askForQuestion(chatId: string): Promise<boolean> {
+		if (this.asking.has(chatId)) return false;
+		this.asking.add(chatId);
+		try {
+			await this.send(chatId, { type: "text", text: TEACHER_RULES.continueText });
+			return true;
+		} finally {
+			this.asking.delete(chatId);
+		}
+	}
+
+	async waitUntilReady(session: CompanionSession, timeoutMs: number, onNudge?: () => void): Promise<void> {
 		const chatId = this.chatId(session);
 		const pollMs = this.opts.pollMs ?? PREPARE_RULES.pollMs;
 		const maxIdle = this.opts.idlePollsBeforeGivingUp ?? 8;
-		const deadline = Date.now() + timeoutMs;
+		let deadline = Date.now() + timeoutMs;
 		let idle = 0;
 		for (;;) {
 			const messages = this.record(session);
@@ -112,7 +126,14 @@ export class LearnHarnessEngine implements SessionEngine {
 				// Idle with no question: the prober stopped without probe_done, or
 				// the teacher ended its turn without asking (e.g. presented a plan).
 				if (++idle >= maxIdle && messages.some((m) => m.role === "assistant")) {
-					throw new EngineError(hasProbeDone(messages) ? "no_question" : "probe_not_done");
+					if (!hasProbeDone(messages)) throw new EngineError("probe_not_done");
+					// The teacher set its plan and stopped (T-1): ask once for the question (V-22).
+					if (lastUserText(messages)?.trim() === TEACHER_RULES.continueText) throw new EngineError("no_question");
+					await this.askForQuestion(chatId);
+					onNudge?.();
+					idle = 0;
+					deadline = Math.max(deadline, Date.now() + Math.min(timeoutMs, PREPARE_RULES.afterNudgeMs));
+					continue;
 				}
 			}
 			if (Date.now() >= deadline) throw new EngineError("timeout", `question 1 did not arrive within ${timeoutMs} ms`, 504);
@@ -129,9 +150,10 @@ export class LearnHarnessEngine implements SessionEngine {
 		const v = seeded ? { ...mapped, answered: mapped.answered + seeded, budget: mapped.budget + seeded } : mapped;
 		// The teacher gave feedback and stopped before the budget: ask once for the next question (TEACHER_RULES).
 		if (v.status === "done" && v.endedEarly && v.answered < v.budget && lastUserText(messages)?.trim() !== TEACHER_RULES.continueText) {
+			const thinking = { ...v, status: "thinking" as const, endedEarly: undefined, activity: SESSION_COPY.writing(v.answered + 1) };
 			try {
-				await this.send(chatId, { type: "text", text: TEACHER_RULES.continueText });
-				return { ...v, status: "thinking" as const, endedEarly: undefined, activity: `Writing question ${v.answered + 1}…`, teacherNudged: true };
+				// A second screen update while the request is on its way shows the wait and logs nothing (X-1).
+				return (await this.askForQuestion(chatId)) ? { ...thinking, teacherNudged: true } : thinking;
 			} catch {
 				return v;
 			}
@@ -197,6 +219,11 @@ export class LearnHarnessEngine implements SessionEngine {
 		const messages = this.record(session);
 		if (this.port.failure(chatId)) return this.send(chatId, { type: "retry" });
 		if (needsContinuation(messages)) return this.send(chatId, { type: "continue" });
+		// The teacher ended its turn without a question (T-1): ask for it.
+		if (hasProbeDone(messages) && !pendingQuestionOf(messages)) {
+			await this.askForQuestion(chatId);
+			return;
+		}
 		throw conflict("nothing_to_retry");
 	}
 

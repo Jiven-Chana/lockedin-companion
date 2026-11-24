@@ -274,6 +274,98 @@ describe("engines, fallback and errors", () => {
 		assert.ok(events().includes("engine_fallback"));
 	});
 
+	/** A real-engine stand-in: it starts a chat, and `ready` decides how waiting for question 1 goes. */
+	function teacher(ready: (attempt: number, onNudge?: () => void) => Promise<void>) {
+		let waits = 0;
+		const retried: string[] = [];
+		const engine: SessionEngine = {
+			...broken,
+			start: async () => ({ chatId: "chat_1" }),
+			waitUntilReady: (_s, _ms, onNudge) => ready(++waits, onNudge),
+			view: async (session, lecture) => ({
+				id: session.id, engine: "learnharness", kind: session.spec.kind, mode: session.spec.mode, lecture: { id: lecture.id, title: lecture.title, module: lecture.module },
+				goal: "", answered: 0, budget: session.budget, canHint: false, slideRefs: [],
+				...(session.state === "error" ? { status: "error" as const, error: session.error } : session.state === "preparing" ? { status: "preparing" as const } : { status: "thinking" as const }),
+			}),
+			retry: async (session) => {
+				retried.push(session.error ?? "");
+			},
+		};
+		return { engine, retried, waits: () => waits };
+	}
+
+	it("a teacher that had to be asked for question 1 is logged once, and the session is ready (T-1)", async () => {
+		const t = teacher(async (_n, onNudge) => onNudge?.());
+		const { svc, store, events } = setup({ engines: { learnharness: t.engine }, defaultEngine: "learnharness" });
+		svc.onboard({});
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		assert.equal(store.session(sessionId)?.state, "ready");
+		assert.equal(events().filter((e) => e === "teacher_nudged").length, 1);
+	});
+
+	it("Try again on a session that never asked waits for question 1 again (T-1, T-6)", async () => {
+		const t = teacher(async (n) => {
+			if (n === 1) throw new EngineError("no_question");
+			await new Promise((r) => setTimeout(r, 5));
+		});
+		const { svc, store } = setup({ engines: { learnharness: t.engine }, defaultEngine: "learnharness" });
+		svc.onboard({});
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		const failed = await svc.view(sessionId);
+		assert.deepEqual([failed.status, failed.error, failed.practiceAvailable], ["error", "no_question", true]);
+		await svc.retry(sessionId);
+		assert.equal(store.session(sessionId)?.state, "preparing", "back to waiting, not straight to 'active'");
+		await svc.whenReady(sessionId);
+		assert.deepEqual(t.retried, ["no_question"]);
+		assert.equal(t.waits(), 2);
+		const after = store.session(sessionId)!;
+		assert.deepEqual([after.state, after.error, !!after.readyAt], ["active", undefined, true]);
+	});
+
+	it("a second failure after Try again is an error again, not a silent hang", async () => {
+		const t = teacher(async () => {
+			throw new EngineError("timeout", "question 1 did not arrive", 504);
+		});
+		const { svc } = setup({ engines: { learnharness: t.engine }, defaultEngine: "learnharness" });
+		svc.onboard({});
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		await svc.retry(sessionId);
+		await svc.whenReady(sessionId);
+		assert.deepEqual([(await svc.view(sessionId)).status, (await svc.view(sessionId)).error], ["error", "timeout"]);
+	});
+
+	it("Use practice questions: the same lecture on its question bank, chosen and declared (T-6)", async () => {
+		const t = teacher(async () => {
+			throw new EngineError("no_question");
+		});
+		const { svc, store } = setup({ engines: { learnharness: t.engine }, defaultEngine: "learnharness" });
+		svc.onboard({});
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		await svc.view(sessionId);
+		const next = svc.practiceInstead(sessionId);
+		await svc.whenReady(next.sessionId);
+		const v = await svc.view(next.sessionId);
+		assert.deepEqual([v.engine, v.status, v.kind], ["scripted", "question", "post-lecture"]);
+		assert.equal(v.practiceAvailable, undefined);
+		assert.equal(store.session(next.sessionId)?.fellBackFrom, "learnharness");
+		assert.equal(store.session(sessionId)?.state, "stopped");
+		const fallback = store.events().filter((e) => e.type === "engine_fallback");
+		assert.equal(fallback.length, 1);
+		assert.deepEqual([fallback[0]!.data.chosen, fallback[0]!.data.code, fallback[0]!.data.to], [true, "no_question", "scripted"]);
+	});
+
+	it("practice questions are only offered for a failed session whose lecture has a bank", async () => {
+		const { svc } = setup();
+		svc.onboard({});
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		assert.throws(() => svc.practiceInstead(sessionId), (e: unknown) => e instanceof Error && /working/.test(e.message));
+	});
+
 	it("the facilitator can switch the engine for the next sessions", () => {
 		const { svc, store } = setup();
 		svc.onboard({});
