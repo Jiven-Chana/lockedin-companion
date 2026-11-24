@@ -198,6 +198,23 @@ export const CALENDAR_RULES = {
 	/** Events read from this many days back to this many days ahead. */
 	lookbackDays: 28,
 	lookaheadDays: 120,
+	/**
+	 * A calendar event whose title has one of these words is a deadline, never
+	 * a lecture (v1.0 K-1, V-28): a Canvas "HCI coursework due" at 23:00 must
+	 * not send "HCI just finished". Not "quiz" or "test": those can be taught.
+	 */
+	deadlineWords: ["due", "deadline", "assignment", "coursework", "submission", "hand-in", "hand in"],
+} as const;
+
+/** The AI connection check on the Connect screen and Me (v1.0 D-1): it never sits on "Checking…" for good. */
+export const CONNECT_RULES = {
+	statusTimeoutMs: 15_000,
+} as const;
+export const CONNECT_COPY = {
+	checking: "Checking your AI connection…",
+	slow: "Checking your AI connection is taking longer than usual.",
+	failed: "Couldn't check your AI connection.",
+	tryAgain: "Try again",
 } as const;
 
 /** Onboarding step 2's "Where do I find my link?" (decided 24 Nov; the Birmingham route was found 24 Nov). */

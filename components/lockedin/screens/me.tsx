@@ -5,7 +5,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { MotionChoice, Profile } from "@/src/core";
-import { ApiError, lockedIn } from "../api";
+import { ApiError, lockedIn, type AiFullStatus } from "../api";
 import { useData, useLocalFlag } from "../hooks";
 import { useLockedIn } from "../root";
 import { PageHead } from "../shell";
@@ -35,6 +35,8 @@ export function MeScreen() {
 	const [prefs, setPrefs] = useState<Profile["prefs"] | null>(null);
 	const [notify, setNotify] = useLocalFlag("li-notify");
 	const [msg, setMsg] = useState<string | null>(null);
+	// The AI status is loaded once, by "Your AI"; Voice reads its key state from it.
+	const [ai, setAi] = useState<AiFullStatus | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
 	useEffect(() => { if (profile.data) setPrefs(profile.data.prefs); }, [profile.data]);
@@ -67,7 +69,7 @@ export function MeScreen() {
 			<section id="ai" className="li-card li-stack" aria-labelledby="ai-h" style={{ gap: 16 }}>
 				<h2 id="ai-h" className="li-h2">Your AI</h2>
 				<span className="li-muted">The AI that teaches your sessions, and the model behind each part of the teacher.</span>
-				<ConnectAi variant="settings" />
+				<ConnectAi variant="settings" onStatus={setAi} />
 			</section>
 
 			<section id="phone" className="li-card li-stack" aria-labelledby="ph-h" style={{ gap: 12 }}>
@@ -90,7 +92,7 @@ export function MeScreen() {
 
 			<section id="voice" className="li-card li-stack" aria-labelledby="vo-h" style={{ gap: 12 }}>
 				<h2 id="vo-h" className="li-h2">Voice</h2>
-				<VoiceSection />
+				<VoiceSection voice={ai ? !!ai.voice : null} />
 			</section>
 
 			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>

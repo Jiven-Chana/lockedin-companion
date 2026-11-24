@@ -7,15 +7,15 @@
 
 import { useState } from "react";
 import { ApiError, lockedIn } from "./api";
-import { useData } from "./hooks";
 import { resetVoiceAvailable } from "./mic";
 
-export function VoiceSection() {
-	const status = useData(() => lockedIn.ai.status());
+/** `voice`: whether a key is saved, from the AI status the page already loaded (Me asks once, not twice: v1.0 D-1). Null while that loads. */
+export function VoiceSection({ voice: loaded }: { voice: boolean | null }) {
+	const [saved, setSaved] = useState<boolean | null>(null);
 	const [key, setKey] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<string | null>(null);
-	const voice = !!status.data?.voice;
+	const voice = saved ?? loaded ?? false;
 
 	const save = async (value: string | null) => {
 		setBusy(true);
@@ -25,7 +25,7 @@ export function VoiceSection() {
 			resetVoiceAvailable(!!s.voice);
 			setKey("");
 			setMsg(s.voice ? "✓ Saved. Sessions now show a Speak button under “Why?”." : "Removed. The Speak button is hidden.");
-			void status.reload();
+			setSaved(!!s.voice);
 		} catch (e) {
 			setMsg(e instanceof ApiError ? e.message : "Couldn't save the key. Try again.");
 		} finally {

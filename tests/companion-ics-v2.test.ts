@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { icsToLectures, parseIcs, zonedTime, type IcsEvent } from "../src/core/companion/index.ts";
+import { icsToLectures, isDeadlineTitle, parseIcs, zonedTime, type IcsEvent } from "../src/core/companion/index.ts";
 
 const FIX = path.join(import.meta.dirname, "fixtures", "companion", "ics");
 const read = (f: string) => fs.readFileSync(path.join(FIX, f), "utf-8");
@@ -86,4 +86,51 @@ describe("zoned wall-clock times", () => {
 	];
 	for (const [name, args, iso] of cases) it(name, () => assert.equal(zonedTime(...args).toISOString(), iso));
 	it("garbage in gives no events, not a crash", () => assert.deepEqual(parseIcs("not a calendar", range), []));
+});
+
+describe("deadlines in a calendar are never lectures (v1.0 K-1, V-28)", () => {
+	const window = { from: new Date(2026, 10, 1), to: new Date(2026, 11, 31) };
+	const event = (uid: string, summary: string, start: string, end?: string) => ["BEGIN:VEVENT", `UID:${uid}`, `SUMMARY:${summary}`, `DTSTART:${start}`, ...(end ? [`DTEND:${end}`] : []), "END:VEVENT"];
+	const calendar = (...events: string[][]) => ["BEGIN:VCALENDAR", ...events.flat(), "END:VCALENDAR"].join("\r\n");
+	const hci = [{ code: "HCI", name: "Human-Computer Interaction" }];
+
+	const titles: Array<[string, boolean]> = [
+		["HCI coursework due", true],
+		["HCI: Assignment 2", true],
+		["HCI report deadline", true],
+		["HCI submission", true],
+		["HCI hand-in", true],
+		["HCI hand in", true],
+		["HCI Due: poster", true],
+		["HCI: Lecture 5", false],
+		["HCI: Lecture on subdued colour", false],
+		["HCI quiz", false],
+		["HCI class test", false],
+	];
+	for (const [summary, deadline] of titles) {
+		it(`"${summary}" is ${deadline ? "a deadline" : "not a deadline"}`, () => {
+			assert.equal(isDeadlineTitle(summary), deadline);
+			const { lectures } = icsToLectures(parseIcs(calendar(event("a", summary, "20261118T230000Z", "20261118T235900Z")), window), hci);
+			assert.deepEqual(lectures.map((l) => l.kind), [deadline ? "event" : "lecture"]);
+		});
+	}
+
+	it("an event with no length never reaches the timetable (a Canvas deadline at a single moment)", () => {
+		const text = calendar(
+			event("same", "HCI: Lecture 5", "20261118T235900Z", "20261118T235900Z"),
+			event("none", "HCI: Lecture 6", "20261119T235900Z"),
+			[...event("zero", "HCI: Lecture 7", "20261120T235900Z").slice(0, -1), "DURATION:PT0S", "END:VEVENT"],
+			event("real", "HCI: Lecture 8", "20261121T100000Z", "20261121T120000Z"),
+		);
+		assert.deepEqual(parseIcs(text, window).map((e) => e.summary), ["HCI: Lecture 8"]);
+	});
+
+	it("Birmingham's own titles still decide by the activity after the slash", () => {
+		const { lectures } = icsToLectures(
+			// The feed's exact title format: level prefix, name, (number), "/", activity. A module can have "Coursework" in its name.
+			parseIcs(calendar(event("b", "LM Coursework Design (12345)/Lecture", "20261118T100000Z", "20261118T120000Z"), event("c", "LM Coursework Design (12345)/Drop-In", "20261119T100000Z", "20261119T120000Z")), window),
+			[{ code: "CD", name: "Coursework Design" }],
+		);
+		assert.deepEqual(lectures.map((l) => l.kind), ["lecture", "event"]);
+	});
 });

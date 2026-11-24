@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+	CONNECT_COPY,
+	CONNECT_RULES,
 	KEY_PROVIDERS,
 	PROVIDER_LABEL,
 	SLOT_META,
@@ -29,7 +31,15 @@ function price(m: CatalogModel) {
 	return m.cost ? ` · $${m.cost.input}/$${m.cost.output} per M tokens` : m.provider === "chatgpt" ? " · included in ChatGPT" : "";
 }
 
-export function ConnectAi({ onReadyChange, variant = "onboarding" }: { onReadyChange?: (ready: boolean) => void; variant?: "onboarding" | "settings" }) {
+/** Rejects when the check takes longer than CONNECT_RULES.statusTimeoutMs, so the screen can say so and offer another try (v1.0 D-1). */
+function statusInTime(): Promise<AiFullStatus> {
+	return new Promise((resolve, reject) => {
+		const timer = window.setTimeout(() => reject(new ApiError(504, "status_slow", CONNECT_COPY.slow)), CONNECT_RULES.statusTimeoutMs);
+		lockedIn.ai.status().then(resolve, reject).finally(() => window.clearTimeout(timer));
+	});
+}
+
+export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: { onReadyChange?: (ready: boolean) => void; /** Every status this screen loads, so a neighbour (Me → Voice) doesn't ask again. */ onStatus?: (status: AiFullStatus) => void; variant?: "onboarding" | "settings" }) {
 	const [status, setStatus] = useState<AiFullStatus | null>(null);
 	const [draft, setDraft] = useState<SlotChoices>({});
 	const [busy, setBusy] = useState<string | null>(null);
@@ -44,12 +54,20 @@ export function ConnectAi({ onReadyChange, variant = "onboarding" }: { onReadyCh
 		setStatus(s);
 		setDraft(s.slots);
 		onReadyChange?.(s.ready);
-	}, [onReadyChange]);
+		onStatus?.(s);
+	}, [onReadyChange, onStatus]);
 
-	const refresh = useCallback(async () => apply(await lockedIn.ai.status()), [apply]);
+	const refresh = useCallback(async () => {
+		setMsg(null);
+		try {
+			apply(await statusInTime());
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : CONNECT_COPY.failed);
+		}
+	}, [apply]);
 
 	useEffect(() => {
-		refresh().catch((e) => setMsg(e instanceof ApiError ? e.message : "Couldn't check your AI connection."));
+		void refresh();
 		return () => { if (polling.current) window.clearInterval(polling.current); };
 	}, [refresh]);
 
@@ -115,7 +133,11 @@ export function ConnectAi({ onReadyChange, variant = "onboarding" }: { onReadyCh
 	const disconnect = (provider: string) => run("disconnect", async () => apply(await lockedIn.ai.disconnect(provider)));
 	const setBackground = (enabled: boolean) => run("consent", async () => apply((await lockedIn.ai.chatgpt("consent", enabled)).status));
 
-	if (!status) return <p className="li-muted">{msg ?? "Checking your AI connection…"}</p>;
+	if (!status) {
+		return msg
+			? <div className="li-row li-note" role="alert" style={{ gap: 10 }}><span style={{ flexGrow: 1 }}>{msg}</span><button type="button" className="li-btn" onClick={() => void refresh()}>{CONNECT_COPY.tryAgain}</button></div>
+			: <p className="li-muted" aria-live="polite">{CONNECT_COPY.checking}</p>;
+	}
 
 	const connected = status.provider !== null;
 	const connections = [

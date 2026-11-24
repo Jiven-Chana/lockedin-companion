@@ -44,6 +44,15 @@ export function demoEnabled(env: Record<string, string | undefined> = process.en
 	return env.COMPANION_DEMO === "1";
 }
 
+/**
+ * The demo clock only moves time for a facilitator (COMPANION_DEMO=1). An
+ * offset left in demo.json by an earlier demo must not skew a student's
+ * real run: nudges and the phone relay work on real time (v1.0 P-4).
+ */
+export function demoClockOffsetMs(stored: number | undefined, env: Record<string, string | undefined> = process.env): number {
+	return demoEnabled(env) ? (stored ?? 0) : 0;
+}
+
 /** An explicit COMPANION_ENGINE, or null when unset (then the student's AI decides, F-102). */
 export function explicitEngine(env: Record<string, string | undefined> = process.env): EngineName | null {
 	const raw = env.COMPANION_ENGINE?.trim();
@@ -94,7 +103,7 @@ export function createCompanionService(env: Record<string, string | undefined> =
 	ensureSeeded({ env });
 	const store = new CompanionStore(companionDataDir());
 	const content = new CompanionContent(store, companionContentDir());
-	const clock = new OffsetClock(() => store.demo().clockOffsetMs);
+	const clock = new OffsetClock(() => demoClockOffsetMs(store.demo().clockOffsetMs, env));
 	const timeout = Number(env.COMPANION_READY_TIMEOUT_MS);
 	const explicit = explicitEngine(env);
 	const svc = new CompanionService({
