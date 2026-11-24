@@ -71,7 +71,7 @@ The plan is [`v1.0-plan.md`](v1.0-plan.md). It follows [`v1.0-issues.md`](v1.0-i
 | V-24 | **The smallest unit is 500 characters of text** | A pack needs at least 2 ideas and 12 questions. The failing unit was the words "Week 8" | — |
 | V-25 | **An unknown week reads "Week not set"**, with a one-tap "Set week" on the unit | "Week 0" means nothing to a student | — |
 | V-26 | **Sample lectures are hidden** once a real upload is saved or a real calendar is imported. Nothing is deleted; facilitator scenarios bring them back | The sample "Games in normal form" sat beside the student's own | — |
-| V-27 | **`/` redirects to `/app` always.** The engine's pages stay reachable at their own addresses | The engine's home screen confused real use | spec F-117 "when running as the desktop app" |
+| V-27 | **`/` redirects to `/app` always.** The engine's pages stay reachable at their own addresses (`/chat/new`, `/chat/<id>`) | The engine's home screen confused real use | spec F-117 "when running as the desktop app" |
 | V-28 | **Deadline events are never lectures:** a title with due, deadline, assignment, coursework, submission or hand-in is treated like a lab. Not "quiz" or "test", which can be taught sessions | A Canvas deadline would send "HCI just finished" at midnight | — |
 | V-29 | **The phone install is a guided web install**, and the pairing is carried into the Home Screen app | iPhones only allow notifications from an installed web app. A native wrapper is considered only if this fails on a real phone | — |
 | V-30 | **Event log:** double counts are fixed in v1.0. Renaming events and giving each type one shape waits for v3.0 | Renames two days before the 26 Nov test could break its analysis | — |
