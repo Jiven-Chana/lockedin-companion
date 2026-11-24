@@ -55,7 +55,6 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 		try {
 			const units = rows.filter((r) => r.keep && !r.short && r.title.trim()).map(({ keep: _k, short: _s, ...r }) => ({ ...r, title: r.title.trim() }));
 			const r = await lockedIn.saveMaterials(code, { uploadId: proposal.uploadId, units });
-			void lockedIn.event("settings_changed", { changed: ["materials"], module: code, units: r.units.length });
 			onSaved(r.units.length);
 		} catch (e) {
 			setError(e instanceof ApiError ? e.message : "Couldn't save. Try again.");

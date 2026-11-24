@@ -168,7 +168,11 @@ export class CompanionService {
 	}
 
 	private noteAiReady(ready: boolean) {
-		if (ready && !this.aiReady && this.deps.engineWhenAiReady) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
+		// Logged when the AI becomes ready, remembered across restarts: a restart with the AI still connected isn't news (X-1).
+		if (this.deps.engineWhenAiReady && ready !== (this.store.runtime().aiReady ?? false)) {
+			this.store.saveRuntime({ aiReady: ready });
+			if (ready) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
+		}
 		this.aiReady = ready;
 		if (ready && !this.packsResumed) {
 			this.packsResumed = true;
@@ -1006,7 +1010,8 @@ export class CompanionService {
 	}
 
 	/** Target, block length, Sunday time, focus screen (Me → Study blocks). The target changes only when the student sets it. */
-	updatePlanSettings(body: unknown) {
+	/** `via`: where the change came from. A target confirmed in the Sunday check-in is that, not a settings change (X-1). */
+	updatePlanSettings(body: unknown, via: "settings" | "checkin" = "settings") {
 		const profile = this.requireProfile();
 		const b = (body ?? {}) as Partial<NonNullable<Profile["plan"]>>;
 		const cur = this.planSettings();
@@ -1022,8 +1027,8 @@ export class CompanionService {
 		}
 		if (b.focusScreen !== undefined) next.focusScreen = b.focusScreen === true;
 		this.store.saveProfile({ ...profile, plan: next });
-		if (next.weeklyTargetMinutes !== cur.weeklyTargetMinutes) this.log("target_changed", { from: cur.weeklyTargetMinutes, to: next.weeklyTargetMinutes, via: "settings" });
-		this.log("settings_changed", { changed: Object.keys(b).map((k) => `plan.${k}`) });
+		if (next.weeklyTargetMinutes !== cur.weeklyTargetMinutes) this.log("target_changed", { from: cur.weeklyTargetMinutes, to: next.weeklyTargetMinutes, via });
+		if (via === "settings") this.log("settings_changed", { changed: Object.keys(b).map((k) => `plan.${k}`) });
 		return next;
 	}
 
@@ -1061,7 +1066,8 @@ export class CompanionService {
 	/** { feeling } → the proposed target; then { target: minutes } confirms it, or { keep: true } keeps the current one. */
 	answerCheckin(body: unknown) {
 		const b = (body ?? {}) as { feeling?: unknown; target?: unknown; keep?: unknown };
-		const c = this.checkin();
+		// Reading the check-in to answer it isn't showing it again (X-1).
+		const c = this.checkin({ quiet: true });
 		if (!c.target) throw new CompanionError("no_target", 409, "Set a weekly study target first.");
 		const current = c.target;
 		if (b.feeling !== undefined) {
@@ -1075,7 +1081,7 @@ export class CompanionService {
 			return { target: current, plan: this.proposePlan({ week: c.nextWeek }) };
 		}
 		if (Number.isInteger(b.target)) {
-			this.updatePlanSettings({ weeklyTargetMinutes: b.target });
+			this.updatePlanSettings({ weeklyTargetMinutes: b.target }, "checkin");
 			return { target: b.target, plan: this.proposePlan({ week: c.nextWeek }) };
 		}
 		throw badRequest("send { feeling }, then { target } to confirm or { keep: true }");
@@ -1501,7 +1507,7 @@ export class CompanionService {
 		if (!session.chatId && !session.scripted) {
 			// The engine has not started this session: either the first turn is
 			// still being admitted (show the wait) or starting failed (say so).
-			this.markOpened(session, now);
+			this.markOpened(session.id, now);
 			const base = {
 				id: session.id, engine: session.engine, kind: session.spec.kind, mode: session.spec.mode,
 				lecture: { id: lecture.id, title: lecture.title, module: lecture.module },
@@ -1515,7 +1521,7 @@ export class CompanionService {
 		const { teacherNudged, ...mapped } = await engine.view(session, lecture);
 		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
-		this.markOpened(session, now);
+		this.markOpened(session.id, now);
 		this.store.updateSession(session.id, (s) => {
 			let next: CompanionSession = { ...s, answered: v.answered };
 			if (v.question && !(s.shownQuestionIds ?? []).includes(v.question.id)) {
@@ -1534,16 +1540,26 @@ export class CompanionService {
 		return v;
 	}
 
-	private markOpened(session: CompanionSession, now: Date): void {
-		if (session.openedAt && session.state !== "stopped") return;
-		const resumed = !!session.openedAt;
-		this.store.updateSession(session.id, (s) => ({
-			...s,
-			openedAt: s.openedAt ?? now.toISOString(),
-			lastActivityAt: now.toISOString(),
-			state: s.state === "ready" || s.state === "stopped" ? "active" : s.state,
-		}));
-		this.log("session_opened", { sessionId: session.id, engine: session.engine, kind: session.spec.kind, prewarmed: !!session.nudgeKey, ready: isSessionReady(session), resumed });
+	/**
+	 * The session screen has opened this session (or come back to a stopped
+	 * one). Decided from the record as it is now, inside the update: the
+	 * screen asks every 750 ms and the engine's view takes a moment, so a
+	 * copy read before that would open the same session several times (X-1).
+	 */
+	private markOpened(sessionId: string, now: Date): void {
+		let opened: { session: CompanionSession; resumed: boolean } | null = null;
+		this.store.updateSession(sessionId, (s) => {
+			if (s.openedAt && s.state !== "stopped") return s;
+			opened = { session: s, resumed: !!s.openedAt };
+			return {
+				...s,
+				openedAt: s.openedAt ?? now.toISOString(),
+				lastActivityAt: now.toISOString(),
+				state: s.state === "ready" || s.state === "stopped" ? "active" : s.state,
+			};
+		});
+		const o = opened as { session: CompanionSession; resumed: boolean } | null;
+		if (o) this.log("session_opened", { sessionId, engine: o.session.engine, kind: o.session.spec.kind, prewarmed: !!o.session.nudgeKey, ready: isSessionReady(o.session), resumed: o.resumed });
 	}
 
 	parseAnswer(raw: unknown): AnswerInput {

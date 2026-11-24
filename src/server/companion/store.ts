@@ -34,6 +34,8 @@ export interface DemoState {
 }
 
 export interface RuntimeState {
+	/** Whether the student's AI was ready when last checked, so `engine_ready` is logged on a change, not on every restart. */
+	aiReady?: boolean;
 	/** The firm/gentle lock's "let me through" window. */
 	lockOverrideUntil?: string;
 	/** A subscribed calendar link (F-03); stays on this laptop. */
