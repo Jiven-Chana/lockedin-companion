@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { activeBlock, lockDecision, validateBlocks } from "../../core/companion/blocks.ts";
+import { activeBlock, canStartBlock, lockDecision, resumableSession, validateBlocks } from "../../core/companion/blocks.ts";
 import { eventsToCsv } from "../../core/companion/csv.ts";
 import { applyRetestAnswer, mergeMisses, missFromAnswer } from "../../core/companion/misses.ts";
 import {
@@ -25,9 +25,10 @@ import {
 	prewarmCandidates,
 	snoozeReturnTime,
 	specFor,
+	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -917,7 +918,9 @@ export class CompanionService {
 			// A block's module: the student's choice, else its unit's (blocks planned before v1.1 only had the unit).
 			blocks: blocks.map((b) => {
 				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
-				return { ...b, focus, module: b.module ?? focus?.module ?? null };
+				const first = this.firstStepOf(b);
+				// What the timetable shows on a block (V-44): its first step, and whether it can be started now.
+				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()) };
 			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
@@ -985,8 +988,10 @@ export class CompanionService {
 		}
 		if (p.status !== undefined) {
 			if (p.status !== "accepted" && p.status !== "removed" && p.status !== "started" && p.status !== "proposed") throw badRequest("status must be accepted, started, removed or proposed");
+			// A block starts on its own day (V-44); starting it twice is harmless.
+			if (p.status === "started" && block.status !== "started" && !canStartBlock(block, this.now())) throw new CompanionError("block_not_today", 409, PLAN_COPY.notToday);
 			next.status = p.status;
-			if (p.status === "started") next.startedAt = this.now().toISOString();
+			if (p.status === "started" && block.status !== "started") next.startedAt = this.now().toISOString();
 		}
 		if (p.module !== undefined) {
 			// The block's module (V-37): one of the student's, or null for free study. It then studies that module's next unit.
@@ -1027,8 +1032,47 @@ export class CompanionService {
 		if (p.module !== undefined && (next.module ?? null) !== (block.module ?? null)) this.log("plan_module_set", { ...data, from: block.module ?? null });
 		if (p.status === "accepted" && block.status !== "accepted") this.log("plan_accepted", data);
 		if (p.status === "removed") this.log("plan_removed", data);
-		if (p.status === "started") this.log("block_started", { ...data, via: "plan" });
+		if (p.status === "started" && block.status !== "started") this.log("block_started", { ...data, via: "plan" });
 		return next;
+	}
+
+	/** A block's tiny first step (S-67, V-44): its first question and the slide it comes from. */
+	private firstStepOf(block: Pick<StudyBlock, "lectureId" | "firstTaskQuestionId">): { questionId: string; stem: string; slide: number | null } | null {
+		if (!block.lectureId || !block.firstTaskQuestionId) return null;
+		const q = this.packs?.bank(block.lectureId)?.find((x) => x.id === block.firstTaskQuestionId);
+		return q ? { questionId: q.id, stem: q.stem, slide: q.slides[0] ?? null } : null;
+	}
+
+	/** The session a block opens: its unit (else the latest lecture), starting on its first step. */
+	private blockSpec(block: StudyBlock): SessionSpec | null {
+		const focus = blockFocus({ lectures: this.store.lectures() }, block, this.now());
+		if (!focus) return null;
+		const first = this.firstStepOf(block);
+		return { ...specFor("block", focus, this.store.profile()?.prefs), ...(first ? { firstQuestionId: first.questionId } : {}) };
+	}
+
+	/** Mark a block started, once. `via` says how: the Start button, or its notification. */
+	private markBlockStarted(blockId: string, via: "start" | "nudge"): StudyBlock | null {
+		const blocks = this.store.blocks();
+		const block = blocks.find((b) => b.id === blockId);
+		if (!block || block.status === "started" || !canStartBlock(block, this.now())) return block ?? null;
+		const next: StudyBlock = { ...block, status: "started", startedAt: this.now().toISOString() };
+		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? next : b)));
+		this.log("block_started", { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, module: next.module ?? null, via });
+		return next;
+	}
+
+	/**
+	 * Start a study block from the laptop (V-44): marks it started and opens
+	 * its session. A block that is already started just opens a session again.
+	 */
+	startBlock(blockId: string): { block: StudyBlock; sessionId: string | null } {
+		const block = this.store.blocks().find((b) => b.id === blockId && b.status !== "removed");
+		if (!block) throw notFound("block");
+		if (block.status !== "started" && !canStartBlock(block, this.now())) throw new CompanionError("block_not_today", 409, PLAN_COPY.notToday);
+		const started = this.markBlockStarted(blockId, "start") ?? block;
+		const spec = this.blockSpec(started);
+		return { block: started, sessionId: spec ? this.createSession(spec).sessionId : null };
 	}
 
 	/** Accept proposals: the listed ids, or every proposal in that week. */
@@ -1327,8 +1371,18 @@ export class CompanionService {
 		return { now: now.toISOString(), nudges: scheduleWeek(state, now, { questionFor: (id, used) => this.questionFor(id, used) }) };
 	}
 
+	/** The block a block nudge is for. Its key is `block:<id>:<date>`, or `forced:block:<id>:<ms>`. */
+	private blockOfNudge(key: string): StudyBlock | null {
+		const id = /(?:^|:)block:([^:]+):/.exec(key)?.[1];
+		return id ? (this.store.blocks().find((b) => b.id === id) ?? null) : null;
+	}
+
 	private fire(c: NudgeCandidate, forced: boolean): NudgeRecord {
 		// N-5 opens the check-in, not a session (F-111).
+		// A block's notification names its first step, and its session opens on it (V-44).
+		const block = c.type === "block" ? this.blockOfNudge(c.key) : null;
+		const firstStep = block ? this.firstStepOf(block) : null;
+		if (firstStep) c = { ...c, spec: { ...c.spec, firstQuestionId: firstStep.questionId }, text: NUDGE_TEXT.block(block!.minutes, PLAN_COPY.firstStep(firstStep.slide)) };
 		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
 		const lecture = c.type === "N-1" ? this.store.lectures().find((l) => c.key === `N-1:${l.id}` || c.key.startsWith(`forced:N-1:${l.id}:`)) ?? this.lectureById(c.lectureId ?? "") : undefined;
 		const used = new Set(this.store.nudges().map((n) => n.questionId).filter((q): q is string => !!q));
@@ -1378,6 +1432,11 @@ export class CompanionService {
 				if (!session || session.state === "error") {
 					const spec = session?.spec ?? specFor(nudge.type === "N-3" ? "missed-lecture" : nudge.type === "N-2" ? "retest" : nudge.type === "block" ? "block" : "post-lecture", nudge.lectureId ?? "", this.store.profile()?.prefs);
 					session = this.store.session(this.createSession(spec).sessionId)!;
+				}
+				// Opening a block's notification is starting the block (V-44).
+				if (nudge.type === "block") {
+					const block = this.blockOfNudge(nudge.key);
+					if (block) this.markBlockStarted(block.id, "nudge");
 				}
 				const updated = nudge.outcome === "opened" ? nudge : settle("opened");
 				const next = updated.sessionId === session.id ? updated : { ...updated, sessionId: session.id };
@@ -1495,12 +1554,14 @@ export class CompanionService {
 			const missIds = new Set(session.spec.missIds ?? []);
 			const misses = this.store.misses().filter((m) => missIds.has(m.id));
 			const moduleName = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name;
+			const firstQuestion = session.spec.firstQuestionId ? this.packs?.bank(lecture.id)?.find((q) => q.id === session.spec.firstQuestionId) : undefined;
 			const { text } = buildOpeningMessage({
 				spec: session.spec,
 				lecture,
 				...(moduleName ? { moduleName } : {}),
 				slidesMarkdown: this.content.slidesMarkdown(lecture.id) ?? "",
 				conceptMap: this.content.conceptMapSource(lecture.id) ?? undefined,
+				...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}),
 				misses,
 				now: this.now(),
 			});
@@ -1891,10 +1952,17 @@ export class CompanionService {
 		const firstRun = state.sessions.every((s) => !s.openedAt);
 		const tryNow = firstRun ? tryNowLecture(state, now) : undefined;
 		const todays = lecturesWithStatus(state).filter((l) => !!l.start && sameDay(l.start, now));
+		const resume = resumableSession(state.sessions, now);
+		const resumeLecture = resume ? this.lectureById(resume.spec.lectureId) : undefined;
 		const nextBlock = (() => {
 			for (let i = 0; i < 8; i++) {
 				const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
-				if (c) return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString() };
+				if (c) {
+					const b = state.blocks.find((x) => x.id === c.id);
+					const first = b ? this.firstStepOf(b) : null;
+					// Today's block can be started from Today (V-44).
+					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null };
+				}
 			}
 			return null;
 		})();
@@ -1909,7 +1977,18 @@ export class CompanionService {
 			banner: this.banner(),
 			phonePaired: this.phone?.paired() ?? false,
 			phoneAvailable: this.phone !== null,
-			activeSession: state.sessions.filter((s) => s.state === "active" && s.answered < s.budget).at(-1)?.id ?? null,
+			activeSession: resume?.id ?? null,
+			// A session that was left, to pick up (R-5). Sent whole, so Today need not open the session to describe it.
+			resume: resume && resumeLecture
+				? {
+						sessionId: resume.id,
+						module: resumeLecture.module,
+						title: resumeLecture.title,
+						answered: resume.answered,
+						budget: resume.budget,
+						text: `${SESSION_COPY.savedAt(resume.answered + 1)} ${SESSION_COPY.left(resume.budget - resume.answered, (resume.budget - resume.answered) * RESUME_RULES.minutesPerQuestion)}.`,
+					}
+				: null,
 		};
 	}
 

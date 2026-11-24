@@ -278,8 +278,13 @@ function n4Candidate(session: CompanionSession, snoozedId: string, at: Date, for
 	};
 }
 
+/** What a block studies: its own unit, else the lecture that most recently ended, else any unit with material. */
+export function blockFocus(state: Pick<CompanionState, "lectures">, b: Pick<StudyBlock, "lectureId">, now: Date): string | undefined {
+	return b.lectureId ?? latestEndedLecture(state.lectures, now)?.id ?? state.lectures.find((l) => l.hasMaterials)?.id;
+}
+
 function blockCandidate(state: CompanionState, b: StudyBlock, start: Date, now: Date, forced = false): NudgeCandidate | null {
-	const focus = b.lectureId ?? latestEndedLecture(state.lectures, now)?.id ?? state.lectures.find((l) => l.hasMaterials)?.id;
+	const focus = blockFocus(state, b, now);
 	if (!focus) return null;
 	return {
 		type: "block",
