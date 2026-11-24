@@ -34,6 +34,7 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 	const [date, setDate] = useState(b.date);
 	const [start, setStart] = useState(b.start);
 	const [err, setErr] = useState<string | null>(null);
+	const router = useRouter();
 	const act = async (patch: Parameters<typeof lockedIn.updateBlock>[1]) => {
 		try {
 			await lockedIn.updateBlock(b.id, patch);
@@ -44,11 +45,21 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 		}
 	};
 	const proposed = b.status === "proposed";
+	const startNow = async () => {
+		try {
+			const { sessionId } = await lockedIn.startBlock(b.id);
+			if (sessionId) router.push(`/app/session/${sessionId}`);
+			else onDone();
+		} catch (e) {
+			setErr(e instanceof ApiError ? e.message : "Couldn't start that block");
+		}
+	};
 	return (
 		<Tint hue={moduleHue(b.module ?? "study")}>
 			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
 				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : ""}</span>
 				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : b.module ? b.module : PLACEMENT_COPY.freeStudy}{b.reason === "gap" ? " · catch-up" : ""}</span>
+				{b.firstStep ? <span className="li-small">{b.firstStep}</span> : null}
 				{/* The block's module (V-37): changing it makes the block study that module's next unit. */}
 				{modules.length && b.status !== "started" ? (
 					<label className="li-row li-small" style={{ gap: 6 }}>
@@ -68,7 +79,9 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 					</span>
 				) : b.status !== "started" ? (
 					<span className="li-row" style={{ gap: 6 }}>
-						{proposed ? <button type="button" className="li-btn primary" onClick={() => act({ status: "accepted" })} aria-label={`Keep ${b.start} block`}>✓ Keep</button> : null}
+						{/* A block is started on its own day (V-44). */}
+						{b.canStart ? <button type="button" className="li-btn primary" onClick={startNow} aria-label={`Start ${b.start} block`}>{PLAN_COPY.start}</button> : null}
+						{proposed && !b.canStart ? <button type="button" className="li-btn primary" onClick={() => act({ status: "accepted" })} aria-label={`Keep ${b.start} block`}>✓ Keep</button> : null}
 						<button type="button" className="li-btn" onClick={() => setMoving(true)}>Move</button>
 						<button type="button" className="li-btn ghost" onClick={() => act({ status: "removed" })} aria-label={`Remove ${b.start} block`}>✕</button>
 					</span>

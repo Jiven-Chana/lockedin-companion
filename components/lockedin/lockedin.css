@@ -155,7 +155,7 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-opt[aria-checked="true"] { border-color: var(--li-accent); background: var(--li-soft); }
 .li-opt.is-answer { border-color: var(--li-solid); background: var(--li-solid-bg); color: var(--li-solid-ink); }
 .li-opt.is-miss { border-color: var(--li-revisit); background: var(--li-revisit-bg); color: var(--li-revisit-ink); }
-.li-stops { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.li-stops { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .li-stops button { min-height: 44px; border-radius: 12px; border: 2px solid var(--li-line); background: var(--li-surface); font-weight: 700; }
 .li-stops button[aria-checked="true"] { background: var(--li-accent); color: var(--li-accent-ink); border-color: var(--li-accent); }
 .li-feedback { padding: 18px 20px; border-radius: 18px; display: flex; flex-direction: column; gap: 10px; }

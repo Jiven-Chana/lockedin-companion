@@ -6,10 +6,10 @@
  * Breaks: apps reopen for 5 minutes after every 25 (Pomodoro).
  */
 
-import { BLOCK_RULES } from "./policy.ts";
-import { addMinutes, atTime, isValidHM, minutesBetween } from "./time.ts";
+import { BLOCK_RULES, RESUME_RULES } from "./policy.ts";
+import { addMinutes, atTime, dateKey, isValidHM, minutesBetween } from "./time.ts";
 import { blockOccursOn } from "./nudges.ts";
-import type { LockStrictness, StudyBlock } from "./types.ts";
+import type { CompanionSession, LockStrictness, StudyBlock } from "./types.ts";
 
 const STATUSES = ["proposed", "accepted", "started", "removed"] as const;
 const SOURCES = ["planner", "student", "phone"] as const;
@@ -114,3 +114,29 @@ export function lockDecision(args: {
 		? { allowed: true, reason: "override" }
 		: { allowed: false, prompt: "why", message: "What do you want it for?" };
 }
+
+/**
+ * Starting a block (V-44). A block is started on its own day, from its
+ * notification or a Start button; a proposal can be started too, which is
+ * choosing it. To start one on another day, move it to today first.
+ */
+export function canStartBlock(block: Pick<StudyBlock, "date" | "status">, now: Date): boolean {
+	return (block.status === "accepted" || block.status === "proposed") && block.date === dateKey(now);
+}
+
+/**
+ * The session to offer again on Today (R-5): the latest one that was left
+ * with questions still to go, whether the student pressed Stop or just
+ * closed the tab. It is offered for RESUME_RULES.offerDays, and not once a
+ * later session on the same lecture has been finished.
+ */
+export function resumableSession(sessions: readonly CompanionSession[], now: Date): CompanionSession | null {
+	const left = sessions.filter((s) => (s.state === "active" || s.state === "stopped") && s.answered < s.budget);
+	const last = left.at(-1);
+	if (!last) return null;
+	const at = new Date(last.endedAt ?? last.lastActivityAt ?? last.openedAt ?? last.createdAt).getTime();
+	if (now.getTime() - at > RESUME_RULES.offerDays * 86_400_000) return null;
+	const finishedSince = sessions.some((s) => s.state === "done" && s.spec.lectureId === last.spec.lectureId && new Date(s.createdAt).getTime() > new Date(last.createdAt).getTime());
+	return finishedSince ? null : last;
+}
+
