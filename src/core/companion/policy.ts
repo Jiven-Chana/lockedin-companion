@@ -221,6 +221,13 @@ export const CONFIDENCE_TAPS = [
 	{ label: "Certain", value: 100 },
 ] as const;
 
+/**
+ * Practise (V-40): a round's size, and how much of it may go to repair.
+ * `gapShare` keeps a round mixed: at most this share goes to ideas with a gap
+ * or fading while other ideas are available.
+ */
+export const PRACTISE_RULES = { questions: 5, minutes: 3, more: 3, gapShare: 0.6 } as const;
+
 /** A session you left is offered again on Today for this long (R-5). */
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;
 
