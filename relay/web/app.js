@@ -27,6 +27,15 @@ const COPY = {
 		tryNote: "A sample question. Nothing you tap here is sent to your laptop.",
 		tried: "That's how a question looks. Yours arrive after your lectures, once LockedIn is on your Home Screen.",
 	},
+	// No pairing on this phone (v1.0.2).
+	unpaired: {
+		browser: "Open the link or QR code from your laptop: LockedIn → Me → Phone.",
+		installed: "This app isn't paired with your laptop yet.",
+		paste: "On your laptop, open Me → Phone and press Copy link. Then paste it here.",
+		box: "Pairing link",
+		pair: "Pair",
+		notALink: "That isn't a LockedIn pairing link. Copy it again from Me → Phone on your laptop.",
+	},
 };
 /** The sample on the install screen: the bundled HCI "Personas" lecture's first question, cut to three options. */
 const SAMPLE = {
@@ -155,8 +164,10 @@ function nextQuestionText(s) {
 /**
  * An iPhone gives a Home Screen app its own storage, so a pairing saved in
  * Safari is gone once LockedIn is installed. The manifest decides the
- * address the installed app opens at: point it at this pair's own manifest,
- * whose start address carries the pairing (v1.0 P-1).
+ * address the installed app opens at: this pair's own manifest has a start
+ * address that carries the pairing (v1.0 P-1). The install page is served
+ * already pointing at it (v1.0.2: an iPhone ignored a manifest set after
+ * the page had loaded); setting it here as well costs nothing.
  */
 function usePairManifest() {
 	const link = document.querySelector('link[rel="manifest"]');
@@ -332,18 +343,59 @@ async function home() {
 }
 
 // ─── start ──────────────────────────────────────────────────────────────────
-async function render() {
-	const m = /^#([0-9a-f]{32})\.([0-9a-f]{32})$/.exec(location.hash);
-	if (m) {
-		PAIR = { pairId: m[1], token: m[2] };
+/**
+ * The pairing in this page's address. It can arrive three ways:
+ *   /p#<pairId>.<token>        the laptop's QR code and link;
+ *   /p/i/<pairId>.<token>      the iPhone install page (below);
+ *   /p?pair=<pairId>.<token>   how an installed iPhone app opens (the manifest's start address).
+ */
+const PAIR_RE = /([0-9a-f]{32})\.([0-9a-f]{32})/;
+function pairIn(text) {
+	const m = PAIR_RE.exec(text || "");
+	return m ? { pairId: m[1], token: m[2] } : null;
+}
+function pairFromAddress() {
+	if (/^#[0-9a-f]{32}\.[0-9a-f]{32}$/.test(location.hash)) return pairIn(location.hash);
+	if (/^\/p\/i\/[0-9a-f]{32}\.[0-9a-f]{32}$/.test(location.pathname)) return pairIn(location.pathname);
+	const q = new URLSearchParams(location.search).get("pair");
+	return q && /^[0-9a-f]{32}\.[0-9a-f]{32}$/.test(q) ? pairIn(q) : null;
+}
+
+/** No pairing here. In the browser that is a wrong turn; in the installed app it must not be a dead end. */
+function unpairedScreen() {
+	if (!standalone) return show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, COPY.unpaired.browser)));
+	const msg = h("p", { class: "muted", role: "status" });
+	const box = h("input", { class: "input", type: "url", inputmode: "url", autocomplete: "off", autocapitalize: "off", placeholder: COPY.unpaired.box, "aria-label": COPY.unpaired.box });
+	const pair = async () => {
+		const found = pairIn(box.value);
+		if (!found) return void (msg.textContent = COPY.unpaired.notALink);
+		PAIR = found;
 		await kv("pair", PAIR);
+		return pairScreen();
+	};
+	show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, COPY.unpaired.installed), h("p", {}, COPY.unpaired.paste), box, h("button", { class: "btn primary", onclick: pair }, COPY.unpaired.pair), msg));
+}
+
+async function render() {
+	const arrived = pairFromAddress();
+	if (arrived) {
+		PAIR = arrived;
+		await kv("pair", PAIR);
+		if (isIos && !standalone) {
+			// An iPhone gives a Home Screen app its own storage, and reads the page's manifest as the page was served.
+			// So the page that gets added must be served already knowing this pair: the install page.
+			const installPage = `/p/i/${PAIR.pairId}.${PAIR.token}`;
+			if (location.pathname !== installPage) return location.replace(installPage);
+			// The address keeps the pairing while it waits to be added, in case the phone saves it instead of the manifest's.
+			return pairScreen();
+		}
 		history.replaceState(null, "", "/p"); // the token never stays in the address bar
 		// An installed iPhone app opens at its pairing address every time: once notifications are on, that is just the app opening.
 		const ready = local.get("pushOn", false) && typeof Notification !== "undefined" && Notification.permission === "granted";
 		if (!ready) return pairScreen();
 	}
 	PAIR = PAIR || (await kv("pair"));
-	if (!PAIR) return show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, "Open the link or QR code from your laptop: LockedIn → Me → Phone.")));
+	if (!PAIR) return unpairedScreen();
 	void flush();
 	const id = new URLSearchParams(location.search).get("n");
 	if (id) {

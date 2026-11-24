@@ -44,13 +44,16 @@ Then set `COMPANION_RELAY_URL=https://lockedin-relay.<account>.workers.dev` on t
 
 **After any change under `relay/`** (the Worker or the phone app in `web/`), run `npm run deploy` again from the account that owns the relay. Phones pick up the new phone app the next time they open it online.
 
-## Installing on an iPhone (v1.0, P-1)
+## Installing on an iPhone (v1.0 P-1, reworked in v1.0.2)
 
-iPhones only allow notifications from a web app on the Home Screen, and they give that app its own storage: a pairing saved in the browser doesn't reach it. So:
-- in the browser, the phone app shows a guided install (three steps with pictures, and a sample question that sends nothing);
-- it points its manifest at `GET /v1/manifest?pair=<pairId>.<token>`, which is the plain `web/manifest.webmanifest` with `start_url` set to `/p#<pairId>.<token>`. The Home Screen app therefore opens already paired;
-- the installed app says "✓ Installed" and asks for notifications. Once they are on, it opens as the app.
+iPhones only allow notifications from a web app on the Home Screen, and they give that app its own storage: a pairing saved in the browser doesn't reach it. An iPhone also reads a page's manifest as the page was served. Setting the manifest from the page afterwards (v1.0) was ignored on a real phone, and the Home Screen app opened unpaired. So:
 
-The route only echoes the pair it is given (it must be two 32-character hex strings) and never looks it up. The token is the phone's own, and it already travels to the relay on every call.
+1. The laptop's QR code opens `/p#<pairId>.<token>`. On an iPhone in the browser, the phone app goes straight to the **install page**, `/p/i/<pairId>.<token>`.
+2. The Worker serves that page as the phone app with its manifest link already set to `/v1/manifest?pair=<pairId>.<token>`. That manifest is the plain `web/manifest.webmanifest` with `start_url` set to `/p?pair=<pairId>.<token>`.
+3. The page shows the guided install (three steps with pictures, and a sample question that sends nothing) and keeps the pairing in its address while it waits. Whether the phone saves the manifest's start address or the page's own, the Home Screen app opens with the pairing.
+4. The installed app takes the pairing out of the address, says "✓ Installed" and asks for notifications. Once they are on, it opens as the app.
+5. **If the installed app still has no pairing,** it is not a dead end: it asks for the pairing link, which the laptop copies with **Me → Phone → Copy link**.
+
+Both routes only echo the pair they are given (two 32-character hex strings) and never look it up. The token is the phone's own, and it already travels to the relay on every call. The service worker leaves `/p/i/…` alone, so the page with the pairing in its address is never stored.
 
 Android and desktop browsers share storage with the installed app, so they keep the plain manifest and skip the install step.
