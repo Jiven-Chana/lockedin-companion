@@ -26,5 +26,12 @@ p { margin: 0; }
 .block { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--accent); }
 .block.proposed { border-style: dashed; }
 summary { cursor: pointer; font-weight: 700; }
+/* v1.0 P-1: the guided install on an iPhone. */
+.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.step { counter-increment: step; display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.step::before { content: counter(step); flex: 0 0 28px; height: 28px; border-radius: 999px; background: var(--soft); display: grid; place-items: center; font-weight: 700; }
+.step-icon { flex: 0 0 44px; height: 44px; border-radius: 12px; background: var(--soft); color: var(--accent); display: grid; place-items: center; }
+.step-icon img { border-radius: 7px; }
+.step-note { display: block; }
 @keyframes slide { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .result { animation: none; } }

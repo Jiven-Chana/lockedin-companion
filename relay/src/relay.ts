@@ -203,6 +203,20 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 			return fail(404, "not found");
 		}
 
+		// The phone app's manifest for one pair (v1.0 P-1). An iPhone gives a Home Screen
+		// app its own storage, so the pairing must be in the address the installed app
+		// opens at: the same manifest as the plain one, with the pair in its start address.
+		// The pair is only echoed, never looked up: a made-up one opens an app that isn't paired.
+		if (path === "/v1/manifest" && req.method === "GET") {
+			const pair = url.searchParams.get("pair") ?? "";
+			if (!/^[0-9a-f]{32}\.[0-9a-f]{32}$/.test(pair)) return fail(400, "pair must be <pairId>.<token>");
+			if (!env.ASSETS) return fail(404, "not found");
+			const res = await env.ASSETS.fetch(new Request(new URL("/manifest.webmanifest", url)));
+			if (!res.ok) return fail(404, "not found");
+			const manifest = (await res.json()) as Record<string, unknown>;
+			return new Response(JSON.stringify({ ...manifest, start_url: `/p#${pair}` }), { headers: { "content-type": "application/manifest+json", "cache-control": "no-store" } });
+		}
+
 		// The phone app (/p, /p#<pairId>.<token>) and its files.
 		if (env.ASSETS && req.method === "GET") {
 			// Cloudflare's asset server serves index.html at "/" (and redirects "/index.html" there).

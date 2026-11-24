@@ -86,6 +86,18 @@ export const HANDOFF_COPY = {
 	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 } as const;
 
+/** Me → Phone on the laptop while a phone pairs (v1.0 P-1). The phone's own guide has the pictures. */
+export const PHONE_PAIR_COPY = {
+	waiting: "Waiting for your phone to open the link…",
+	opened: "Your phone opened the link. Finish there: on an iPhone, add LockedIn to your Home Screen and open it from there, then allow notifications.",
+	paired: "✓ Paired. Your phone gets your questions, even when this laptop is closed.",
+	steps: [
+		"Point your phone's camera at the code and open the link.",
+		"Your phone shows what to do next. On an iPhone that is three taps to add LockedIn to your Home Screen.",
+		"Tap Allow notifications on your phone.",
+	],
+} as const;
+
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
 export const MISS_SPACING_DAYS = [1, 3, 7] as const;
 /** A correct answer at or above this confidence in a retest makes a miss solid. */
