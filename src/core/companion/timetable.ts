@@ -8,6 +8,7 @@
 
 import ICAL from "ical.js";
 import { addDays, atTime, dateKey, formatHM, isoWeekday, parseHM, startOfWeek } from "./time.ts";
+import { parseSlashTitle } from "./module-detect.ts";
 import type { Lecture } from "./types.ts";
 
 // ─── the sample timetable ───────────────────────────────────────────────────
@@ -264,7 +265,9 @@ export function icsToLectures(
 			unmapped.push(e);
 			continue;
 		}
-		const kind = e.allDay || NON_LECTURE.test(e.summary) ? "event" : "lecture";
+		// Birmingham's titles name the activity after "/": only a Lecture is a lecture (Guided Study, Drop-In, Tutorial are busy time).
+		const slash = parseSlashTitle(e.summary);
+		const kind = e.allDay || (slash ? !/\blectures?\b/i.test(slash.activity) : NON_LECTURE.test(e.summary)) ? "event" : "lecture";
 		const weekStart = startOfWeek(e.start).getTime();
 		if (!firstWeek.has(mod.code)) firstWeek.set(mod.code, weekStart);
 		const week = Math.round((weekStart - firstWeek.get(mod.code)!) / (7 * 86_400_000)) + 1;
@@ -273,7 +276,7 @@ export function icsToLectures(
 		// A moved occurrence keeps the id of the slot it was moved from, so its material and "I wasn't there" follow it.
 		const slot = e.recurrenceId ?? e.start;
 		const id = `${mod.code.toLowerCase()}-${dateKey(slot)}-${e.allDay ? "allday" : formatHM(slot).replace(":", "")}`;
-		const title = e.summary.replace(new RegExp(`\\b${mod.code}\\b[\\s:–-]*`, "i"), "").trim() || e.summary;
+		const title = slash ? slash.activity || slash.name : e.summary.replace(new RegExp(`\\b${mod.code}\\b[\\s:–-]*`, "i"), "").trim() || e.summary;
 		lectures.push({ id, module: mod.code, title, week, order: n, start: e.start.toISOString(), end: e.end.toISOString(), kind, hasMaterials: kind === "lecture" && hasMaterials(id) });
 	}
 	return { lectures, unmapped };
