@@ -324,9 +324,14 @@ function postLectureCandidates(state: CompanionState, now: Date): NudgeCandidate
 function n1ExpectedLater(state: CompanionState, now: Date): boolean {
 	if (firedToday(state, now, "N-1").length > 0) return false;
 	return state.lectures.some((l) => {
-		if (!n1Eligible(l)) return false;
+		// With the state: a lecture whose module has material in course units earns an N-1 too (V-18). Without it,
+		// a retest in the morning spent the day's one notification before the lecture had even started (v1.0.4).
+		if (!n1Eligible(l, state)) return false;
 		const end = new Date(l.end);
-		if (!sameDay(end, now) || end <= now) return false;
+		if (!sameDay(end, now)) return false;
+		// A lecture that has just ended still has its N-1 to come (it waits n1DelayMinutes), until it has fired or its
+		// hour has passed. Without this, a retest due at the minute the lecture ended went out first (v1.0.4).
+		if (end <= now && (minutesBetween(end, now) >= NUDGE_RULES.n1ValidMinutes || firedWithKey(state, `N-1:${l.id}`))) return false;
 		return minutesBetween(end, nextCommitmentStart(state, end)) >= NUDGE_RULES.n1MinGapMinutes;
 	});
 }

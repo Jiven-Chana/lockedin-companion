@@ -106,6 +106,15 @@ export const PHONE_PAIR_COPY = {
 	showAgain: "Pair a phone again",
 } as const;
 
+/** Me → Phone: "Send a test question to my phone" (v1.0.4), so a student can see their phone works without waiting for a lecture. */
+export const PHONE_TEST_COPY = {
+	button: "Send a test question to my phone",
+	/** The notification's title. Not "… just finished": nothing has. */
+	title: "A test question from LockedIn",
+	sent: "Sent. It arrives within a minute. Lock your phone to see it arrive.",
+	nothing: "There's no question to send yet: a test question comes from your own study packs. Add your slides or notes in the Library first.",
+} as const;
+
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
 export const MISS_SPACING_DAYS = [1, 3, 7] as const;
 /** A correct answer at or above this confidence in a retest makes a miss solid. */

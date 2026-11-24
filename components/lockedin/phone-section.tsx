@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { PHONE_PAIR_COPY } from "@/src/core";
+import { PHONE_PAIR_COPY, PHONE_TEST_COPY } from "@/src/core";
 import { ApiError, lockedIn, type PhonePairing } from "./api";
 import { useData, usePoll } from "./hooks";
 
@@ -20,6 +20,7 @@ export function PhoneSection() {
 	const [msg, setMsg] = useState<string | null>(null);
 	// "Pair a phone again" on a phone that is already paired: the panel is shown on purpose.
 	const [again, setAgain] = useState(false);
+	const [sent, setSent] = useState(false);
 	const s = status.data;
 	const finishing = !!s?.paired && !s.pushReady;
 	// While a phone is on its way, watch for it connecting (J9 step 3).
@@ -85,6 +86,12 @@ export function PhoneSection() {
 						{PHONE_PAIR_COPY[state]}
 						{s.reachable === false ? " (Can't reach the relay right now; this laptop works on its own.)" : ""}
 					</span>
+				</div>
+			) : null}
+			{s?.paired && s.pushReady ? (
+				<div className="li-row" style={{ gap: 12 }}>
+					<button type="button" className="li-btn primary" disabled={busy} onClick={() => run(async () => { setSent(false); await lockedIn.testPhone(); setSent(true); })}>{PHONE_TEST_COPY.button}</button>
+					{sent ? <span role="status">{PHONE_TEST_COPY.sent}</span> : null}
 				</div>
 			) : null}
 			<div className="li-row" style={{ gap: 8 }}>

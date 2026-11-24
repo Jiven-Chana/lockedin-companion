@@ -476,6 +476,7 @@ export const COMPANION_EVENT_TYPES = [
 	"teacher_nudged",
 	// facilitator: a question sent to the phone now (T4 in a lab)
 	"phone_send_now",
+	"phone_test_sent",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 
