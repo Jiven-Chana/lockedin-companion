@@ -155,6 +155,32 @@ export const PROGRESS_COPY = {
 	earned: (n: number, of: number) => `${n} of ${of}`,
 } as const;
 
+/**
+ * Milestones (v1.1, V-35): earned from real history, dated, kept for good.
+ * None needs an unbroken chain: "three full weeks" is any three. `how` is
+ * what the student reads on one not earned yet.
+ */
+export const MILESTONES = [
+	{ id: "first-idea", group: "learning", title: "First idea secured", how: "Get a question right on an idea for the first time." },
+	{ id: "ideas-10", group: "learning", title: "10 ideas secured", how: "Secure 10 ideas across your course." },
+	{ id: "ideas-25", group: "learning", title: "25 ideas secured", how: "Secure 25 ideas across your course." },
+	{ id: "ideas-50", group: "learning", title: "50 ideas secured", how: "Secure 50 ideas across your course." },
+	{ id: "unit-secured", group: "learning", title: "A whole unit secured", how: "Secure every idea in one unit's study pack." },
+	{ id: "came-back", group: "learning", title: "Came back", how: "Get an idea right after it went to “to revisit”." },
+	{ id: "comebacks-10", group: "learning", title: "10 comebacks", how: "Get 10 ideas back from “to revisit”." },
+	{ id: "first-block", group: "discipline", title: "First study block kept", how: "Start a study block you planned." },
+	{ id: "full-week", group: "discipline", title: "A full week kept", how: "Start every study block you accepted in one week." },
+	{ id: "full-weeks-3", group: "discipline", title: "Three full weeks kept", how: "Keep three full weeks. Any three: they needn't be in a row." },
+	{ id: "first-checkin", group: "discipline", title: "First Sunday check-in", how: "Answer the Sunday check-in." },
+	{ id: "first-phone", group: "discipline", title: "First question on your phone", how: "Answer a question from a notification." },
+	{ id: "two-modules", group: "rounded", title: "Two modules in one week", how: "Earn points in two modules in the same week." },
+	{ id: "all-modules", group: "rounded", title: "Every module in one week", how: "Earn points in every module you have material for, in the same week." },
+	{ id: "all-material", group: "rounded", title: "Material for every module", how: "Add slides or notes for every one of your modules." },
+] as const;
+
+export type MilestoneId = (typeof MILESTONES)[number]["id"];
+export const MILESTONE_GROUPS = { learning: "Learning", discipline: "Discipline", rounded: "Well-rounded" } as const;
+
 /** Me → Phone: "Send a test question to my phone" (v1.0.4), so a student can see their phone works without waiting for a lecture. */
 export const PHONE_TEST_COPY = {
 	button: "Send a test question to my phone",
