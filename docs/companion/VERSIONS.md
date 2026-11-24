@@ -13,6 +13,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.0.2** | 24 Nov 2026 | tag `lockedin-v1.0.2` on `main` | The iPhone install no longer depends on Safari re-reading the manifest, and an unpaired Home Screen app can take the pairing link | [`v1.0-release.md`](v1.0-release.md) section 7, `relay/README.md` |
 | **v1.0.3** | 24 Nov 2026 | tag `lockedin-v1.0.3` on `main` | Pairing by a 6-digit code: one clear panel on the laptop, and the iPhone's Home Screen app asks for the code (V-32). Replaces the manifest routes of v1.0 and v1.0.2 | [`v1.0-release.md`](v1.0-release.md) section 8, `relay/README.md` |
 | **v1.0.4** | 24 Nov 2026 | tag `lockedin-v1.0.4` on `main` | "Send a test question to my phone" in Me → Phone; a retest no longer spends the day's notification before a lecture whose material is in course units | [`v1.0-release.md`](v1.0-release.md) section 9 |
+| **v1.1** | in progress | branch `feat/v1.1` | Progress as a learning score over time with module attribution, attention on gaps and milestones; the Week page as a draggable timetable (V-34 to V-38). The first slice of the v2.0 polish | [`v1.1-plan.md`](v1.1-plan.md), [`v1.1-research.md`](v1.1-research.md) |
 | **v2.0** | after v1.0 passes Jiven's test | — | Direction only (24 Nov): the polish stage, streamlining the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
 | **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
 
