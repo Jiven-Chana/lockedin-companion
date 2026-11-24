@@ -88,6 +88,9 @@ export function initialScriptedState(set: ScriptedSet, spec: SessionSpec, misses
 	// Hand-off (F-112): the phone's question is question 1, already answered; continue at question 2.
 	const seed = spec.seedAnswer ? byId(set, spec.seedAnswer.questionId) : undefined;
 	if (seed) add(seed);
+	// A study block's first step (V-44) is its first question.
+	const first = spec.firstQuestionId ? byId(set, spec.firstQuestionId) : undefined;
+	if (first && queue.length < budget) add(first);
 	for (const q of set.questions.filter((q) => !q.retestOnly)) if (queue.length < budget) add(q);
 	for (const q of set.questions) if (queue.length < budget) add(q);
 	if (seed && spec.seedAnswer) {

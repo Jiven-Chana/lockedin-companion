@@ -210,6 +210,17 @@ export const SOLID_CONFIDENCE = 70;
 export const LOW_CONFIDENCE = 30;
 
 /** Study blocks (§7.7). */
+/** How sure you are, as four taps (lo-fi v8; design log 23 Nov). The values are the engine's own confidence stops. */
+export const CONFIDENCE_TAPS = [
+	{ label: "Guess", value: 0 },
+	{ label: "Unsure", value: 30 },
+	{ label: "Fairly sure", value: 70 },
+	{ label: "Certain", value: 100 },
+] as const;
+
+/** A session you left is offered again on Today for this long (R-5). */
+export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;
+
 export const BLOCK_RULES = {
 	maxBlocks: 2,
 	minMinutes: 10,
@@ -293,6 +304,12 @@ export const CHECKIN_RULES = { stepMinutes: 30, minTargetMinutes: 30 } as const;
 
 /** Wording for the plan and the check-in (spec Appendix A, draft, group to confirm). Never "missed", "overdue", "behind". */
 export const PLAN_COPY = {
+	/** Starting a block (V-44). */
+	start: "Start",
+	startedNote: "Started ✓",
+	notToday: "A block starts on its own day. Move it to today to start it now.",
+	/** The block's tiny first step (S-67): the slide its first question comes from. */
+	firstStep: (slide: number | null) => (slide ? `First step: slide ${slide}, one question` : "First step: one question"),
 	hours: (minutes: number) => {
 		const h = Math.floor(minutes / 60);
 		const m = minutes % 60;
@@ -439,7 +456,8 @@ export const NUDGE_TEXT = {
 	n4: (left: number, minutes: number) =>
 		`Picking up where you left off. ${left} ${left === 1 ? "question" : "questions"} left, about ${minutes} minutes.`,
 	// Not in behaviour-change.md §5: draft wording, confirm with the group (O-14: kept as the draft).
-	block: (minutes: number) => `Your study block starts now. ${minutes} minutes, at your own pace.`,
+	/** The block's notification names its tiny first step when there is one (S-67, V-44). */
+	block: (minutes: number, firstStep?: string | null) => (firstStep ? `Your study block starts now. ${firstStep}.` : `Your study block starts now. ${minutes} minutes, at your own pace.`),
 	// v0.1 F-114 (spec Appendix A, T20 v2 N-1, N-5)
 	/** N-1 v2: the title; the body is the bank question's stem (≤ 90). `n1` above is the fallback when no question is ready. */
 	n1Title: (module: string) => `${module} just finished. One question:`,
@@ -489,6 +507,12 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** Leaving a session (R-5): where it was saved, on Today's card. */
+	savedAt: (question: number) => `Saved at question ${question}. Pick up any time. Nothing is marked missed.`,
+	left: (questions: number, minutes: number) => `${questions} ${questions === 1 ? "question" : "questions"} left, about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`,
+	/** How sure you are: four taps, none preselected (design log 23 Nov; AE2-5, AE2-8). */
+	confidenceAsk: "How sure are you?",
+	confidenceRevisitHint: "An idea leaves your list when you get it right and are fairly sure or certain.",
 	/** What the session screen says while it waits. */
 	reading: (module: string) => `Reading your ${module} slides → writing question 1`,
 	writing: (n: number) => `Writing question ${n}…`,
@@ -556,6 +580,8 @@ export const PHONE_RULES = {
 } as const;
 
 export const TEACHER_RULES = {
+	/** A study block's first step (V-44): the teacher opens on it. */
+	firstStepLine: (stem: string, slide: number | null) => `First step of this study block: open with a question on the same point as "${stem}"${slide ? ` (Slide ${slide})` : ""}.`,
 	noRepliesLine: "The learner can't type replies here: after your feedback, ask the next question in the same turn.",
 	continueText: "Next question, please.",
 } as const;

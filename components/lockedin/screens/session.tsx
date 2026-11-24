@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONFIDENCE_STOPS, MATERIALS_RULES, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { CONFIDENCE_TAPS, MATERIALS_RULES, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
@@ -32,7 +32,8 @@ export function SessionScreen({ id }: { id: string }) {
 	const [view, setView] = useState<SessionView | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [picked, setPicked] = useState<number | null>(null);
-	const [conf, setConf] = useState(50);
+	// How sure you are: four taps, none preselected, and it can be left out (design log 23 Nov).
+	const [conf, setConf] = useState<number | null>(null);
 	const [why, setWhyState] = useState("");
 	// The submit reads the box through a ref so it sees words dictation adds as it finishes.
 	const whyRef = useRef("");
@@ -74,7 +75,7 @@ export function SessionScreen({ id }: { id: string }) {
 	useEffect(() => {
 		if (showQuestion) {
 			setPicked(null);
-			setConf(50);
+			setConf(null);
 			setWhy("");
 			setHint(null);
 			qRef.current?.focus();
@@ -89,7 +90,7 @@ export function SessionScreen({ id }: { id: string }) {
 			// Speaking when you press Check: wait for the last words, so nothing said is lost.
 			await mic.dictation.finish().catch(() => undefined);
 			const why = whyRef.current.trim();
-			await lockedIn.answer(id, picked === DONT_KNOW ? { questionId: q.id, dontKnow: true, why: why || undefined } : { questionId: q.id, indices: [picked], confidence: conf, why: why || undefined });
+			await lockedIn.answer(id, picked === DONT_KNOW ? { questionId: q.id, dontKnow: true, why: why || undefined } : { questionId: q.id, indices: [picked], ...(conf === null ? {} : { confidence: conf }), why: why || undefined });
 			setAnswered({ question: q, picked, why });
 			setSlide(null);
 			await load();
@@ -237,7 +238,7 @@ export function SessionScreen({ id }: { id: string }) {
 									{answered.why ? <span className="li-small"><b>Your why:</b> {answered.why}</span> : null}
 								</div>
 								<div className="li-row">
-									<span className="li-small li-muted" style={{ flexGrow: 1 }}>{fb.correct ? (conf <= 30 ? "Right, but you weren't sure: it'll come back in a short retest." : "Nice.") : "This one comes back in a short retest in a day or two."}</span>
+									<span className="li-small li-muted" style={{ flexGrow: 1 }}>{fb.correct ? (conf !== null && conf <= 30 ? "Right, but you weren't sure: it'll come back in a short retest." : "Nice.") : "This one comes back in a short retest in a day or two."}</span>
 									{view.status === "thinking" ? (
 										<span className="li-activity" style={{ padding: 0 }}><span className="li-pulse" />{view.activity}</span>
 									) : (
@@ -270,10 +271,11 @@ export function SessionScreen({ id }: { id: string }) {
 								</div>
 								{picked !== DONT_KNOW && view.question.kind === "quiz" ? (
 									<div className="li-stack" style={{ gap: 8 }}>
-										<b>How sure are you?</b>
-										<div role="radiogroup" aria-label="Confidence" className="li-stops">
-											{CONFIDENCE_STOPS.map((v) => <button key={v} type="button" role="radio" aria-checked={conf === v} onClick={() => setConf(v)}>{v}%</button>)}
+										<b>{SESSION_COPY.confidenceAsk}</b>
+										<div role="radiogroup" aria-label="How sure you are" className="li-stops">
+											{CONFIDENCE_TAPS.map((c) => <button key={c.value} type="button" role="radio" aria-checked={conf === c.value} onClick={() => setConf(conf === c.value ? null : c.value)}>{c.label}</button>)}
 										</div>
+										{view.kind === "retest" ? <span className="li-small li-muted">{SESSION_COPY.confidenceRevisitHint}</span> : null}
 									</div>
 								) : null}
 								<label className="li-stack" style={{ gap: 6 }}>

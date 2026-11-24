@@ -35,7 +35,7 @@ export interface PlanData {
 	committedMinutes: number;
 	proposedMinutes: number;
 	/** `module`: the block's module (the student's choice, else its unit's), or null for free study (V-37). */
-	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null })[];
+	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean })[];
 	lectures: Lecture[];
 	commitments: Routine["commitments"];
 	quietHours: { from: string; to: string };
@@ -60,11 +60,13 @@ export interface TodayData {
 	onboarded: boolean;
 	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
 	lectures: LectureWithStatus[];
-	nextBlock: { blockId: string; start: string; end: string } | null;
+	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null } | null;
 	readyToRevisit: number;
 	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
 	banner: Banner;
 	activeSession: string | null;
+	/** A session that was left, to pick up (R-5). */
+	resume: { sessionId: string; module: string; title: string; answered: number; budget: number; text: string } | null;
 	/** F-112: a phone is paired, so the phone gets the OS notifications and the laptop shows in-app cards only. */
 	phonePaired: boolean;
 	phoneAvailable: boolean;
@@ -179,6 +181,8 @@ export const lockedIn = {
 	// v0.1 the week (F-109, F-110, F-111)
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),
+	/** Start a study block (V-44): marks it started and opens its session, when there is material to open. */
+	startBlock: (id: string) => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { method: "POST" }),
 	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number; module?: string | null }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
 	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
 	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AI_COPY, moduleHue, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
-import { lockedIn, type SessionView } from "../api";
+import { AI_COPY, moduleHue, PLAN_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
+import { lockedIn } from "../api";
 import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
 import { Tint, useLockedIn } from "../root";
@@ -21,7 +21,6 @@ export function TodayScreen() {
 	const today = useData(() => lockedIn.today());
 	const progress = useData(() => lockedIn.progress());
 	const ai = useData(() => lockedIn.ai.status());
-	const [active, setActive] = useState<SessionView | null>(null);
 	const [busy, setBusy] = useState(false);
 
 	const reloadToday = today.reload;
@@ -35,11 +34,18 @@ export function TodayScreen() {
 	usePoll(() => void today.reload(), 30_000, true);
 
 	const t = today.data;
-	useEffect(() => {
-		if (t?.activeSession) lockedIn.session(t.activeSession).then(setActive).catch(() => setActive(null));
-		else setActive(null);
-	}, [t?.activeSession]);
 
+	/** Start today's study block (V-44): it is marked started, and its session opens when there is material to open. */
+	async function startBlock(blockId: string) {
+		setBusy(true);
+		try {
+			const { sessionId } = await lockedIn.startBlock(blockId);
+			if (sessionId) router.push(`/app/session/${sessionId}`);
+			else void today.reload();
+		} finally {
+			setBusy(false);
+		}
+	}
 	async function start(spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string }) {
 		setBusy(true);
 		try {
@@ -62,8 +68,10 @@ export function TodayScreen() {
 	if (t?.banner && t.banner.sessionId) {
 		const b = t.banner;
 		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? "Ready now · question 1 is waiting" : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: 0, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
-	} else if (active && active.status !== "done") {
-		hero = { hue: moduleHue(active.lecture.module), eyebrow: `${active.lecture.module} · pick up where you left off`, title: active.lecture.title, sub: `${Math.max(0, active.budget - active.answered)} questions left`, cta: "Continue", done: active.answered, total: active.budget, go: () => router.push(`/app/session/${active.id}`) };
+	} else if (t?.resume) {
+		// A session you left (R-5): where it was saved, and how much is left. Opening it is what resumes it.
+		const r = t.resume;
+		hero = { hue: moduleHue(r.module), eyebrow: `${r.module} · pick up where you left off`, title: r.title, sub: r.text, cta: "Continue", done: r.answered, total: r.budget, go: () => router.push(`/app/session/${r.sessionId}`) };
 	} else if (t?.welcomeBack) {
 		const wb = t.welcomeBack;
 		hero = { hue: 285, eyebrow: "Welcome back", title: SESSION_COPY.welcomeBackQuestion(), sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: wb.spec.budget.questions, go: () => void start(wb.spec) };
@@ -143,13 +151,16 @@ export function TodayScreen() {
 							<span style={{ display: "flex", flexDirection: "column" }}><b className="li-display" style={{ fontSize: "1.8em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><span className="li-small li-muted">questions answered</span></span>
 						</div>
 					</section>
-					<Link href="/app/plan" className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
+					<div className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
 						<span style={{ color: "var(--li-accent-text)" }}><Icon.calendar /></span>
-						<span style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
+						<Link href="/app/plan" style={{ display: "flex", flexDirection: "column", flexGrow: 1, color: "inherit", textDecoration: "none" }}>
 							<b>Next study block</b>
-							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}` : "None yet. Plan your week."}</span>
-						</span>
-					</Link>
+							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}${t.nextBlock.status === "started" ? ` · ${PLAN_COPY.startedNote}` : ""}` : "None yet. Plan your week."}</span>
+							{t?.nextBlock?.firstStep ? <span className="li-small">{t.nextBlock.firstStep}</span> : null}
+						</Link>
+						{/* Today's block is started here, or from its notification (V-44). */}
+						{t?.nextBlock && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn primary" onClick={() => void startBlock(t.nextBlock!.blockId)}>{t.nextBlock.status === "started" ? "Open" : PLAN_COPY.start}</button> : null}
+					</div>
 					<Link href="/app/me" className="li-btn" style={{ alignSelf: "flex-start" }}>
 						<span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 999, background: "conic-gradient(oklch(0.6 0.16 0), oklch(0.6 0.16 120), oklch(0.6 0.16 240), oklch(0.6 0.16 360))" }} />
 						Make it yours

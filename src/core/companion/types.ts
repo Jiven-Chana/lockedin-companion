@@ -38,6 +38,8 @@ export interface SessionSpec {
 	nodes?: string[];
 	/** v0.1 F-112: question 1 was answered on the phone; the session continues at question 2. */
 	seedAnswer?: { questionId: string; choice: number; correct: boolean; at: string; stem?: string; choiceLabel?: string };
+	/** A study block's first step (V-44): the session opens on this bank question. */
+	firstQuestionId?: string;
 }
 
 export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
