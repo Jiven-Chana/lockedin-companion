@@ -181,6 +181,18 @@ export const MILESTONES = [
 export type MilestoneId = (typeof MILESTONES)[number]["id"];
 export const MILESTONE_GROUPS = { learning: "Learning", discipline: "Discipline", rounded: "Well-rounded" } as const;
 
+/** The Week timetable (v1.1, V-37): why a study block can't go where it was dropped. */
+export const PLACEMENT_COPY = {
+	lecture: "That overlaps a lecture or class.",
+	commitment: "That overlaps something in your routine.",
+	block: "Another study block is already there.",
+	quiet: "That's in your quiet hours.",
+	"past-midnight": "A study block has to end the same day.",
+	freeStudy: "Free study",
+	/** Dragging snaps to this many minutes. */
+	snapMinutes: 15,
+} as const;
+
 /** Me → Phone: "Send a test question to my phone" (v1.0.4), so a student can see their phone works without waiting for a lecture. */
 export const PHONE_TEST_COPY = {
 	button: "Send a test question to my phone",

@@ -227,11 +227,53 @@ export function proposeWeek(input: PlanInput): PlanResult {
 			minutes: len,
 			status: "proposed" as const,
 			source: "planner" as const,
-			...(f ? { lectureId: f.lectureId, reason: f.reason } : {}),
+			...(f ? { lectureId: f.lectureId, module: f.module, reason: f.reason } : {}),
 			...(first ? { firstTaskQuestionId: first } : {}),
 			...(s.anchor ? { anchorOf: s.anchor } : {}),
 		};
 	});
 	const plannedMinutes = alreadyMinutes + proposals.length * len;
 	return { proposals, plannedMinutes, roomMinutes: room, fits: input.targetMinutes <= room };
+}
+
+// ─── moving a block by hand (v1.1, V-37) ────────────────────────────────────
+
+export type PlacementProblem = "lecture" | "commitment" | "block" | "quiet" | "past-midnight";
+
+export interface PlacementInput {
+	block: Pick<StudyBlock, "id" | "date" | "start" | "minutes">;
+	lectures: readonly Lecture[];
+	commitments: Routine["commitments"];
+	/** The student's other blocks (suggested, accepted or started); removed ones don't take up time. */
+	blocks: readonly StudyBlock[];
+	quietHours: Profile["prefs"]["quietHours"];
+}
+
+/**
+ * Why a study block can't go where it was dropped, or null when it can: it
+ * must not overlap a lecture or class, a routine commitment or another
+ * block, must be inside the student's waking hours, and must end the same
+ * day. Touching is fine: a block may start the minute a lecture ends (the
+ * planner leaves a gap; a student moving it by hand needn't).
+ */
+export function placementProblem(input: PlacementInput): PlacementProblem | null {
+	const { block } = input;
+	const day = new Date(`${block.date}T12:00:00`);
+	const start = atTime(day, block.start);
+	const end = addMinutes(start, block.minutes);
+	if (dateKey(new Date(end.getTime() - 1)) !== block.date) return "past-midnight";
+	const overlaps = (s: Date, e: Date) => s < end && e > start;
+	for (const l of input.lectures) {
+		if (!l.start || !l.end || l.archived) continue;
+		if (overlaps(new Date(l.start), new Date(l.end))) return "lecture";
+	}
+	for (const c of input.commitments) if (c.weekdays.includes(isoWeekday(day)) && overlaps(atTime(day, c.start), atTime(day, c.end))) return "commitment";
+	for (const b of input.blocks) {
+		if (b.id === block.id || b.status === "removed" || b.date !== block.date) continue;
+		const bs = atTime(day, b.start);
+		if (overlaps(bs, addMinutes(bs, b.minutes))) return "block";
+	}
+	const awake = wakingWindow(day, input.quietHours);
+	if (start < awake.start || end > awake.end) return "quiet";
+	return null;
 }

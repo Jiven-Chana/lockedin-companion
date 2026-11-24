@@ -69,6 +69,7 @@ const FILES = {
 	events: "events.jsonl",
 	demo: "demo.json",
 	runtime: "runtime.json",
+	milestones: "milestones.json",
 } as const;
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
@@ -232,6 +233,14 @@ export class CompanionStore {
 	}
 	saveRuntime(patch: Partial<RuntimeState>): void {
 		this.writeJson(FILES.runtime, { ...this.runtime(), ...patch });
+	}
+
+	/** Milestones earned and when (v1.1, V-35): written the first time each is earned, and never taken back. */
+	milestones(): Record<string, string> {
+		return this.readJson<Record<string, string>>(FILES.milestones, {});
+	}
+	saveMilestones(m: Record<string, string>): void {
+		this.writeJson(FILES.milestones, m);
 	}
 
 	// ─── materials ──────────────────────────────────────────────────────────

@@ -56,6 +56,7 @@ export interface ScoredMoment {
 	secured?: boolean;
 	cameBack?: boolean;
 	source?: "phone";
+	sessionId?: string;
 	/** Minutes this moment stands for: time on the question, or the block's length. */
 	minutes: number;
 }
@@ -110,12 +111,12 @@ export function replayScore(input: ScoreInput): ScoreReplay {
 			run: () => {
 				const info = input.questionInfo(questionId, lectureId);
 				const key = ideaKey(lectureId, typeof d.nodeId === "string" && d.nodeId ? d.nodeId : info?.nodeId);
-				const module = moduleOf.get(lectureId) ?? "";
-				const idea = ideas.get(key) ?? { key, lectureId, nodeId: key.slice(lectureId.length + 1), module, secured: false, securedAt: null, lastRight: null, toRevisit: false };
+				const mod = moduleOf.get(lectureId) ?? "";
+				const idea = ideas.get(key) ?? { key, lectureId, nodeId: key.slice(lectureId.length + 1), module: mod, secured: false, securedAt: null, lastRight: null, toRevisit: false };
 				ideas.set(key, idea);
 				const ms = typeof d.msOnQuestion === "number" ? d.msOnQuestion : 0;
 				const minutes = Math.min(SCORE_RULES.maxMinutesPerAnswer, Math.max(0, ms / 60_000));
-				const base = { at, kind: "answer" as const, module, lectureId, ideaKey: key, minutes, ...(phone ? { source: "phone" as const } : {}) };
+				const base = { at, kind: "answer" as const, module: mod, lectureId, ideaKey: key, minutes, ...(phone ? { source: "phone" as const } : {}), ...(typeof d.sessionId === "string" ? { sessionId: d.sessionId } : {}) };
 				if (d.correct !== true || d.dontKnow === true) {
 					// Wrong, or "I don't know": nothing earned, nothing lost. The idea waits in "to revisit".
 					idea.toRevisit = true;
@@ -143,8 +144,8 @@ export function replayScore(input: ScoreInput): ScoreReplay {
 	for (const b of input.blocks) {
 		if (b.status !== "started" || !b.startedAt) continue;
 		const at = new Date(b.startedAt);
-		const module = b.module ?? (b.lectureId ? (moduleOf.get(b.lectureId) ?? "") : "");
-		raw.push({ at, run: () => ({ at, kind: "block", points: SCORE_RULES.blockStarted, module, lectureId: b.lectureId ?? null, ideaKey: null, minutes: b.minutes }) });
+		const mod = b.module ?? (b.lectureId ? (moduleOf.get(b.lectureId) ?? "") : "");
+		raw.push({ at, run: () => ({ at, kind: "block", points: SCORE_RULES.blockStarted, module: mod, lectureId: b.lectureId ?? null, ideaKey: null, minutes: b.minutes }) });
 	}
 
 	raw.sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -237,7 +238,7 @@ export interface ScorePoint {
 function detailOf(moments: readonly ScoredMoment[]): DayDetail {
 	const answers = moments.filter((m) => m.kind === "answer");
 	return {
-		sessions: 0,
+		sessions: new Set(answers.map((m) => m.sessionId).filter(Boolean)).size,
 		right: answers.filter((m) => m.correct).length,
 		answered: answers.length,
 		secured: answers.filter((m) => m.secured).map((m) => m.ideaKey!),

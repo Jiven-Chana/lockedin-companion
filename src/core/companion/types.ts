@@ -479,6 +479,9 @@ export const COMPANION_EVENT_TYPES = [
 	// facilitator: a question sent to the phone now (T4 in a lab)
 	"phone_send_now",
 	"phone_test_sent",
+	// v1.1: Progress and the Week timetable (V-34 to V-37)
+	"milestone_earned",
+	"plan_module_set",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

@@ -27,14 +27,16 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, NUDGE_RULES, PACK_COPY, PREPARE_RULES, SESSION_COPY } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { clampBlockMinutes, pacedUnits, proposeWeek } from "../../core/companion/plan-week.ts";
+import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
+import { earnedMilestones, needsAttention, type AttentionLine } from "../../core/companion/milestones.ts";
 import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
@@ -44,7 +46,7 @@ import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
 import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
-import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay } from "../../core/companion/time.ts";
+import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay, startOfWeek } from "../../core/companion/time.ts";
 import { hideSampleTimetable, icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
 import {
 	CLIENT_EVENT_TYPES,
@@ -912,7 +914,11 @@ export class CompanionService {
 			blockMinutes: settings.blockMinutes,
 			committedMinutes: committed,
 			proposedMinutes: blocks.filter((b) => b.status === "proposed").reduce((n, b) => n + b.minutes, 0),
-			blocks: blocks.map((b) => ({ ...b, focus: b.lectureId ? (titles.get(b.lectureId) ?? null) : null })),
+			// A block's module: the student's choice, else its unit's (blocks planned before v1.1 only had the unit).
+			blocks: blocks.map((b) => {
+				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
+				return { ...b, focus, module: b.module ?? focus?.module ?? null };
+			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
 		};
@@ -956,7 +962,7 @@ export class CompanionService {
 
 	/** Tick, move, start or remove one block (one action each, F-110). A move keeps its focus and first task. */
 	updateBlock(blockId: string, patch: unknown) {
-		const p = (patch ?? {}) as { status?: unknown; date?: unknown; start?: unknown; minutes?: unknown; source?: unknown };
+		const p = (patch ?? {}) as { status?: unknown; date?: unknown; start?: unknown; minutes?: unknown; source?: unknown; module?: unknown };
 		const blocks = this.store.blocks();
 		const block = blocks.find((b) => b.id === blockId);
 		if (!block) throw notFound("block");
@@ -979,11 +985,43 @@ export class CompanionService {
 			next.status = p.status;
 			if (p.status === "started") next.startedAt = this.now().toISOString();
 		}
+		if (p.module !== undefined) {
+			// The block's module (V-37): one of the student's, or null for free study. It then studies that module's next unit.
+			if (p.module !== null && (typeof p.module !== "string" || !this.requireProfile().modules.some((m) => m.code === p.module))) throw badRequest("module must be one of your modules, or null for free study");
+			if (p.module === null) {
+				delete next.module;
+				delete next.lectureId;
+				delete next.firstTaskQuestionId;
+				delete next.reason;
+			} else if (p.module !== (block.module ?? (block.lectureId ? this.lectureById(block.lectureId)?.module : undefined))) {
+				const profile = this.requireProfile();
+				const units = lecturesWithStatus(this.store.state()).filter((l) => l.module === p.module && l.hasMaterials);
+				const unit = pacedUnits({ modules: profile.modules.filter((m) => m.code === p.module), units, now: this.now(), blocks: 1 })[0]?.lectureId ?? units[0]?.id;
+				next.module = p.module;
+				delete next.reason;
+				if (unit) {
+					next.lectureId = unit;
+					const first = this.packs?.bank(unit)?.[0]?.id;
+					if (first) next.firstTaskQuestionId = first;
+					else delete next.firstTaskQuestionId;
+				} else {
+					delete next.lectureId;
+					delete next.firstTaskQuestionId;
+				}
+			}
+		}
+		if (moved || p.minutes !== undefined) {
+			// A block can't be put on top of a lecture, a commitment, another block or quiet hours, by any route (V-37).
+			const profile = this.requireProfile();
+			const problem = placementProblem({ block: next, lectures: this.store.lectures(), commitments: profile.routine?.commitments ?? [], blocks, quietHours: profile.prefs.quietHours });
+			if (problem) throw new CompanionError("block_overlaps", 409, PLACEMENT_COPY[problem], { problem });
+		}
 		if (moved && next.status === "proposed") next.status = "accepted"; // moving a proposal is choosing it
 		const source = p.source === "phone" ? "phone" : undefined;
 		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? next : b)));
-		const data = { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, ...(source ? { source } : {}) };
+		const data = { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, module: next.module ?? null, ...(source ? { source } : {}) };
 		if (moved) this.log("plan_moved", { ...data, from: `${block.date} ${block.start}` });
+		if (p.module !== undefined && (next.module ?? null) !== (block.module ?? null)) this.log("plan_module_set", { ...data, from: block.module ?? null });
 		if (p.status === "accepted" && block.status !== "accepted") this.log("plan_accepted", data);
 		if (p.status === "removed") this.log("plan_removed", data);
 		if (p.status === "started") this.log("block_started", { ...data, via: "plan" });
@@ -1723,10 +1761,122 @@ export class CompanionService {
 
 	// ─── progress and today (§7.8) ──────────────────────────────────────────
 
+	/** The ideas in each unit's study pack: what the steady-pace line counts, and what a point's detail names. */
+	private packIdeas(): PackIdea[] {
+		const out: PackIdea[] = [];
+		for (const l of this.store.lectures()) {
+			if (!l.hasMaterials) continue;
+			const parsed = parseMermaidPlan(this.content.conceptMapSource(l.id) ?? "");
+			if (!parsed.ok || !parsed.plan) continue;
+			for (const n of parsed.plan.nodes) out.push({ lectureId: l.id, nodeId: n.id, title: splitNodeLabel(n.title || n.id).title });
+		}
+		return out;
+	}
+
+	/**
+	 * Progress (v1.1, V-34 to V-36): the learning score over this week, the
+	 * last month and the term, against the steady-pace line; what each module
+	 * contributed; what needs attention, each with one action; and the
+	 * milestones earned. All worked out from the event log and the blocks, so
+	 * past work counts from the first day.
+	 */
 	progress() {
+		const profile = this.requireProfile();
 		const now = this.now();
 		const state = this.store.state();
-		return { week: weekSummary(state, now), welcomeBack: welcomeBack(state, now), roadmap: roadmap(state) };
+		const events = this.store.events();
+		const live = this.store.lectures();
+		const ideas = this.packIdeas();
+		const banks = new Map<string, Map<string, QuestionInfo>>();
+		const questionInfo = (questionId: string, lectureId: string) => {
+			if (!banks.has(lectureId)) banks.set(lectureId, new Map((this.packs?.bank(lectureId) ?? []).map((q) => [q.id, { difficulty: q.difficulty, nodeId: q.node }])));
+			return banks.get(lectureId)!.get(questionId);
+		};
+		// History on a unit since removed still counts, so the module lookup covers archived units too.
+		const replay = replayScore({ events, blocks: state.blocks, lectures: this.store.allLectures(), ideas, questionInfo, now });
+		const ends = live.filter(isTimed).map((l) => new Date(l.end).getTime());
+		const term = termFor(replay, { ideas, lastLecture: ends.length ? new Date(Math.max(...ends)) : null, now });
+
+		const modules = profile.modules.map((m) => ({ code: m.code, name: m.name, hasMaterial: live.some((l) => l.module === m.code && l.hasMaterials) }));
+		// Earned milestones are written down the first time, so one earned is never lost.
+		const kept = this.store.milestones();
+		const computed = earnedMilestones({ replay, events, blocks: state.blocks, ideas, modules, now });
+		let changed = false;
+		for (const [id, at] of Object.entries(computed)) {
+			if (!kept[id] && at) {
+				kept[id] = at.toISOString();
+				changed = true;
+				this.log("milestone_earned", { milestone: id, earnedAt: kept[id] });
+			}
+		}
+		if (changed) this.store.saveMilestones(kept);
+		const milestones = MILESTONES.map((m) => ({ ...m, earnedAt: kept[m.id] ?? null }));
+
+		const series = Object.fromEntries(
+			(["week", "month", "term"] as const).map((range) => [
+				range,
+				scoreSeries(replay, term, range, now).map((p) => ({
+					...p,
+					// A milestone belongs to the day (or week) it was earned in.
+					milestones: milestones.filter((m) => m.earnedAt && dateKey(new Date(m.earnedAt)) >= p.date && dateKey(new Date(m.earnedAt)) <= p.end).map((m) => m.id),
+				})),
+			]),
+		) as Record<ScoreRange, (ScorePoint & { milestones: string[] })[]>;
+
+		const weekStart = startOfWeek(now);
+		const ranges = { week: weekStart, month: addDays(now, -30), term: term.start };
+		const until = new Date(now.getTime() + 1);
+		const shares = Object.fromEntries((["week", "month", "term"] as const).map((r) => [r, moduleShares(replay, modules.map((m) => m.code), ranges[r], until)])) as Record<ScoreRange, ModuleShare[]>;
+
+		const titleOf = new Map(live.map((l) => [l.id, l.title]));
+		const nameOf = new Map(modules.map((m) => [m.code, m.name]));
+		const unitsOf = (code: string) => lecturesWithStatus(state).filter((l) => l.module === code && l.hasMaterials);
+		const questions = SESSION_BUDGETS["post-lecture"].questions;
+		const attention = needsAttention({ replay, modules, now }).flatMap((item): AttentionLine[] => {
+			if (item.kind === "module") {
+				// The unit the pacing rule would study next in that module.
+				const units = unitsOf(item.module);
+				const next = pacedUnits({ modules: profile.modules.filter((m) => m.code === item.module), units, now, blocks: 1 })[0]?.lectureId ?? units[0]?.id;
+				if (!next) return [];
+				const name = nameOf.get(item.module) ?? item.module;
+				return [{ kind: item.kind, module: item.module, text: item.daysSince === undefined ? PROGRESS_COPY.leastOn(name) : PROGRESS_COPY.nothingOn(name, item.daysSince), action: { label: PROGRESS_COPY.questionsOn(questions, titleOf.get(next) ?? name), session: { kind: "post-lecture" as const, lectureId: next } } }];
+			}
+			if (item.kind === "fading") {
+				if (!titleOf.has(item.lectureId)) return [];
+				return [{ kind: item.kind, module: item.module, text: PROGRESS_COPY.fading(item.count, nameOf.get(item.module) ?? item.module), action: { label: PROGRESS_COPY.getBack(item.count), session: { kind: "post-lecture" as const, lectureId: item.lectureId, ...(item.nodes.length ? { nodes: item.nodes.slice(0, 10) } : {}) } } }];
+			}
+			return [{ kind: item.kind, module: null, text: PROGRESS_COPY.noMaterial(item.modules.map((c) => nameOf.get(c) ?? c)), action: { label: PROGRESS_COPY.addMaterial, href: "/app/library" } }];
+		});
+
+		const securedIdeas = [...replay.ideas.values()].filter((i) => i.secured);
+		return {
+			score: {
+				now: scoreAt(replay, now),
+				weekChange: scoreAt(replay, now) - scoreAt(replay, new Date(weekStart.getTime() - 1)),
+				series,
+				term: { start: term.start.toISOString(), end: term.end.toISOString(), target: term.target },
+				ideasSecured: securedIdeas.length,
+				ideasTotal: ideas.length,
+				fading: fadingAt(replay, now).length,
+			},
+			// What a point's detail names: each idea's title and its unit.
+			// An idea outside the pack's map (the teacher's own plan, or a unit with no map): its slug in words, or the unit's title.
+			ideas: Object.fromEntries(
+				[...replay.ideas.values()].map((i) => {
+					const inPack = ideas.find((x) => x.lectureId === i.lectureId && x.nodeId === i.nodeId)?.title;
+					const fallback = i.nodeId === "(general)" ? (titleOf.get(i.lectureId) ?? "") : i.nodeId.replace(/[-_]+/g, " ");
+					return [i.key, { title: inPack ?? fallback, unit: titleOf.get(i.lectureId) ?? "", module: i.module }];
+				}),
+			),
+			modules: modules.map((m) => ({
+				...m,
+				lastActivity: shares.term.find((x) => x.module === m.code)?.lastActivity?.toISOString() ?? null,
+				shares: Object.fromEntries((["week", "month", "term"] as const).map((r) => [r, { points: shares[r].find((x) => x.module === m.code)?.points ?? 0, minutes: shares[r].find((x) => x.module === m.code)?.minutes ?? 0 }])) as Record<ScoreRange, { points: number; minutes: number }>,
+			})),
+			attention,
+			milestones,
+			welcomeBack: welcomeBack(state, now),
+		};
 	}
 
 	today() {

@@ -107,6 +107,14 @@ export type AttentionItem =
 	| { kind: "fading"; module: string; lectureId: string; nodes: string[]; count: number }
 	| { kind: "material"; modules: string[] };
 
+/** A "needs attention" line as the page shows it: what the gap is, and the one thing to do about it. */
+export interface AttentionLine {
+	kind: AttentionItem["kind"];
+	module: string | null;
+	text: string;
+	action: { label: string; session?: { kind: "post-lecture"; lectureId: string; nodes?: string[] }; href?: string };
+}
+
 export interface AttentionInput {
 	replay: ScoreReplay;
 	modules: readonly { code: string; hasMaterial: boolean }[];
@@ -137,8 +145,8 @@ export function needsAttention(input: AttentionInput): AttentionItem[] {
 		const byUnit = new Map<string, typeof fading>();
 		for (const i of fading) byUnit.set(i.lectureId, [...(byUnit.get(i.lectureId) ?? []), i]);
 		const [lectureId, list] = [...byUnit].sort((a, b) => b[1].length - a[1].length)[0]!;
-		const module = list[0]!.module;
-		out.push({ kind: "fading", module, lectureId, nodes: list.map((i) => i.nodeId).filter((n) => n !== "(general)"), count: fading.filter((i) => i.module === module).length });
+		const mod = list[0]!.module;
+		out.push({ kind: "fading", module: mod, lectureId, nodes: list.map((i) => i.nodeId).filter((n) => n !== "(general)"), count: fading.filter((i) => i.module === mod).length });
 	}
 	const none = input.modules.filter((m) => !m.hasMaterial).map((m) => m.code);
 	if (none.length > 0) out.push({ kind: "material", modules: none });
