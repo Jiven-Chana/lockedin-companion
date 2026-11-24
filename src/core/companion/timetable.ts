@@ -9,6 +9,7 @@
 import ICAL from "ical.js";
 import { addDays, atTime, dateKey, formatHM, isoWeekday, parseHM, startOfWeek } from "./time.ts";
 import { parseSlashTitle } from "./module-detect.ts";
+import { CALENDAR_RULES } from "./policy.ts";
 import type { Lecture } from "./types.ts";
 
 // ─── the sample timetable ───────────────────────────────────────────────────
@@ -248,6 +249,10 @@ export function parseIcs(text: string, range: { from: Date; to: Date }, maxEvent
 }
 
 const NON_LECTURE = /\b(lab|labs|seminar|tutorial|workshop|practical|exam)\b/i;
+const DEADLINE = new RegExp(`\\b(${CALENDAR_RULES.deadlineWords.map((w) => w.replace(/[- ]/g, "[- ]?")).join("|")})\\b`, "i");
+
+/** A deadline in a calendar ("HCI coursework due", "Assignment 2 submission"): busy time at most, never a lecture (V-28). */
+export const isDeadlineTitle = (summary: string): boolean => DEADLINE.test(summary);
 
 /** Map events to the student's modules by module code in the title. */
 export function icsToLectures(
@@ -267,7 +272,7 @@ export function icsToLectures(
 		}
 		// Birmingham's titles name the activity after "/": only a Lecture is a lecture (Guided Study, Drop-In, Tutorial are busy time).
 		const slash = parseSlashTitle(e.summary);
-		const kind = e.allDay || (slash ? !/\blectures?\b/i.test(slash.activity) : NON_LECTURE.test(e.summary)) ? "event" : "lecture";
+		const kind = e.allDay || (slash ? !/\blectures?\b/i.test(slash.activity) : NON_LECTURE.test(e.summary) || isDeadlineTitle(e.summary)) ? "event" : "lecture";
 		const weekStart = startOfWeek(e.start).getTime();
 		if (!firstWeek.has(mod.code)) firstWeek.set(mod.code, weekStart);
 		const week = Math.round((weekStart - firstWeek.get(mod.code)!) / (7 * 86_400_000)) + 1;
@@ -310,6 +315,22 @@ export function mergeTimetable(existing: readonly Lecture[], incoming: readonly 
 	}
 	const added = [...byId.values()];
 	return { lectures: [...out, ...added], added: added.length, kept, archived };
+}
+
+/**
+ * Hide the sample timetable once the student has real content (v1.0 V-2,
+ * V-26): every timed entry is archived (hidden everywhere, history kept),
+ * and course units are left alone. Only call this on a profile whose
+ * timetable is the sample; a facilitator scenario brings the sample back.
+ */
+export function hideSampleTimetable(lectures: readonly Lecture[]): { lectures: Lecture[]; hidden: number } {
+	let hidden = 0;
+	const out = lectures.map((l) => {
+		if (!isTimed(l) || l.archived) return l;
+		hidden++;
+		return { ...l, archived: true };
+	});
+	return { lectures: out, hidden };
 }
 
 /** "What I read" (R-7, Q-10). Location is never read. */

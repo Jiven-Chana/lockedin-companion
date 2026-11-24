@@ -27,10 +27,10 @@ import {
 	specFor,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, NUDGE_RULES, PREPARE_RULES } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, NUDGE_RULES, PACK_COPY, PREPARE_RULES, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
-import { CourseMaterials, type UploadedFile } from "./materials.ts";
+import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
@@ -39,13 +39,13 @@ import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
-import { checkProposal, currentWeek, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
+import { checkProposal, currentWeek, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
 import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
 import { addDays, addMinutes, atTime, dateKey, isoWeekday, isValidHM, sameDay } from "../../core/companion/time.ts";
-import { icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
+import { hideSampleTimetable, icsToLectures, isTimed, materializeSampleTimetable, mergeTimetable, parseIcs, readsSummary, scenarioClock, type TimedLecture } from "../../core/companion/timetable.ts";
 import {
 	CLIENT_EVENT_TYPES,
 	COMPANION_EVENT_TYPES,
@@ -90,6 +90,10 @@ export interface CompanionServiceDeps {
 	autoFallback?: boolean;
 	readyTimeoutMs?: number;
 	convertPdf?: PdfConverter;
+	/** Test seam: the waits between a study pack's tries. */
+	packSleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+	/** Draws one page of a PDF as a PNG (the engine's renderer); null when the page can't be drawn. */
+	renderPdfPage?: (pdfPath: string, page: number) => Promise<Uint8Array | null>;
 	/** Fetches a calendar link (network guards live in the default implementation). */
 	fetchCalendar?: (url: string) => Promise<string>;
 	/**
@@ -121,7 +125,10 @@ const MODULE_CODE = /^[A-Za-z0-9 _-]{1,32}$/;
 
 export class CompanionService {
 	private readonly preparing = new Map<string, Promise<void>>();
+	/** Page pictures being drawn right now, so two requests for one page draw it once. */
+	private readonly drawingPages = new Map<string, Promise<string>>();
 	private aiReady = false;
+	private packsResumed = false;
 	/** Connect your AI (F-101). Null when the engine isn't wired (tests). */
 	readonly ai: CompanionAi | null;
 
@@ -150,6 +157,8 @@ export class CompanionService {
 					promptsDir: deps.promptsDir ?? "companion/prompts",
 					log: (type, data) => this.log(type, data),
 					now: () => this.now(),
+					...(deps.ai ? { connected: async () => (this.ai ? this.ai.ready() : true) } : {}),
+					...(deps.packSleep ? { sleep: deps.packSleep } : {}),
 				})
 			: null;
 		this.phone = deps.relay ? new PhoneLink(this, deps.store, new RelayClient(deps.relay.url, deps.relay.fetch)) : null;
@@ -159,8 +168,36 @@ export class CompanionService {
 	}
 
 	private noteAiReady(ready: boolean) {
-		if (ready && !this.aiReady && this.deps.engineWhenAiReady) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
+		// Logged when the AI becomes ready, remembered across restarts: a restart with the AI still connected isn't news (X-1).
+		if (this.deps.engineWhenAiReady && ready !== (this.store.runtime().aiReady ?? false)) {
+			this.store.saveRuntime({ aiReady: ready });
+			if (ready) this.log("engine_ready", { engine: this.deps.engineWhenAiReady });
+		}
 		this.aiReady = ready;
+		if (ready && !this.packsResumed) {
+			this.packsResumed = true;
+			this.resumePacks();
+		}
+	}
+
+	/**
+	 * Once the student's AI is ready after a start: pick up the study packs
+	 * that were queued or being written when the app last stopped, and write
+	 * the ones for uploaded units that never got one (saved while the AI
+	 * wasn't connected). Failed and cancelled packs wait for the student (V-23).
+	 */
+	resumePacks(): string[] {
+		const packs = this.packs;
+		if (!packs || !this.store.profile()) return [];
+		const started: string[] = [];
+		for (const unit of this.store.lectures()) {
+			if (!unit.source || !unit.hasMaterials) continue;
+			if (packs.interrupted(unit.id) || !packs.exists(unit.id)) {
+				packs.start(unit.id);
+				started.push(unit.id);
+			}
+		}
+		return started;
 	}
 
 	/** The engine new sessions use (F-102): the student's AI when it's ready, otherwise the declared fallback. */
@@ -474,6 +511,8 @@ export class CompanionService {
 			const units = chosen.filter((c) => c.fileIndex === i).map((c) => c.unit);
 			const problem = units.length ? checkProposal(units, f.pages.length) : null;
 			if (problem) throw badRequest(`${f.name}: ${problem}`);
+			const short = units.find((u) => unitTooShort(unitPages(f.pages), u.pages, MATERIALS_RULES.minUnitChars));
+			if (short) throw badRequest(`${short.title || f.name}: ${PACK_COPY.tooShort}`);
 		}
 		const all = this.store.allLectures();
 		let order = Math.max(0, ...all.filter((l) => l.module === code).map((l) => l.order));
@@ -492,7 +531,15 @@ export class CompanionService {
 			}
 			created.push({ id, module: code, title: c.unit.title, week: c.unit.week, order: ++order, kind: "lecture", hasMaterials: true, source: { file: c.file.name, pages: c.unit.pages } });
 		}
-		this.store.saveLectures([...all, ...created]);
+		// The student's own material has arrived: the sample timetable gives way to it (V-26).
+		const profile = this.requireProfile();
+		const kept = profile.timetableSource === "sample" ? hideSampleTimetable(all) : { lectures: all, hidden: 0 };
+		this.store.saveLectures([...kept.lectures, ...created]);
+		if (profile.timetableSource === "sample") {
+			const { timetableRead: _read, ...rest } = profile;
+			this.store.saveProfile({ ...rest, timetableSource: "none" });
+			this.log("sample_hidden", { lectures: kept.hidden, via: "materials", module: code });
+		}
 		this.courseMaterials.discard(b.uploadId);
 		// Write each unit's study pack in the background when the student's AI is ready (F-105).
 		if (this.packs && this.aiReady) for (const u of created) this.packs.start(u.id);
@@ -554,6 +601,19 @@ export class CompanionService {
 		return updated;
 	}
 
+	/** "Set week" on a course unit whose material didn't say (V-25). Body: { week: 1–52 }. */
+	setUnitWeek(lectureId: string, body: unknown): Lecture {
+		assertSafeId(lectureId, "lecture id");
+		const unit = this.store.lectures().find((l) => l.id === lectureId);
+		if (!unit) throw notFound("lecture");
+		if (isTimed(unit)) throw badRequest("a timetabled lecture's week comes from your calendar");
+		const week = (body as { week?: unknown } | null)?.week;
+		if (!Number.isInteger(week) || (week as number) < 1 || (week as number) > 52) throw badRequest("week must be 1 to 52");
+		const updated = this.store.updateLecture(lectureId, (l) => ({ ...l, week: week as number }))!;
+		this.log("unit_week_set", { lectureId, module: unit.module, from: unit.week, to: week });
+		return updated;
+	}
+
 	/** "This is week N" and reading weeks for one module (spec §5.5). */
 	setModuleWeek(code: string, body: unknown) {
 		const profile = this.requireProfile();
@@ -591,6 +651,7 @@ export class CompanionService {
 		const merged = mergeTimetable(this.store.allLectures(), incoming);
 		this.store.saveLectures(merged.lectures);
 		const lectures = merged.lectures.filter((l) => !l.archived && isTimed(l));
+		if (profile.timetableSource === "sample" && merged.archived > 0) this.log("sample_hidden", { lectures: merged.archived, via: "calendar" });
 		this.store.saveProfile({ ...profile, timetableSource: "ics", timetableRead: { at: now.toISOString(), events: lectures.length, modules: profile.modules.map((m) => m.code) } });
 		return { added: lectures.length, unmapped: unmapped.map((e) => ({ summary: e.summary, start: e.start.toISOString(), end: e.end.toISOString() })) };
 	}
@@ -666,7 +727,39 @@ export class CompanionService {
 	lectureSlides(lectureId: string) {
 		assertSafeId(lectureId, "lecture id");
 		const md = this.content.slidesMarkdown(lectureId);
-		return { slides: md ? parseSlides(md) : [] };
+		return { slides: md ? parseSlides(md) : [], hasPdf: this.content.pdfPath(lectureId) !== null };
+	}
+
+	/**
+	 * The picture of one page of a unit's own PDF, for the slide panel (V-21):
+	 * drawn once, then kept beside the unit's material. Returns the PNG's path.
+	 */
+	async slidePage(lectureId: string, page: number): Promise<string> {
+		assertSafeId(lectureId, "lecture id");
+		if (!Number.isInteger(page) || page < 1) throw badRequest("the page must be a whole number from 1");
+		const missing = () => new CompanionError("page_not_found", 404, "There is no picture of that page.");
+		const pdf = this.content.pdfPath(lectureId);
+		const md = pdf ? this.content.slidesMarkdown(lectureId) : null;
+		if (!pdf || !md || !parseSlides(md).some((sl) => sl.number === page)) throw missing();
+		const file = path.join(/* turbopackIgnore: true */ this.content.pagesDir(lectureId), `${page}.png`);
+		if (fs.existsSync(/* turbopackIgnore: true */ file)) return file;
+		if (!this.deps.renderPdfPage) throw new CompanionError("pdf_unavailable", 501, "Page pictures are not available here.");
+		const key = `${lectureId}:${page}`;
+		let drawing = this.drawingPages.get(key);
+		if (!drawing) {
+			const render = this.deps.renderPdfPage;
+			drawing = (async () => {
+				const png = await render(pdf, page);
+				if (!png) throw missing();
+				fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
+				// Written under another name first, so a half-written picture is never served.
+				fs.writeFileSync(/* turbopackIgnore: true */ `${file}.part`, png);
+				fs.renameSync(/* turbopackIgnore: true */ `${file}.part`, /* turbopackIgnore: true */ file);
+				return file;
+			})().finally(() => this.drawingPages.delete(key));
+			this.drawingPages.set(key, drawing);
+		}
+		return drawing;
 	}
 
 	/** Ideas to revisit (open misses), optionally for one lecture: never "overdue". */
@@ -766,7 +859,8 @@ export class CompanionService {
 		const lecture = this.store.lectures().find((l) => l.id === lectureId);
 		if (!lecture) throw notFound("lecture");
 		if (!this.deps.convertPdf) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
-		const pages = await this.deps.convertPdf(pdf);
+		// A copy: the reader uses up the bytes it is given, and the file itself is kept below (S-2).
+		const pages = await this.deps.convertPdf(pdf.slice());
 		if (pages === "too-long") throw badRequest("the PDF has too many pages");
 		if (pages === "unreadable") throw badRequest("the PDF could not be read");
 		const assembled = assembleSlidesMarkdown(pages, lecture.title);
@@ -916,7 +1010,8 @@ export class CompanionService {
 	}
 
 	/** Target, block length, Sunday time, focus screen (Me → Study blocks). The target changes only when the student sets it. */
-	updatePlanSettings(body: unknown) {
+	/** `via`: where the change came from. A target confirmed in the Sunday check-in is that, not a settings change (X-1). */
+	updatePlanSettings(body: unknown, via: "settings" | "checkin" = "settings") {
 		const profile = this.requireProfile();
 		const b = (body ?? {}) as Partial<NonNullable<Profile["plan"]>>;
 		const cur = this.planSettings();
@@ -932,8 +1027,8 @@ export class CompanionService {
 		}
 		if (b.focusScreen !== undefined) next.focusScreen = b.focusScreen === true;
 		this.store.saveProfile({ ...profile, plan: next });
-		if (next.weeklyTargetMinutes !== cur.weeklyTargetMinutes) this.log("target_changed", { from: cur.weeklyTargetMinutes, to: next.weeklyTargetMinutes, via: "settings" });
-		this.log("settings_changed", { changed: Object.keys(b).map((k) => `plan.${k}`) });
+		if (next.weeklyTargetMinutes !== cur.weeklyTargetMinutes) this.log("target_changed", { from: cur.weeklyTargetMinutes, to: next.weeklyTargetMinutes, via });
+		if (via === "settings") this.log("settings_changed", { changed: Object.keys(b).map((k) => `plan.${k}`) });
 		return next;
 	}
 
@@ -971,7 +1066,8 @@ export class CompanionService {
 	/** { feeling } → the proposed target; then { target: minutes } confirms it, or { keep: true } keeps the current one. */
 	answerCheckin(body: unknown) {
 		const b = (body ?? {}) as { feeling?: unknown; target?: unknown; keep?: unknown };
-		const c = this.checkin();
+		// Reading the check-in to answer it isn't showing it again (X-1).
+		const c = this.checkin({ quiet: true });
 		if (!c.target) throw new CompanionError("no_target", 409, "Set a weekly study target first.");
 		const current = c.target;
 		if (b.feeling !== undefined) {
@@ -985,7 +1081,7 @@ export class CompanionService {
 			return { target: current, plan: this.proposePlan({ week: c.nextWeek }) };
 		}
 		if (Number.isInteger(b.target)) {
-			this.updatePlanSettings({ weeklyTargetMinutes: b.target });
+			this.updatePlanSettings({ weeklyTargetMinutes: b.target }, "checkin");
 			return { target: b.target, plan: this.proposePlan({ week: c.nextWeek }) };
 		}
 		throw badRequest("send { feeling }, then { target } to confirm or { keep: true }");
@@ -1356,13 +1452,7 @@ export class CompanionService {
 			const patch = await engine.start(session, { title: `${lecture.module} · ${lecture.title}`, openingMessage: text, misses });
 			const started2 = this.store.updateSession(sessionId, (s) => ({ ...s, ...patch }));
 			if (!started2) return;
-			await engine.waitUntilReady(started2, this.deps.readyTimeoutMs ?? PREPARE_RULES.readyTimeoutMs);
-			this.store.updateSession(sessionId, (s) => ({
-				...s,
-				readyAt: this.now().toISOString(),
-				state: s.state === "preparing" ? (s.openedAt ? "active" : "ready") : s.state,
-			}));
-			this.log("session_prepared", { sessionId, engine: session.engine, kind: session.spec.kind, latencyMs: Date.now() - started, chatId: started2.chatId ?? null });
+			await this.untilReady(started2, engine, started);
 		} catch (err) {
 			const code = err instanceof CompanionError ? err.code : "prepare_failed";
 			const message = err instanceof Error ? err.message : String(err);
@@ -1371,9 +1461,28 @@ export class CompanionService {
 				this.log("engine_fallback", { sessionId, from: "learnharness", to: "scripted", code, message });
 				return this.prepare(sessionId, 1);
 			}
-			this.store.updateSession(sessionId, (s) => ({ ...s, state: "error", error: code }));
-			this.log("error", { where: "prepare", sessionId, engine: session.engine, code, message });
+			this.prepareFailed(session, err);
 		}
+	}
+
+	/** Wait for question 1, then mark the session ready. */
+	private async untilReady(session: CompanionSession, engine: SessionEngine, started: number): Promise<void> {
+		await engine.waitUntilReady(session, this.deps.readyTimeoutMs ?? PREPARE_RULES.readyTimeoutMs, () =>
+			this.log("teacher_nudged", { sessionId: session.id, answered: 0, budget: session.budget, engine: session.engine }),
+		);
+		this.store.updateSession(session.id, (s) => ({
+			...s,
+			readyAt: this.now().toISOString(),
+			state: s.state === "preparing" ? (s.openedAt ? "active" : "ready") : s.state,
+		}));
+		this.log("session_prepared", { sessionId: session.id, engine: session.engine, kind: session.spec.kind, latencyMs: Date.now() - started, chatId: session.chatId ?? null });
+	}
+
+	private prepareFailed(session: CompanionSession, err: unknown): void {
+		const code = err instanceof CompanionError ? err.code : "prepare_failed";
+		const message = err instanceof Error ? err.message : String(err);
+		this.store.updateSession(session.id, (s) => ({ ...s, state: "error", error: code }));
+		this.log("error", { where: "prepare", sessionId: session.id, engine: session.engine, code, message });
 	}
 
 	private safeHasScripted(lectureId: string): boolean {
@@ -1398,20 +1507,21 @@ export class CompanionService {
 		if (!session.chatId && !session.scripted) {
 			// The engine has not started this session: either the first turn is
 			// still being admitted (show the wait) or starting failed (say so).
-			this.markOpened(session, now);
+			this.markOpened(session.id, now);
 			const base = {
 				id: session.id, engine: session.engine, kind: session.spec.kind, mode: session.spec.mode,
 				lecture: { id: lecture.id, title: lecture.title, module: lecture.module },
 				goal: goalFor(session.spec, lecture, session.budget), answered: 0, budget: session.budget, canHint: false, slideRefs: [],
 			};
 			return session.state === "error"
-				? { ...base, status: "error", error: session.error ?? "prepare_failed" }
-				: { ...base, status: "preparing", activity: `Reading your ${lecture.module} slides → writing question 1` };
+				? { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) }
+				: { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) };
 		}
 		// A hand-off's phone answer (F-112) is counted by each engine itself.
-		const { teacherNudged, ...v } = await engine.view(session, lecture);
+		const { teacherNudged, ...mapped } = await engine.view(session, lecture);
+		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
-		this.markOpened(session, now);
+		this.markOpened(session.id, now);
 		this.store.updateSession(session.id, (s) => {
 			let next: CompanionSession = { ...s, answered: v.answered };
 			if (v.question && !(s.shownQuestionIds ?? []).includes(v.question.id)) {
@@ -1430,16 +1540,26 @@ export class CompanionService {
 		return v;
 	}
 
-	private markOpened(session: CompanionSession, now: Date): void {
-		if (session.openedAt && session.state !== "stopped") return;
-		const resumed = !!session.openedAt;
-		this.store.updateSession(session.id, (s) => ({
-			...s,
-			openedAt: s.openedAt ?? now.toISOString(),
-			lastActivityAt: now.toISOString(),
-			state: s.state === "ready" || s.state === "stopped" ? "active" : s.state,
-		}));
-		this.log("session_opened", { sessionId: session.id, engine: session.engine, kind: session.spec.kind, prewarmed: !!session.nudgeKey, ready: isSessionReady(session), resumed });
+	/**
+	 * The session screen has opened this session (or come back to a stopped
+	 * one). Decided from the record as it is now, inside the update: the
+	 * screen asks every 750 ms and the engine's view takes a moment, so a
+	 * copy read before that would open the same session several times (X-1).
+	 */
+	private markOpened(sessionId: string, now: Date): void {
+		let opened: { session: CompanionSession; resumed: boolean } | null = null;
+		this.store.updateSession(sessionId, (s) => {
+			if (s.openedAt && s.state !== "stopped") return s;
+			opened = { session: s, resumed: !!s.openedAt };
+			return {
+				...s,
+				openedAt: s.openedAt ?? now.toISOString(),
+				lastActivityAt: now.toISOString(),
+				state: s.state === "ready" || s.state === "stopped" ? "active" : s.state,
+			};
+		});
+		const o = opened as { session: CompanionSession; resumed: boolean } | null;
+		if (o) this.log("session_opened", { sessionId, engine: o.session.engine, kind: o.session.spec.kind, prewarmed: !!o.session.nudgeKey, ready: isSessionReady(o.session), resumed: o.resumed });
 	}
 
 	parseAnswer(raw: unknown): AnswerInput {
@@ -1540,8 +1660,46 @@ export class CompanionService {
 			this.preparing.set(id, run);
 			return;
 		}
+		if (session.state === "error" && !session.readyAt) {
+			// Started, but question 1 never arrived (T-1): recover the turn, or keep
+			// waiting for one that is still running, then wait for question 1 again.
+			try {
+				await engine.retry(session);
+			} catch (err) {
+				if (!(err instanceof CompanionError && err.code === "turn_running")) throw err;
+			}
+			const waiting = this.store.updateSession(id, (s) => ({ ...s, state: "preparing", error: undefined }))!;
+			const started = Date.now();
+			const run = this.untilReady(waiting, engine, started)
+				.catch((err) => this.prepareFailed(waiting, err))
+				.finally(() => this.preparing.delete(id));
+			this.preparing.set(id, run);
+			return;
+		}
 		await engine.retry(session);
 		this.store.updateSession(id, (s) => ({ ...s, state: s.openedAt ? "active" : "ready", error: undefined }));
+	}
+
+	/** A failed session can offer the lecture's own question bank instead (T-6). */
+	private canPractise(session: CompanionSession): boolean {
+		return session.engine !== "scripted" && !!this.deps.engines.scripted && this.safeHasScripted(session.spec.lectureId);
+	}
+
+	/**
+	 * "Use practice questions" on a failed session: the same session spec on
+	 * the lecture's question bank, without the AI. The student chose it, and
+	 * the session screen labels it, so the switch is declared (B-11).
+	 */
+	practiceInstead(id: string): { sessionId: string } {
+		const { session } = this.requireSession(id);
+		if (session.state !== "error" && !session.error) throw conflict("session_not_failed", "this session is working: carry on with it");
+		if (!this.canPractise(session)) throw new CompanionError("no_scripted_set", 422, "there are no practice questions for this lecture yet");
+		const { seedAnswer: _seed, ...spec } = session.spec;
+		const next = this.createSession(spec, { engine: "scripted" });
+		this.store.updateSession(next.sessionId, (s) => ({ ...s, fellBackFrom: session.engine }));
+		this.log("engine_fallback", { sessionId: next.sessionId, from: session.engine, to: "scripted", code: session.error ?? null, chosen: true, failedSessionId: id });
+		if (session.state !== "done" && session.state !== "stopped") this.store.updateSession(id, (s) => ({ ...s, state: "stopped", endedAt: this.now().toISOString() }));
+		return next;
 	}
 
 	sessionCost(id: string) {

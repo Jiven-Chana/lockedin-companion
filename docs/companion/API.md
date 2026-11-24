@@ -46,12 +46,14 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |
 | GET | `/lectures` | `?module=HCI&q=personas` | `{ lectures: (Lecture & { status: "answered" \| "revisit" \| "not-started", revisit })[] }` |
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
+| PUT | `/lectures/:id/week` | `{ week: 1–52 }` | The unit, with its week set (v1.0, V-25: "Set week" on a unit that reads "Week not set"). `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
-| GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }] }` for the slide panel |
+| GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }], hasPdf }` for the slide panel. Slide numbers are the original file's page numbers, so a unit can run 18 to 38. `hasPdf` is true only when the stored PDF has content |
+| GET | `/materials/:lectureId/pages/:n` | | The picture (PNG) of page n of the unit's own PDF (v1.0, V-21). Drawn once and kept in `materials/<id>/pages/`. 404 `page_not_found` when the unit has no PDF or page n isn't one of its slides |
 | GET | `/lectures/:id/map` | | The concept map: `{ source: "authored" \| "headings", mermaid, nodes: [{ id, title, slides, status: solid \| shaky \| revisit \| notyet, answers }], edges: [{ from, to }] }` |
 | GET | `/misses` | `?lectureId=` | Ideas to revisit (open misses): `{ misses: [{ id, lectureId, lectureTitle, module, questionText, correctLabels, explanation, reason, createdAt, nextDue }] }` |
-| GET | `/materials/:lectureId/pdf` | | the slide PDF (for the slide sheet; render page n with pdfjs) |
+| GET | `/materials/:lectureId/pdf` | | the whole slide PDF. No screen uses it; the slide panel uses `/pages/:n` |
 | POST | `/materials/:lectureId` | PDF bytes, or multipart `file` | Replaces the material of a lecture or course unit → `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR). Open to everyone since v0.1 (F-104) |
 | DELETE | `/materials/:lectureId` | | A course unit is hidden (history kept); a timetable lecture loses its uploaded material |
 
@@ -63,11 +65,17 @@ When units are saved and the student's AI is ready, each unit's pack is written 
 3. 12 to 20 three-option questions (`bank.json`), on the Cheap slot;
 4. one explainer per idea (`explainers.json`): ≤ 120 words, one mermaid diagram, slide citations, and a "Try it" question from the bank. Strong slot.
 
-Every item is checked (`study-pack.ts`). The model retries while too few pass, and items that still fail are dropped and listed in `meta.dropped`. The bank is also the scripted engine's question set for that unit. Events: `pack_started`, `pack_stage`, `pack_ready`, `pack_failed`.
+Every item is checked (`study-pack.ts`). The model retries while too few pass, and items that still fail are dropped and listed in `meta.dropped`. The bank is also the scripted engine's question set for that unit. Events: `pack_started`, `pack_stage`, `pack_retry`, `pack_ready`, `pack_failed`.
+
+Since v1.0 (V-23), a pack survives a bad minute:
+- a stage that fails is tried again after 10 s, 30 s and 90 s (`PACK_RULES.retryDelaysMs`), then the pack fails with `meta.error` in plain words and the provider's own message in `meta.errorDetail` and the `pack_failed` event;
+- while the AI connection is down the pack waits (`meta.waiting.for: "connection"`) without using up a try, and the packs behind it stay `queued`;
+- when the app next starts with the AI ready, packs that were queued or being written are picked up, and uploaded units with no pack get one. Failed and cancelled packs wait for the student;
+- a unit with under 500 characters of text fails at once with `failure: "too_short"` (and can no longer be saved, V-24).
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/lectures/:id/pack` | | `{ meta: { state, stages: { read, map, bank, explainers }, models, costUsd, ms, dropped, counts, error? } \| null, explainers, questions, running }` |
+| GET | `/lectures/:id/pack` | | `{ meta: { state: "queued" \| "generating" \| "ready" \| "failed" \| "cancelled", waiting?, failure?, stages: { read, map, bank, explainers }, models, costUsd, ms, dropped, counts, error?, errorDetail? } \| null, explainers, questions, running }`. `packStatusLine(meta)` is the one line the lecture page shows |
 | POST | `/lectures/:id/pack` | `{ fresh?: boolean }` | Starts or resumes (from the first unfinished stage); `fresh` regenerates everything. `409 not_connected` without a ready AI |
 | DELETE | `/lectures/:id/pack` | | Cancels; resumable |
 
@@ -81,8 +89,8 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 |---|---|---|---|
 | GET | `/course` | | `[{ code, name, weekOneStart?, readingWeeks?, week, reading, units: LectureWithStatus[] }]` |
 | PUT | `/modules/:code` | `{ week: 1–52 \| null, readingWeeks?: number[], inReadingWeek?: boolean }` | "This is week N": the module with `{ week, reading }` |
-| POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to] }], via: "name" \| "ai" \| "fallback", note }] }`. Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
-| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages |
+| POST | `/modules/:code/materials` | multipart: one or more `file` (PDF, `.md`, `.txt`, 25 MB each, at most 20), and/or `text` (+ `name`) for pasted notes | `{ uploadId, files: [{ file, name, kind, pageCount, noText, units: [{ title, week, pages: [from, to], chars }], via: "name" \| "ai" \| "fallback", note }] }`. `chars` is how much text the unit holds: under 500 it can't be saved (V-24). Nothing is saved as material yet; the proposal is held 24 h. A file with a week in its name, or "Week N" page headings, needs no AI; a longer unlabelled file is split by the Cheap slot |
+| PUT | `/modules/:code/materials` | `{ uploadId, units: [{ file, title, week, pages }] }` | `{ units: Lecture[] }`. Each unit's `slides.md` holds only its pages, numbered as in the original file; one copy of each PDF is kept. `400` on overlapping or out-of-range pages, or a unit with too little text. On a profile still on the sample timetable, saving hides the sample lectures (archived, never deleted) and logs `sample_hidden` (V-26) |
 
 ## Nudges
 
@@ -105,7 +113,8 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 | POST | `/sessions/:id/show-me` | `{ questionId }` | 204, then poll: a worked example, then a fresh question on the same idea |
 | POST | `/sessions/:id/more` | `{ questions?: number }` (default 3) | `{ budget }`: "Keep going" |
 | POST | `/sessions/:id/stop` | | 204. No model call; reopening resumes on the same question |
-| POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn |
+| POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn. On a session that never reached question 1 it asks the teacher again and the view goes back to `preparing` |
+| POST | `/sessions/:id/practice` | | `{ sessionId }`: "Use practice questions". A new session for the same lecture on its question bank, without the AI. Only for a failed session whose view has `practiceAvailable: true`; logged as `engine_fallback {chosen: true}` |
 | GET | `/sessions/:id/cost` | **demo.** | `{ sessionId, engine, cost }` (USD; checkpoint criterion 4) |
 
 `SessionView` (see `types.ts`): `{ id, engine, kind, mode, lecture, goal, status: "preparing" | "question" | "thinking" | "done" | "error", activity?, answered, budget, prose?, question?: { id, kind: "quiz" | "ask", stem, context?, options: [{ index, label }], multi, role }, feedback?: { questionId, correct, dontKnow, shown, correctLabels, explanation?, slideRefs }, canHint, endedEarly?, error?, slideRefs }`.

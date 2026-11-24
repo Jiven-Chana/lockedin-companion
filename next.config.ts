@@ -17,6 +17,10 @@ const nextConfig: NextConfig = {
 	// The manual copies the docs require — public/ and .next/static — are
 	// done by scripts/build-server.mjs.
 	output: "standalone",
+	// LockedIn (v1.0, DECISIONS V-27): the plain address opens the student's
+	// app. The engine's own home screen sat there and confused real use; its
+	// pages stay reachable at their own addresses (/settings, /chat/<id>).
+	redirects: async () => [{ source: "/", destination: "/app", permanent: false }],
 	// SAFETY (empirically verified 2026-09-17): without this, output file
 	// tracing sweeps the repo's real data/ — chat records, graph ledgers —
 	// INTO the standalone bundle. A shipped desktop app would carry the

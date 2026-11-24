@@ -7,9 +7,10 @@ Each version records what it ships, how it works, what is missing, and the evide
 | Version | Date | Git | Status | Spec |
 |---|---|---|---|---|
 | **v0.0** | 14 Nov 2026 | `6ff961b` on `main`, tag `lockedin-v0.0` | Shipped (laptop web app at `/app`) | [`plan.md`](plan.md), `mvp1-plan.md` (branch `docs/mvp1-plan`), [`DECISIONS.md`](DECISIONS.md) B-1–B-15 |
-| **v0.1** | test slice by Wed 25 Nov 2026 | branch `feat/v0.1` | Phase A built (stages 1–13, 23–24 Nov); phase B not started | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-18, [`demos/`](demos/) |
-| **v1.0** | planned | — | Issues listed from real use (24 Nov); decisions pending, then a plan | [`v1.0-issues.md`](v1.0-issues.md) |
-| **v2.0** | after v1.0 is stable | — | Direction only (24 Nov): streamline the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
+| **v0.1** | 24 Nov 2026 | `99f701d` on `main`, tag `lockedin-v0.1` | Phase A shipped as built (stages 1–13, 23–24 Nov). Its known issues are the v1.0 list | [`v0.1-spec.md`](v0.1-spec.md), [`DECISIONS.md`](DECISIONS.md) V-1–V-18, [`demos/`](demos/) |
+| **v1.0** | 24 Nov 2026 | tag `lockedin-v1.0` on `main` (PR #6) | Shipped: everything broken in v0.1 is fixed; no redesigns, no packaging (V-19). Awaiting Jiven's own test and the iPhone check | [`v1.0-release.md`](v1.0-release.md), [`v1.0-plan.md`](v1.0-plan.md), [`v1.0-issues.md`](v1.0-issues.md), [`DECISIONS.md`](DECISIONS.md) V-19–V-31 |
+| **v2.0** | after v1.0 passes Jiven's test | — | Direction only (24 Nov): the polish stage, streamlining the flow back towards the team's lo-fi design | [`v2.0-direction.md`](v2.0-direction.md) |
+| **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
 
 ---
 
@@ -114,6 +115,41 @@ These are verified against the code (file:line), not inferred.
 
 ---
 
-## v0.1: planned
+## v0.1: phase A, as shipped (24 Nov 2026)
 
-See [`v0.1-spec.md`](v0.1-spec.md). Summary: a downloadable desktop app (the source of truth, on the student's own ChatGPT sign-in or key) plus a phone web app reached through a thin relay that delivers the single-question notification with the laptop closed; real generated content from the student's own slides and notes (concept map, diagram-led explainers, a question bank); an optional setup chat that learns the student's routine and weekly hours target; a weekly plan with a Sunday checklist and check-in; calendars in and out; dictation; and purposeful, calm motion. When v0.1 ships, this section is replaced by the same four headings as v0.0: what it ships, how it works, what is missing, evidence.
+Tag `lockedin-v0.1`. The design is [`v0.1-spec.md`](v0.1-spec.md); the click-by-click guides are in [`demos/`](demos/) (stages 1 to 13).
+
+### What it ships
+- **Connect your AI** on screen 1 (a ChatGPT sign-in or an API key), with a model per engine slot and "Choose for me" (V-3, V-15, V-16).
+- **Calendar first:** a timetable link or file, modules read from it, including Birmingham's feed (V-17, F-108).
+- **Your own material:** upload in any shape, units proposed by file name, headings or the AI (V-18, F-104).
+- **Study packs** per unit: a concept map, explainers with diagrams, and a question bank that is also the no-AI fallback (V-6, F-105, F-106).
+- **Rich teaching text:** diagrams, maths and tables in sessions (F-103).
+- **The weekly plan:** a routine learned in an optional chat, proposed study blocks, a Sunday check-in (V-4, V-5, F-109 to F-111).
+- **The phone:** a relay on Cloudflare and an installable web app. One question in a notification, then the laptop continues (V-1, V-2, V-11, F-112).
+- **Dictation** in the "why" box, **calm motion** with a setting, and the facilitator's tools (F-116, F-118, F-119).
+
+### What was missing or wrong
+Found in real use on 23 and 24 Nov and listed in [`v1.0-issues.md`](v1.0-issues.md). Phase B (the desktop app, the calendar feed out, PDF pages in the slide panel) was not started.
+
+---
+
+## v1.0: what was broken, fixed (24 Nov 2026)
+
+Tag `lockedin-v1.0`. The plan is [`v1.0-plan.md`](v1.0-plan.md); what was fixed, how it was checked and the test checklist are in [`v1.0-release.md`](v1.0-release.md).
+
+### In one paragraph
+Every issue in the v1.0 list that fails, misleads or corrupts data is fixed, and nothing is redesigned or packaged (V-19). Sessions on a student's own notes reach question 1. The slide panel shows the real PDF page. Study packs survive a dropped connection. "Week 0" and the sample lectures no longer sit beside real content. The iPhone install is guided and keeps its pairing. The event log counts each action once. The build output holds no participant data.
+
+### What changed in how it works
+- **Sessions:** the "Next question, please." safety net also runs before question 1, and a retry waits for question 1 again (`engines/learnharness.ts`, `service.ts`). A failed session can restart on the lecture's question bank (`POST /sessions/:id/practice`).
+- **Material:** the uploaded PDF is kept (the reader was emptying it), and `GET /materials/:id/pages/:n` serves a picture of a page, drawn by the engine's PDF renderer through `lh-port.ts` and kept in `materials/<id>/pages/`.
+- **Study packs:** a stage is retried after 10, 30 and 90 seconds; while the AI connection is down the pack waits and the queue behind it stays queued; interrupted packs resume at the next start (`study-pack.ts`).
+- **Units:** a week of 0 reads "Week not set" (`weekLabel`), `PUT /lectures/:id/week` sets it, and a unit needs 500 characters of text.
+- **Phone:** `GET /v1/manifest?pair=…` on the relay carries the pairing into the installed iPhone app (`relay/README.md`).
+- **Elsewhere:** `/` redirects to `/app`; deadline events are never lectures; the demo clock needs `COMPANION_DEMO=1`; Next.js 16.4.6.
+
+### What is still missing
+- **v2.0:** Teach and Practice as modes, teaching by idea, notes versus slides, progress as a picture, a short Me ([`v2.0-direction.md`](v2.0-direction.md)).
+- **v3.0:** the desktop app, the relay on a team account, code clean-up, and one name and shape per event.
+- **Not yet confirmed on a device:** the iPhone install and a real notification (P-1, P-2).

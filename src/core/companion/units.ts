@@ -5,6 +5,7 @@
  * work out which teaching week a module is in.
  */
 
+import { WEEK_COPY } from "./policy.ts";
 import { addDays, dateKey, startOfWeek } from "./time.ts";
 import type { ModuleInfo } from "./types.ts";
 
@@ -90,6 +91,21 @@ export function checkProposal(units: readonly ProposedUnit[], pageCount: number)
 		last = to;
 	}
 	return null;
+}
+
+/** "Week 3", or "Week not set" for a unit whose week is unknown (0): the one place a week number becomes words (V-25). */
+export function weekLabel(week: number | null | undefined): string {
+	return typeof week === "number" && week > 0 ? WEEK_COPY.week(week) : WEEK_COPY.notSet;
+}
+
+/** How much text a run of pages holds. */
+export function unitChars(pages: readonly UnitPage[], range: readonly [number, number]): number {
+	return pages.filter((p) => p.number >= range[0] && p.number <= range[1]).reduce((n, p) => n + p.chars, 0);
+}
+
+/** Too little to study from (V-24): the words "Week 8" pasted on their own, a title page, an image-only scan. */
+export function unitTooShort(pages: readonly UnitPage[], range: readonly [number, number], minChars: number): boolean {
+	return unitChars(pages, range) < minChars;
 }
 
 /**

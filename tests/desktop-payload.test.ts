@@ -182,6 +182,32 @@ describe("desktop standalone payload", () => {
 		});
 	});
 
+	it("LockedIn N-0: removes traced test-participant folders, tests, docs and the relay; refuses participant data left anywhere else", () => {
+		withPayload(({ root, write, run }) => {
+			for (const extra of [path.join("runs", "P07", "companion", "events.jsonl"), path.join("runs", "P07", "companion", "profile.json"), path.join("tests", "a.test.ts"), path.join("docs", "companion", "plan.md"), path.join("relay", "src", "worker.ts")]) {
+				// BOTH copies exist: curation must not touch the real repo's own folders.
+				write(extra);
+				write(path.join(STANDALONE, extra));
+			}
+			// The reason a trace exclude for "runs" is wrong: the OpenAI library has folders of that name.
+			const sdk = path.join("node_modules", "openai", "resources", "beta", "threads", "runs", "runs.mjs");
+			write(path.join(STANDALONE, sdk));
+			const result = run();
+			assert.equal(result.status, 0, String(result.stderr));
+			for (const gone of ["runs", "tests", "docs", "relay"]) assert.equal(fs.existsSync(path.join(root, STANDALONE, gone)), false, gone);
+			assert.equal(fs.existsSync(path.join(root, STANDALONE, sdk)), true, "the library's own runs/ folder stays");
+			assert.equal(fs.existsSync(path.join(root, "runs", "P07", "companion", "events.jsonl")), true, "the repo's own data is untouched");
+		});
+		for (const leaked of [path.join("companion", "seed", "events.jsonl"), path.join("old-data", "companion", "nudges.jsonl")]) {
+			withPayload(({ write, run }) => {
+				write(path.join(STANDALONE, leaked));
+				const result = run();
+				assert.equal(result.status, 1, leaked);
+				assert.match(String(result.stderr), /REFUSING.*participant data/);
+			});
+		}
+	});
+
 	it("still refuses leaked developer data or keys", () => {
 		for (const leaked of ["data/chat.json", "auth.json", ".env", ".env.local"]) {
 			withPayload(({ write, run }) => {

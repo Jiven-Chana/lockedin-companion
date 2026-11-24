@@ -86,6 +86,18 @@ export const HANDOFF_COPY = {
 	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 } as const;
 
+/** Me → Phone on the laptop while a phone pairs (v1.0 P-1). The phone's own guide has the pictures. */
+export const PHONE_PAIR_COPY = {
+	waiting: "Waiting for your phone to open the link…",
+	opened: "Your phone opened the link. Finish there: on an iPhone, add LockedIn to your Home Screen and open it from there, then allow notifications.",
+	paired: "✓ Paired. Your phone gets your questions, even when this laptop is closed.",
+	steps: [
+		"Point your phone's camera at the code and open the link.",
+		"Your phone shows what to do next. On an iPhone that is three taps to add LockedIn to your Home Screen.",
+		"Tap Allow notifications on your phone.",
+	],
+} as const;
+
 /** Spacing for retests: due 1 day later, then 3, then 7 (§6.8). */
 export const MISS_SPACING_DAYS = [1, 3, 7] as const;
 /** A correct answer at or above this confidence in a retest makes a miss solid. */
@@ -121,6 +133,21 @@ export const PACK_RULES = {
 	slots: { map: "strong", explainers: "strong", bank: "cheap" } as const,
 	/** Slides text sent to the model, in estimated tokens (~4 characters each). */
 	slideTokenBudget: 12_000,
+	/** A failed stage is tried again after each of these waits (V-23). */
+	retryDelaysMs: [10_000, 30_000, 90_000],
+	/** While the AI connection is down, look again this often. Waiting doesn't use up a try. */
+	connectionCheckMs: 30_000,
+} as const;
+
+/** What the lecture page says about a study pack that isn't being written right now (v1.0 T-4, T-5). */
+export const PACK_COPY = {
+	queued: "Waiting its turn.",
+	retrying: (seconds: number) => `Your AI was busy. Trying again in ${seconds} seconds.`,
+	waitingForConnection: "Waiting for your AI connection.",
+	failed: (tries: number) => `Your AI didn't answer after ${tries} tries.`,
+	tooShort: "There's too little here to study from. Add more material.",
+	noMaterial: "This unit has no slides or notes yet.",
+	tryAgain: "Try again",
 } as const;
 
 /**
@@ -183,6 +210,23 @@ export const CALENDAR_RULES = {
 	/** Events read from this many days back to this many days ahead. */
 	lookbackDays: 28,
 	lookaheadDays: 120,
+	/**
+	 * A calendar event whose title has one of these words is a deadline, never
+	 * a lecture (v1.0 K-1, V-28): a Canvas "HCI coursework due" at 23:00 must
+	 * not send "HCI just finished". Not "quiz" or "test": those can be taught.
+	 */
+	deadlineWords: ["due", "deadline", "assignment", "coursework", "submission", "hand-in", "hand in"],
+} as const;
+
+/** The AI connection check on the Connect screen and Me (v1.0 D-1): it never sits on "Checking…" for good. */
+export const CONNECT_RULES = {
+	statusTimeoutMs: 15_000,
+} as const;
+export const CONNECT_COPY = {
+	checking: "Checking your AI connection…",
+	slow: "Checking your AI connection is taking longer than usual.",
+	failed: "Couldn't check your AI connection.",
+	tryAgain: "Try again",
 } as const;
 
 /** Onboarding step 2's "Where do I find my link?" (decided 24 Nov; the Birmingham route was found 24 Nov). */
@@ -206,6 +250,26 @@ export const MATERIALS_RULES = {
 	textPageChars: 2_500,
 	/** A proposal waits this long for the student to confirm it. */
 	pendingUploadHours: 24,
+	/** A unit needs at least this much text to be saved or to get a study pack (V-24): a pack is at least 2 ideas and 12 questions. */
+	minUnitChars: 500,
+	/** The slide panel's picture of a PDF page (V-21): sharp on a laptop screen, a few hundred KB a page. */
+	pageImageDpi: 120,
+	/** Above this many slides the panel hides its row of dots (a long deck would be a strip of 80). */
+	maxSlideDots: 20,
+} as const;
+
+/** A unit whose material doesn't say which week it belongs to has week 0. It never reads "Week 0" (v1.0 V-25). */
+export const WEEK_COPY = {
+	week: (n: number) => `Week ${n}`,
+	notSet: "Week not set",
+	set: "Set week",
+} as const;
+
+/** The upload screen's wording (v1.0 S-4, T-5). */
+export const MATERIALS_COPY = {
+	drop: "Drop all your slides and notes here. Several files at once is fine.",
+	/** Was "Week 1: …", which invited typing a week label on its own. */
+	pastePlaceholder: "Paste your notes here",
 } as const;
 
 /** Five days away or more earns a "welcome back" (J6, R-6). */
@@ -218,7 +282,49 @@ export const PREPARE_RULES = {
 	pollMs: 500,
 	/** Opening-message slide budget, in estimated tokens (~4 chars each). */
 	slideTokenBudget: 8_000,
+	/** After the teacher is asked for question 1 (V-22), wait at least this long for it. */
+	afterNudgeMs: 30_000,
 } as const;
+
+/**
+ * A session that failed says what happened and offers one main action
+ * (v1.0 T-6). `sessionFailure` maps an engine code to one of these.
+ */
+export const SESSION_FAILURES = {
+	no_question: { says: "The teacher didn't ask a question.", action: "retry" },
+	timeout: { says: "Writing the question took too long.", action: "retry" },
+	no_answer: { says: "Your AI didn't answer. Check your internet connection.", action: "retry" },
+	not_connected: { says: "Your AI isn't connected.", action: "connect" },
+	other: { says: "Something went wrong on our side.", action: "retry" },
+} as const;
+
+export const SESSION_FAILURE_ACTIONS = {
+	retry: "Try again",
+	connect: "Connect",
+	practice: "Use practice questions",
+	another: "Pick another lecture",
+} as const;
+
+export type SessionFailureKind = keyof typeof SESSION_FAILURES;
+
+const FAILURE_KIND: Record<string, SessionFailureKind> = {
+	no_question: "no_question",
+	probe_not_done: "no_question",
+	timeout: "timeout",
+	turn_failed: "no_answer",
+	engine_error: "no_answer",
+	chat_missing: "no_answer",
+	models_not_configured: "not_connected",
+	provider_key_missing: "not_connected",
+	not_connected: "not_connected",
+	engine_unavailable: "not_connected",
+};
+
+/** The plain reason and main action for a session error code. A code that isn't a known one (a provider's own message) reads as "your AI didn't answer". */
+export function sessionFailure(code: string | undefined): (typeof SESSION_FAILURES)[SessionFailureKind] & { kind: SessionFailureKind } {
+	const kind: SessionFailureKind = !code ? "other" : (FAILURE_KIND[code] ?? (/^[a-z_:]+$/.test(code) ? "other" : "no_answer"));
+	return { kind, ...SESSION_FAILURES[kind] };
+}
 
 export const NUDGE_TEXT = {
 	n1: (module: string, questions: number, minutes: number) =>
@@ -279,6 +385,9 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** What the session screen says while it waits. */
+	reading: (module: string) => `Reading your ${module} slides → writing question 1`,
+	writing: (n: number) => `Writing question ${n}…`,
 	/** Try-now card (J1). */
 	tryNow: () => {
 		const b = SESSION_BUDGETS["try-now"];

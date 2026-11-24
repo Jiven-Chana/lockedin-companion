@@ -10,13 +10,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONFIDENCE_STOPS, moduleHue, type SessionQuestion, type SessionView } from "@/src/core";
+import { CONFIDENCE_STOPS, MATERIALS_RULES, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
 import { MicButton, useMic } from "../mic";
 import { Prose } from "../prose";
 import { Tint } from "../root";
+import { SlidePage } from "../slide-page";
 
 const DONT_KNOW = -1;
 
@@ -41,6 +42,7 @@ export function SessionScreen({ id }: { id: string }) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [answered, setAnswered] = useState<Answered | null>(null);
 	const [slides, setSlides] = useState<SlideSection[]>([]);
+	const [hasPdf, setHasPdf] = useState(false);
 	const [slide, setSlide] = useState<number | null>(null);
 	const [notify, setNotify] = useLocalFlag("li-notify");
 	const qRef = useRef<HTMLHeadingElement>(null);
@@ -59,12 +61,13 @@ export function SessionScreen({ id }: { id: string }) {
 
 	const lectureId = view?.lecture.id;
 	useEffect(() => {
-		if (lectureId) lockedIn.slides(lectureId).then(setSlides).catch(() => setSlides([]));
+		if (lectureId) lockedIn.slides(lectureId).then((r) => { setSlides(r.slides); setHasPdf(r.hasPdf); }).catch(() => { setSlides([]); setHasPdf(false); });
 	}, [lectureId]);
 
 	// The panel follows the slide the teacher cites, unless the student picked one.
+	// A unit keeps its file's page numbers (18 to 38, say), so the panel moves through those (S-1).
 	const cited = view?.feedback?.slideRefs[0] ?? view?.slideRefs[0];
-	const current = slide ?? cited ?? 1;
+	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 	const reviewing = !!answered && !!view?.feedback && view.feedback.questionId === answered.question.id;
 	const showQuestion = view?.status === "question" && view.question && !reviewing;
 
@@ -121,6 +124,24 @@ export function SessionScreen({ id }: { id: string }) {
 		await lockedIn.stop(id).catch(() => undefined);
 		router.push("/app");
 	}
+	async function retry() {
+		setBusy("retry");
+		const problem = await lockedIn.retry(id).then(() => null, (e: unknown) => (e instanceof ApiError ? e.message : "Couldn't reach the app"));
+		await load();
+		if (problem) setError(problem);
+		setBusy(null);
+	}
+	async function practiseInstead() {
+		setBusy("practice");
+		try {
+			const { sessionId } = await lockedIn.practiceInstead(id);
+			router.replace(`/app/session/${sessionId}`);
+		} catch (e) {
+			setError(e instanceof ApiError ? e.message : "Couldn't reach the app");
+		} finally {
+			setBusy(null);
+		}
+	}
 	async function keepGoing() {
 		setBusy("more");
 		try {
@@ -157,8 +178,8 @@ export function SessionScreen({ id }: { id: string }) {
 		);
 	}
 
-	const s = slides.find((x) => x.number === current);
-	const total = slides.length;
+	const failure = sessionFailure(view.error);
+	const s = slides.find((x) => x.number === pos.number);
 	const fb = view.feedback;
 
 	return (
@@ -178,11 +199,14 @@ export function SessionScreen({ id }: { id: string }) {
 					<section className="li-qcard" aria-label="Question">
 						{view.status === "error" ? (
 							<>
-								<h2 className="li-q-stem">Something got stuck.</h2>
-								<p className="li-muted" style={{ margin: 0 }}>{friendlyError(view.error)}</p>
+								<h2 className="li-q-stem">{failure.says}</h2>
+								{error ? <div className="li-note" role="alert">{error}</div> : null}
 								<div className="li-row">
-									<button type="button" className="li-btn primary" onClick={async () => { await lockedIn.retry(id).catch(() => undefined); await load(); }}>Try again</button>
-									<Link className="li-btn" href="/app">Back to Today</Link>
+									{failure.action === "connect"
+										? <Link className="li-btn primary" href="/app/me#ai">{SESSION_FAILURE_ACTIONS.connect}</Link>
+										: <button type="button" className="li-btn primary" onClick={retry} disabled={!!busy}>{busy === "retry" ? "Trying…" : SESSION_FAILURE_ACTIONS.retry}</button>}
+									{view.practiceAvailable ? <button type="button" className="li-btn" onClick={practiseInstead} disabled={!!busy}>{SESSION_FAILURE_ACTIONS.practice}</button> : null}
+									<Link className="li-btn" href="/app/library">{SESSION_FAILURE_ACTIONS.another}</Link>
 								</div>
 							</>
 						) : null}
@@ -288,27 +312,19 @@ export function SessionScreen({ id }: { id: string }) {
 
 					<aside className="li-slides" aria-label="Slides">
 						<div className="li-row" style={{ gap: 8 }}>
-							<b style={{ flexGrow: 1 }}>{total ? `Slide ${current} of ${total}` : "Slides"}</b>
-							<button type="button" className="li-icon-btn" aria-label="Previous slide" onClick={() => setSlide(Math.max(1, current - 1))} disabled={current <= 1}>‹</button>
-							<button type="button" className="li-icon-btn" aria-label="Next slide" onClick={() => setSlide(Math.min(total || 1, current + 1))} disabled={current >= total}>›</button>
+							<b style={{ flexGrow: 1 }}>{slidePositionLabel(pos, hasPdf)}</b>
+							<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Previous page" : "Previous slide"} onClick={() => setSlide(pos.prev)} disabled={pos.prev === null}>‹</button>
+							<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}>›</button>
 						</div>
-						<div className="li-slide">
-							<span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>
-							{s ? (<><h3>{s.title}</h3><Prose text={s.body} /></>) : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
+						<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
+							{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>}
+							{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 						</div>
-						{total ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === current ? "true" : "false"} />)}</div> : null}
+						{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
 						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>The panel follows the slide the explanation cites. Click any slide chip to open it here.</span>
 					</aside>
 				</div>
 			</div>
 		</Tint>
 	);
-}
-
-function friendlyError(code?: string): string {
-	if (!code) return "The engine didn't answer. Try again, or come back to it later.";
-	if (code === "models_not_configured" || code === "provider_key_missing") return "The teaching engine isn't set up on this laptop yet (no model or key). The facilitator can switch to scripted questions.";
-	if (code === "timeout") return "Writing the question took too long. Try again.";
-	if (code === "no_scripted_set") return "There are no scripted questions for this lecture yet.";
-	return `The engine reported "${code}". Try again, or come back to it later.`;
 }

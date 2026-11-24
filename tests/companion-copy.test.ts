@@ -10,6 +10,8 @@ import {
 	readsSummary,
 	SESSION_BUDGETS,
 	SESSION_COPY,
+	SESSION_FAILURES,
+	sessionFailure,
 	sessionKindForNudge,
 	type Lecture,
 	type NudgeType,
@@ -60,4 +62,30 @@ describe('"What I read" names the source', () => {
 		["ics with no via defaults to file", "ics", undefined, "Your timetable (.ics)"],
 	];
 	for (const [name, source, via, label] of cases) it(name, () => assert.equal(readsSummary(lectures, source, undefined, via).label, label));
+});
+
+describe("a failed session says what happened and offers one action (v1.0 T-6)", () => {
+	const cases: Array<[string | undefined, keyof typeof SESSION_FAILURES]> = [
+		["no_question", "no_question"],
+		["probe_not_done", "no_question"],
+		["timeout", "timeout"],
+		["turn_failed", "no_answer"],
+		["engine_error", "no_answer"],
+		["lh_502", "no_answer"],
+		["ChatGPT request failed. Check your connection and ChatGPT usage, then retry.", "no_answer"],
+		["models_not_configured", "not_connected"],
+		["provider_key_missing", "not_connected"],
+		["no_scripted_set", "other"],
+		["unsupported_question:probe", "other"],
+		[undefined, "other"],
+	];
+	for (const [code, kind] of cases) it(`${code ?? "(no code)"} → ${kind}`, () => assert.equal(sessionFailure(code).kind, kind));
+
+	it("only a missing connection sends the student to Connect; everything else is Try again", () => {
+		for (const [kind, f] of Object.entries(SESSION_FAILURES)) assert.equal(f.action, kind === "not_connected" ? "connect" : "retry");
+	});
+
+	it("no failure names the engine, a code or 'stuck'", () => {
+		for (const f of Object.values(SESSION_FAILURES)) assert.doesNotMatch(f.says, /engine|stuck|code|error|_/i);
+	});
 });

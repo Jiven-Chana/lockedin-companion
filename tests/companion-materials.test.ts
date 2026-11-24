@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { SlidePage } from "../src/core/companion/index.ts";
-import { parseSlides } from "../src/core/companion/index.ts";
+import { MATERIALS_RULES, PACK_COPY, parseSlides } from "../src/core/companion/index.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
 import { CompanionContent } from "../src/server/companion/content.ts";
 import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
@@ -25,9 +25,15 @@ const PROMPTS = path.join(import.meta.dirname, "..", "companion", "prompts");
 const NOW = new Date(2026, 10, 23, 12); // Mon 23 Nov 2026
 
 /** A fake PDF: the bytes are the page titles joined by "|". */
+/** Enough text on each page for a unit to be worth studying (MATERIALS_RULES.minUnitChars). */
+const FILL = " It explains the idea step by step, with a worked example and a short check.".repeat(4);
 const pdf = (...titles: string[]) => new Uint8Array([0x25, 0x50, 0x44, 0x46, ...new TextEncoder().encode(titles.join("|"))]);
-const pdfToPages = async (data: Uint8Array): Promise<SlidePage[]> =>
-	new TextDecoder().decode(data.slice(4)).split("|").map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.` }));
+/** Like the real PDF reader, the fake one uses up the bytes it is given (v1.0 S-2: the stored PDF came out empty). */
+const pdfToPages = async (data: Uint8Array): Promise<SlidePage[]> => {
+	const titles = new TextDecoder().decode(data.slice(4)).split("|");
+	data.fill(0);
+	return titles.map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.${FILL}` }));
+};
 
 async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) => unknown } = {}) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-mat-"));
@@ -35,6 +41,7 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 	const content = new CompanionContent(store, CONTENT);
 	const clock = new ManualClock(NOW);
 	const calls: GenerateRequest[] = [];
+	const renders: string[] = [];
 	const generate: Generate = async <T,>(req: GenerateRequest) => {
 		calls.push(req);
 		const value = opts.split ? opts.split(req) : { units: [] };
@@ -49,6 +56,11 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 		engines: { scripted: new ScriptedEngine((id) => content.scriptedSet(id)), learnharness: new ScriptedEngine((id) => content.scriptedSet(id)) },
 		defaultEngine: "scripted",
 		convertPdf: pdfToPages,
+		renderPdfPage: async (file, page) => {
+			renders.push(`${path.basename(path.dirname(file))}:${page}`);
+			await new Promise((r) => setTimeout(r, 2));
+			return fs.statSync(file).size > 0 ? new TextEncoder().encode(`png of page ${page}`) : null;
+		},
 		generate,
 		promptsDir: PROMPTS,
 		newId: (p) => `${p}${++n}`,
@@ -56,7 +68,7 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 	// The AI's readiness without the engine: stub the check the materials use.
 	(svc.courseMaterials as unknown as { opts: { aiReady: () => Promise<boolean> } }).opts.aiReady = async () => opts.aiReady ?? false;
 	await svc.onboardFlow({ calendar: { kind: "none" }, modules: [{ code: "GT", name: "Game Theory" }] });
-	return { svc, store, dir, calls, events: () => store.events().map((e) => e.type) };
+	return { svc, store, dir, calls, renders, events: () => store.events().map((e) => e.type) };
 }
 
 const semester = () => pdf("Game Theory", ...Array.from({ length: 13 }, (_, i) => `Dominance ${i}`), ...Array.from({ length: 14 }, (_, i) => `Nash ${i}`));
@@ -65,7 +77,8 @@ describe("proposing course units", () => {
 	it("a weekly-labelled PDF is one unit, with no AI call", async () => {
 		const { svc, calls } = await setup({ aiReady: true });
 		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week2_nash.pdf", bytes: pdf("Nash equilibrium", "Best responses") }]);
-		assert.deepEqual(r.files[0]!.units, [{ title: "Nash equilibrium", week: 2, pages: [1, 2] }]);
+		assert.deepEqual(r.files[0]!.units.map(({ chars: _chars, ...u }) => u), [{ title: "Nash equilibrium", week: 2, pages: [1, 2] }]);
+		assert.ok(r.files[0]!.units[0]!.chars >= MATERIALS_RULES.minUnitChars, "the proposal says how much text each unit holds");
 		assert.equal(r.files[0]!.via, "name");
 		assert.equal(calls.length, 0);
 	});
@@ -146,6 +159,64 @@ describe("saving the confirmed units", () => {
 		assert.throws(() => svc.saveMaterials("GT", { uploadId: r.uploadId, units }), /expired/, "a saved upload can't be saved twice");
 	});
 
+	it("the stored PDF is the uploaded file, not an empty one (S-2)", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const stored = fs.readFileSync(path.join(store.materialsDir(saved.units[0]!.id), "slides.pdf"));
+		assert.deepEqual(new Uint8Array(stored), semester());
+		assert.equal(svc.materials(saved.units[0]!.id).hasPdf, true);
+		assert.equal(svc.lectureSlides(saved.units[0]!.id).hasPdf, true);
+	});
+
+	it("an empty stored PDF (uploads from before the fix) counts as no PDF", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const id = saved.units[0]!.id;
+		fs.truncateSync(path.join(store.materialsDir(id), "slides.pdf"), 0);
+		assert.equal(svc.materials(id).hasPdf, false);
+		assert.equal(svc.lectureSlides(id).hasPdf, false);
+		await assert.rejects(svc.slidePage(id, 2), (e: CompanionError) => e.status === 404 && e.code === "page_not_found");
+	});
+
+	it("a page of the unit is drawn once and kept; other pages and units without a PDF are not found (V-21)", async () => {
+		const { svc, r, renders } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const nash = saved.units[1]!.id; // pages 15 to 28
+		const [a, b] = await Promise.all([svc.slidePage(nash, 15), svc.slidePage(nash, 15)]);
+		assert.equal(a, b);
+		assert.equal(fs.readFileSync(a, "utf-8"), "png of page 15");
+		await svc.slidePage(nash, 15);
+		assert.deepEqual(renders, [`${nash}:15`], "drawn once, then read from disk");
+		await assert.rejects(svc.slidePage(nash, 3), (e: CompanionError) => e.code === "page_not_found", "page 3 belongs to the other unit");
+		await assert.rejects(svc.slidePage(nash, 1.5), (e: CompanionError) => e.status === 400);
+		await assert.rejects(svc.slidePage("hci-w3-personas", 1), (e: CompanionError) => e.code === "page_not_found", "the sample lecture has no PDF");
+		assert.equal(svc.lectureSlides("hci-w3-personas").hasPdf, false);
+	});
+
+	it("replacing a unit's material keeps the new PDF and forgets the old page pictures", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const id = saved.units[0]!.id; // pages 2 to 14
+		const old = await svc.slidePage(id, 2);
+		await svc.importMaterials(id, pdf("One", "Two"));
+		assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(store.materialsDir(id), "slides.pdf"))), pdf("One", "Two"));
+		assert.equal(fs.existsSync(old), false);
+		assert.equal(fs.readFileSync(await svc.slidePage(id, 2), "utf-8"), "png of page 2");
+	});
+
+	it("a unit with too little text can't be saved, and the proposal says how little it holds (T-5, V-24)", async () => {
+		const { svc, store } = await setup();
+		// What a student actually did: the words "Week 8" typed into the paste box.
+		const r = await svc.proposeMaterials("GT", [{ name: "Game Theory notes.md", bytes: new TextEncoder().encode("Week 8") }]);
+		assert.equal(r.files[0]!.units.length, 1);
+		assert.ok(r.files[0]!.units[0]!.chars < MATERIALS_RULES.minUnitChars);
+		assert.throws(
+			() => svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) }),
+			(e: CompanionError) => e.status === 400 && e.message.includes(PACK_COPY.tooShort),
+		);
+		assert.equal(store.lectures().filter((l) => l.source).length, 0, "nothing was saved");
+	});
+
 	it("units are quizzable straight away, with no timetable", async () => {
 		const { svc, r } = await proposed();
 		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
@@ -185,13 +256,73 @@ describe("the module calendar", () => {
 	});
 });
 
+const ics = (titles: string[]) =>
+	["BEGIN:VCALENDAR", ...titles.flatMap((t, i) => ["BEGIN:VEVENT", `UID:e${i}`, `SUMMARY:GT: ${t}`, `DTSTART:202611${24 + i}T100000Z`, `DTEND:202611${24 + i}T110000Z`, "END:VEVENT"]), "END:VCALENDAR"].join("\r\n");
+
+describe("a unit's week and the sample timetable (v1.0 V-25, V-26)", () => {
+	it("Set week: a unit with no week gets one, in one call", async () => {
+		const { svc, store, events } = await setup();
+		const r = await svc.proposeMaterials("GT", [{ name: "notes.pdf", bytes: pdf("Dominance", "Nash") }]);
+		const [unit] = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) }).units;
+		assert.equal(unit!.week, 0, "the material didn't say");
+		assert.equal(svc.setUnitWeek(unit!.id, { week: 4 }).week, 4);
+		assert.equal(store.lectures().find((l) => l.id === unit!.id)?.week, 4);
+		assert.equal(events().filter((e) => e === "unit_week_set").length, 1);
+		for (const bad of [0, 53, 2.5, "3", null]) assert.throws(() => svc.setUnitWeek(unit!.id, { week: bad }), (e: CompanionError) => e.status === 400);
+		assert.throws(() => svc.setUnitWeek("nope", { week: 2 }), (e: CompanionError) => e.status === 404);
+	});
+
+	it("a timetabled lecture's week comes from the calendar, not from Set week", async () => {
+		const { svc, store } = await setup();
+		svc.importIcs(ics(["Lecture A"]));
+		const timed = store.lectures().find((l) => l.start)!;
+		assert.throws(() => svc.setUnitWeek(timed.id, { week: 2 }), (e: CompanionError) => e.status === 400);
+	});
+
+	it("saving your own material hides the sample lectures; nothing is deleted", async () => {
+		const { svc, store, events } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const sample = store.lectures().filter((l) => l.start);
+		assert.ok(sample.some((l) => l.id === "gt-w1-dominance"), "the sample's own 'Games in normal form'");
+		assert.equal(svc.reads().label, "Sample timetable");
+		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week1.pdf", bytes: pdf("Games in Normal Form", "Dominance") }]);
+		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const live = store.lectures();
+		assert.deepEqual(live.map((l) => l.title), ["Games in Normal Form"], "only the student's own unit is left on screen");
+		assert.equal(store.allLectures().filter((l) => l.archived).length, sample.length, "the sample is kept as history");
+		assert.equal(svc.reads().label, "No timetable connected");
+		assert.deepEqual(store.events().filter((e) => e.type === "sample_hidden").map((e) => [e.data.lectures, e.data.via]), [[sample.length, "materials"]]);
+		// A second upload has nothing left to hide.
+		const again = await svc.proposeMaterials("GT", [{ name: "GT_Week2.pdf", bytes: pdf("Nash", "Best responses") }]);
+		svc.saveMaterials("GT", { uploadId: again.uploadId, units: again.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		assert.equal(events().filter((e) => e === "sample_hidden").length, 1);
+		assert.equal(store.lectures().length, 2);
+	});
+
+	it("a real calendar hides the sample lectures too", async () => {
+		const { svc, store } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const sample = store.lectures().filter((l) => l.start).length;
+		svc.importIcs(ics(["Lecture A"]));
+		assert.deepEqual(store.lectures().filter((l) => l.start).map((l) => l.title), ["Lecture A"]);
+		assert.deepEqual(store.events().filter((e) => e.type === "sample_hidden").map((e) => [e.data.lectures, e.data.via]), [[sample, "calendar"]]);
+	});
+
+	it("a facilitator scenario brings the sample back", async () => {
+		const { svc, store } = await setup();
+		await svc.onboardFlow({ calendar: { kind: "sample" } });
+		const r = await svc.proposeMaterials("GT", [{ name: "GT_Week1.pdf", bytes: pdf("Games in Normal Form", "Dominance") }]);
+		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		svc.demoScenario({ name: "tayo" });
+		assert.ok(store.lectures().some((l) => l.id === "gt-w1-dominance"));
+	});
+});
+
 describe("calendar re-imports merge (F-104)", () => {
-	const ics = (titles: string[]) =>
-		["BEGIN:VCALENDAR", ...titles.flatMap((t, i) => ["BEGIN:VEVENT", `UID:e${i}`, `SUMMARY:GT: ${t}`, `DTSTART:202611${24 + i}T100000Z`, `DTEND:202611${24 + i}T110000Z`, "END:VEVENT"]), "END:VCALENDAR"].join("\r\n");
 
 	it("units and 'I wasn't there' survive; a vanished event is archived, not deleted", async () => {
 		const { svc, store } = await setup();
-		const r = await svc.proposeMaterials("GT", [{ name: "Week 2.pdf", bytes: pdf("Nash") }]);
+		const r = await svc.proposeMaterials("GT", [{ name: "Week 2.pdf", bytes: pdf("Nash", "Best responses") }]);
 		svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
 		svc.importIcs(ics(["Lecture A", "Lecture B"]));
 		const [a, b] = store.lectures().filter((l) => l.start);

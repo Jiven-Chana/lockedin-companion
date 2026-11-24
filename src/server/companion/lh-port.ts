@@ -32,6 +32,7 @@ import { MODEL_SLOTS } from "../../core/settings.ts";
 import type { AiPort } from "./ai.ts";
 import { Type } from "typebox";
 import { piEngineForSpec } from "../../agent/models.ts";
+import { getHeadless } from "../../agent/subagents/headless.ts";
 import { runSubmitAgent } from "../../agent/subagents/submit-agent.ts";
 import { isSubscriptionProvider } from "../../agent/subscription-connections.ts";
 import { modelsNotConfigured } from "../../core/settings.ts";
@@ -229,6 +230,16 @@ export function createAiPort(): AiPort {
 	};
 }
 
+/**
+ * One page of a PDF as a PNG (V-21), drawn by the engine's own PDF renderer
+ * (pdfjs into a native canvas, in this process: no browser). Null when the
+ * file has no such page.
+ */
+export async function renderPdfPage(pdfPath: string, page: number, dpi: number): Promise<Uint8Array | null> {
+	const [rendered] = await getHeadless().renderPdfPages(pdfPath, [page], { dpi });
+	return rendered ? new Uint8Array(rendered.png) : null;
+}
+
 /** The engine role whose prompts and limits fit each slot (ROLE_SLOT, reversed). */
 const SLOT_ROLE: Record<"strong" | "cheap" | "vision", ModelRole> = { strong: "teacher", cheap: "extractor", vision: "visualMaker" };
 
@@ -242,7 +253,15 @@ export const generate: Generate = async (req) => {
 	if (!spec) throw new EngineError("models_not_configured", modelsNotConfigured([req.slot]).error, 503);
 	if (!providerKeyPresent(spec.provider)) throw new EngineError("provider_key_missing", `Your ${spec.provider} connection isn't available. Reconnect in Me → Your AI.`, 503);
 	if (isSubscriptionProvider(spec.provider)) await refreshConnectionCatalog(spec.provider).catch(() => undefined);
-	const engine = piEngineForSpec(spec, false);
+	let engine;
+	try {
+		engine = piEngineForSpec(spec, false);
+	} catch (err) {
+		// A sign-in whose model list didn't load (the refresh above failed) has "no such
+		// model": that is the connection being down, not a wrong model choice (v1.0 T-4).
+		if (isSubscriptionProvider(spec.provider)) throw new EngineError("ai_unavailable", "Your AI connection isn't answering right now.", 503);
+		throw err;
+	}
 	let cost = 0;
 	let priced = false;
 	const value = await runSubmitAgent<unknown>({

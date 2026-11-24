@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { MATERIALS_RULES } from "../../core/companion/policy.ts";
 import { assembleSlidesMarkdown, firstLineTitle, type SlidePage } from "../../core/companion/slides.ts";
-import { checkProposal, proposeWithoutAi, textToPages, wantsAiSplit, type ProposalVia, type ProposedUnit, type UnitPage } from "../../core/companion/units.ts";
+import { checkProposal, proposeWithoutAi, textToPages, unitChars, wantsAiSplit, type ProposalVia, type ProposedUnit, type UnitPage } from "../../core/companion/units.ts";
 import { badRequest, CompanionError } from "./errors.ts";
 import type { Generate } from "./generate.ts";
 
@@ -29,7 +29,8 @@ export interface FileProposal {
 	pageCount: number;
 	/** Pages with no text (image-only): listed as "no text found". */
 	noText: number[];
-	units: ProposedUnit[];
+	/** Each proposed unit with how much text it holds: under MATERIALS_RULES.minUnitChars it can't be saved (V-24). */
+	units: (ProposedUnit & { chars: number })[];
 	via: ProposalVia;
 	/** Why the AI wasn't used or failed, in plain words (null when it wasn't needed or worked). */
 	note: string | null;
@@ -102,7 +103,8 @@ export class CourseMaterials {
 		if (f.bytes.length > MATERIALS_RULES.maxFileBytes) throw badRequest(`${f.name} is over 25 MB`);
 		if (isPdf(f)) {
 			if (!this.opts.pdfToPages) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
-			const pages = await this.opts.pdfToPages(f.bytes);
+			// The reader uses up the bytes it is given: hand it a copy, so the file itself can still be kept (S-2).
+			const pages = await this.opts.pdfToPages(f.bytes.slice());
 			if (pages === "too-long") throw badRequest(`${f.name} has too many pages`);
 			if (pages === "unreadable") throw badRequest(`${f.name} could not be read`);
 			return { kind: "pdf", pages };
@@ -147,7 +149,9 @@ export class CourseMaterials {
 		for (const f of files) converted.push({ name: f.name, ...(await this.toPages(f)) });
 		const proposals: FileProposal[] = [];
 		for (const [i, f] of converted.entries()) {
-			const r = await this.split(f.name, f.pages, module.name);
+			const split = await this.split(f.name, f.pages, module.name);
+			const summary = unitPages(f.pages);
+			const r = { ...split, units: split.units.map((u) => ({ ...u, chars: unitChars(summary, u.pages) })) };
 			proposals.push({
 				file: i,
 				name: f.name,

@@ -11,7 +11,35 @@ const COPY = {
 	done: "Done for now",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 	offline: "Can't reach LockedIn right now. Your answers are saved and will be sent when you're back online.",
-	iosHome: "First, add LockedIn to your Home Screen: tap Share, then “Add to Home Screen”, and open it from there. iPhones only allow notifications for apps on the Home Screen.",
+	// The guided install on an iPhone (v1.0 P-1, V-29).
+	install: {
+		title: "Add LockedIn to your Home Screen",
+		why: "iPhones only allow notifications from apps on the Home Screen. It takes three taps.",
+		share: "Tap the Share button",
+		shareWhere: "the square with an arrow, at the bottom of Safari",
+		shareWhereOther: "the square with an arrow, next to the address at the top",
+		add: "Scroll down and tap “Add to Home Screen”",
+		open: "Tap Add, then open LockedIn from your Home Screen",
+		openNote: "It opens already paired with your laptop.",
+		installed: "✓ Installed",
+		allow: "Now tap Allow notifications.",
+		tryTitle: "Try one now",
+		tryNote: "A sample question. Nothing you tap here is sent to your laptop.",
+		tried: "That's how a question looks. Yours arrive after your lectures, once LockedIn is on your Home Screen.",
+	},
+};
+/** The sample on the install screen: the bundled HCI "Personas" lecture's first question, cut to three options. */
+const SAMPLE = {
+	title: "Sample · HCI",
+	stem: "Which is the main purpose of a persona?",
+	options: ["To focus design decisions on specific users' goals", "To record the demographic average of all users", "To replace user research when time is short"],
+	correct: 0,
+	explanation: "A persona keeps specific users' goals in view, so decisions are made for someone concrete.",
+};
+/** Pictures for the install steps: iOS's own Share and Add to Home Screen glyphs, redrawn. Static markup only. */
+const ICONS = {
+	share: '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3.5"/><path d="M8 7l4-4 4 4"/><path d="M8.5 10H6.5A1.5 1.5 0 0 0 5 11.5v8A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-8A1.5 1.5 0 0 0 17.5 10h-2"/></svg>',
+	add: '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8.5v7M8.5 12h7"/></svg>',
 };
 const FEELINGS = { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -27,6 +55,12 @@ const h = (tag, attrs = {}, ...kids) => {
 	return el;
 };
 const show = (...nodes) => $app.replaceChildren(...nodes);
+/** A static SVG from ICONS as a node. Never called with anything a server sent. */
+const icon = (name) => {
+	const t = document.createElement("template");
+	t.innerHTML = ICONS[name];
+	return t.content.firstChild;
+};
 
 // ─── storage shared with the service worker (Cache Storage) ────────────────
 async function kv(key, value) {
@@ -118,6 +152,49 @@ function nextQuestionText(s) {
 	return `Your next question comes after ${moduleName} ${day}.`;
 }
 
+/**
+ * An iPhone gives a Home Screen app its own storage, so a pairing saved in
+ * Safari is gone once LockedIn is installed. The manifest decides the
+ * address the installed app opens at: point it at this pair's own manifest,
+ * whose start address carries the pairing (v1.0 P-1).
+ */
+function usePairManifest() {
+	const link = document.querySelector('link[rel="manifest"]');
+	if (link && PAIR) link.setAttribute("href", `/v1/manifest?pair=${PAIR.pairId}.${PAIR.token}`);
+}
+
+/** The sample question on the install screen. It sends no events: the laptop replays those as real answers. */
+function sampleQuestion() {
+	const box = h("section", { class: "card" }, h("p", { class: "eyebrow" }, `${COPY.install.tryTitle} · ${SAMPLE.title}`), h("h2", {}, SAMPLE.stem));
+	const options = h("div", { class: "options", role: "group", "aria-label": "Answers" }, SAMPLE.options.map((o, i) => h("button", { class: "btn option", onclick: () => {
+		const right = i === SAMPLE.correct;
+		options.replaceWith(h("p", { class: right ? "result right" : "result" }, right ? COPY.right(SAMPLE.explanation) : COPY.wrong(SAMPLE.options[SAMPLE.correct], SAMPLE.explanation)), h("p", { class: "muted small" }, COPY.install.tried));
+	} }, o)));
+	box.append(options, h("p", { class: "muted small" }, COPY.install.tryNote));
+	return box;
+}
+
+/** iPhone, in the browser: the three taps to the Home Screen, with pictures, and a question to try meanwhile. */
+function installGuide() {
+	usePairManifest();
+	// Tells the relay this phone opened the link, so the laptop stops saying "Waiting for your phone…".
+	void schedule();
+	const otherBrowser = /crios|fxios|edgios/i.test(navigator.userAgent);
+	const step = (picture, text, note) => h("li", { class: "step" }, h("span", { class: "step-icon" }, picture), h("span", {}, h("b", {}, text), note ? h("span", { class: "muted small step-note" }, note) : null));
+	show(
+		h("main", {},
+			h("h1", {}, COPY.install.title),
+			h("p", {}, COPY.install.why),
+			h("ol", { class: "steps" },
+				step(icon("share"), COPY.install.share, otherBrowser ? COPY.install.shareWhereOther : COPY.install.shareWhere),
+				step(icon("add"), COPY.install.add),
+				step(h("img", { src: "/icon-192.png", width: "28", height: "28", alt: "" }), COPY.install.open, COPY.install.openNote),
+			),
+			sampleQuestion(),
+		),
+	);
+}
+
 async function pairScreen() {
 	const msg = h("p", { class: "muted", role: "status" });
 	const btn = h("button", { class: "btn primary", onclick: async () => {
@@ -133,7 +210,9 @@ async function pairScreen() {
 			btn.disabled = false;
 		}
 	} }, "Allow notifications");
-	if (isIos && !standalone) return show(h("main", {}, h("h1", {}, "Get questions on your phone"), h("p", {}, COPY.iosHome)));
+	if (isIos && !standalone) return installGuide();
+	// Opened from the Home Screen: say the install worked, then the one thing left.
+	if (isIos && standalone) return show(h("main", {}, h("h1", {}, COPY.install.installed), h("p", {}, COPY.install.allow), btn, msg));
 	show(h("main", {}, h("h1", {}, "Get questions on your phone"), h("p", {}, "One question after a lecture, never more than you chose. Answering here is the first step; your laptop continues."), btn, msg));
 }
 
@@ -259,7 +338,9 @@ async function render() {
 		PAIR = { pairId: m[1], token: m[2] };
 		await kv("pair", PAIR);
 		history.replaceState(null, "", "/p"); // the token never stays in the address bar
-		return pairScreen();
+		// An installed iPhone app opens at its pairing address every time: once notifications are on, that is just the app opening.
+		const ready = local.get("pushOn", false) && typeof Notification !== "undefined" && Notification.permission === "granted";
+		if (!ready) return pairScreen();
 	}
 	PAIR = PAIR || (await kv("pair"));
 	if (!PAIR) return show(h("main", {}, h("h1", {}, "LockedIn"), h("p", {}, "Open the link or QR code from your laptop: LockedIn → Me → Phone.")));

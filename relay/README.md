@@ -41,3 +41,16 @@ npm run deploy                             # prints https://lockedin-relay.<acco
 ```
 
 Then set `COMPANION_RELAY_URL=https://lockedin-relay.<account>.workers.dev` on the laptop. The VAPID private key and `.dev.vars` are secrets: never commit them.
+
+**After any change under `relay/`** (the Worker or the phone app in `web/`), run `npm run deploy` again from the account that owns the relay. Phones pick up the new phone app the next time they open it online.
+
+## Installing on an iPhone (v1.0, P-1)
+
+iPhones only allow notifications from a web app on the Home Screen, and they give that app its own storage: a pairing saved in the browser doesn't reach it. So:
+- in the browser, the phone app shows a guided install (three steps with pictures, and a sample question that sends nothing);
+- it points its manifest at `GET /v1/manifest?pair=<pairId>.<token>`, which is the plain `web/manifest.webmanifest` with `start_url` set to `/p#<pairId>.<token>`. The Home Screen app therefore opens already paired;
+- the installed app says "✓ Installed" and asks for notifications. Once they are on, it opens as the app.
+
+The route only echoes the pair it is given (it must be two 32-character hex strings) and never looks it up. The token is the phone's own, and it already travels to the relay on every call.
+
+Android and desktop browsers share storage with the installed app, so they keep the plain manifest and skip the install step.

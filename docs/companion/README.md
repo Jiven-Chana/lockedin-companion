@@ -4,7 +4,7 @@ LockedIn adds a **start layer** and **session engines** around the LearnHarness 
 
 This document covers everything the student never sees: rules, engines, storage, API, seed and tests. The LockedIn screens (`components/lockedin/`, served at `/app`) are built on top of the [API](API.md) and are not part of this layer.
 
-- **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it). **Next version:** [v0.1-spec.md](v0.1-spec.md); **history:** [VERSIONS.md](VERSIONS.md)
+- **Design:** [plan.md](plan.md) (the group-reviewed implementation plan; section numbers below refer to it) and [v0.1-spec.md](v0.1-spec.md). **Current version:** v1.0, [v1.0-release.md](v1.0-release.md) (what was fixed, and the test checklist). **Next:** [v2.0-direction.md](v2.0-direction.md). **History:** [VERSIONS.md](VERSIONS.md)
 - **How we work:** [SDLC.md](SDLC.md) (branches, commits, PRs, definition of done, CI)
 - **HTTP API:** [API.md](API.md)
 - **Decisions made in the build, and decisions still open:** [DECISIONS.md](DECISIONS.md)

@@ -42,7 +42,7 @@ export interface PackData { meta: PackMeta | null; explainers: Explainer[]; ques
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
-	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number] }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
+	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
 }
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
@@ -121,7 +121,8 @@ export const lockedIn = {
 	lectures: (q?: string) => api<{ lectures: LectureWithStatus[] }>(`/lectures${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.lectures),
 	missed: (id: string, missed = true) => api<Lecture>(`/lectures/${encodeURIComponent(id)}/missed`, { body: { missed } }),
 	roadmap: () => api<Record<string, LectureWithStatus[]>>("/roadmap"),
-	slides: (id: string) => api<{ slides: SlideSection[] }>(`/materials/${encodeURIComponent(id)}/slides`).then((r) => r.slides),
+	/** The unit's slides as text, and whether it kept its PDF (then each page has a picture, V-21). */
+	slides: (id: string) => api<{ slides: SlideSection[]; hasPdf: boolean }>(`/materials/${encodeURIComponent(id)}/slides`),
 	map: (id: string) => api<ConceptMapData>(`/lectures/${encodeURIComponent(id)}/map`),
 	progress: () => api<ProgressData>("/progress"),
 	misses: (lectureId?: string) => api<{ misses: MissItem[] }>(`/misses${lectureId ? `?lectureId=${encodeURIComponent(lectureId)}` : ""}`).then((r) => r.misses),
@@ -136,6 +137,7 @@ export const lockedIn = {
 	more: (id: string) => api<{ budget: number }>(`/sessions/${encodeURIComponent(id)}/more`, { body: {} }),
 	stop: (id: string) => api(`/sessions/${encodeURIComponent(id)}/stop`, { method: "POST" }),
 	retry: (id: string) => api(`/sessions/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+	practiceInstead: (id: string) => api<{ sessionId: string }>(`/sessions/${encodeURIComponent(id)}/practice`, { method: "POST" }),
 	blocks: () => api<{ blocks: StudyBlock[] }>("/blocks").then((r) => r.blocks),
 	deleteAll: () => api("/data", { method: "DELETE" }),
 	event: (type: string, data: Record<string, unknown> = {}) => api("/events", { body: { type, data } }).catch(() => undefined),
@@ -161,6 +163,7 @@ export const lockedIn = {
 	cancelPack: (id: string) => api<PackData>(`/lectures/${encodeURIComponent(id)}/pack`, { method: "DELETE" }),
 	// v0.1 course material and module weeks (F-104, V-18)
 	course: () => api<CourseModule[]>("/course"),
+	setUnitWeek: (lectureId: string, week: number) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/week`, { method: "PUT", body: { week } }),
 	setModuleWeek: (code: string, body: { week: number | null; readingWeeks?: number[]; inReadingWeek?: boolean }) => api<CourseModule>(`/modules/${encodeURIComponent(code)}`, { method: "PUT", body }),
 	proposeMaterials: (code: string, form: FormData) => api<MaterialProposal>(`/modules/${encodeURIComponent(code)}/materials`, { raw: form }),
 	saveMaterials: (code: string, body: { uploadId: string; units: { file: number; title: string; week: number; pages: [number, number] }[] }) => api<{ units: Lecture[] }>(`/modules/${encodeURIComponent(code)}/materials`, { method: "PUT", body }),

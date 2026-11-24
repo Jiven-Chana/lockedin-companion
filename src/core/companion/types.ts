@@ -100,6 +100,8 @@ export interface SessionView {
 	teacherNudged?: boolean;
 	/** Machine-readable reason when status is "error". */
 	error?: string;
+	/** status "error" and the lecture has a question bank: "Use practice questions" can replace this session (T-6). */
+	practiceAvailable?: boolean;
 	/** Every (Slide n) referenced in prose + feedback, for the slide sheet. */
 	slideRefs: number[];
 }
@@ -419,9 +421,13 @@ export const COMPANION_EVENT_TYPES = [
 	"materials_saved",
 	"materials_removed",
 	"module_week_set",
+	// v1.0: a unit's own week (V-25) and the sample timetable giving way to real content (V-26)
+	"unit_week_set",
+	"sample_hidden",
 	// v0.1 F-105, F-106
 	"pack_started",
 	"pack_stage",
+	"pack_retry",
 	"pack_ready",
 	"pack_failed",
 	"explainer_opened",

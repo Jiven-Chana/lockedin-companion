@@ -10,7 +10,7 @@
  * using notation, and end in a question from the bank.
  */
 
-import { PACK_RULES } from "./policy.ts";
+import { PACK_COPY, PACK_RULES } from "./policy.ts";
 import type { ScriptedSet } from "./types.ts";
 
 export interface BankQuestion {
@@ -48,7 +48,12 @@ export type StageState = "pending" | "running" | "done" | "failed" | "skipped";
 
 export interface PackMeta {
 	lectureId: string;
-	state: "generating" | "ready" | "failed" | "cancelled";
+	/** `queued`: another unit's pack is being written first (packs run one at a time). */
+	state: "queued" | "generating" | "ready" | "failed" | "cancelled";
+	/** Set while a generating pack is between tries (V-23): after a failed try, or until the AI connection is back. */
+	waiting?: { for: "retry"; seconds: number; until: string } | { for: "connection" };
+	/** Why a pack failed, for the screen: only `no_answer` is worth trying again as it is. */
+	failure?: "no_answer" | "too_short" | "no_material";
 	stages: Record<PackStage, StageState>;
 	startedAt: string;
 	finishedAt?: string;
@@ -59,7 +64,10 @@ export interface PackMeta {
 	ms: number;
 	/** Items that failed their checks twice and were left out (logged, spec F-105). */
 	dropped: { stage: PackStage; id: string; reason: string }[];
+	/** What the screen says about a failure, in plain words (PACK_COPY). */
 	error?: string;
+	/** The underlying error as the model or provider reported it (for the event log and debugging; never shown). */
+	errorDetail?: string;
 	counts?: { nodes: number; explainers: number; questions: number };
 }
 
@@ -73,6 +81,14 @@ export const newPackMeta = (lectureId: string, at: string): PackMeta => ({
 	ms: 0,
 	dropped: [],
 });
+
+/** One line for the lecture page when a pack is waiting or has failed; null while it is simply being written, ready or paused. */
+export function packStatusLine(meta: Pick<PackMeta, "state" | "waiting" | "error">): string | null {
+	if (meta.state === "queued") return PACK_COPY.queued;
+	if (meta.state === "generating" && meta.waiting) return meta.waiting.for === "connection" ? PACK_COPY.waitingForConnection : PACK_COPY.retrying(meta.waiting.seconds);
+	if (meta.state === "failed") return meta.error ?? PACK_COPY.failed(PACK_RULES.retryDelaysMs.length + 1);
+	return null;
+}
 
 /** A map node as the validators need it. */
 export interface PackNode {

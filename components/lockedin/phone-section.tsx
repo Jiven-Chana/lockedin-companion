@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { PHONE_PAIR_COPY } from "@/src/core";
 import { ApiError, lockedIn, type PhoneStatus } from "./api";
 import { useData, usePoll } from "./hooks";
 
@@ -39,7 +40,7 @@ export function PhoneSection() {
 		<div className="li-stack" style={{ gap: 12 }}>
 			{s?.paired ? (
 				<div className="li-note" role="status">
-					{s.pushReady ? "✓ Paired. Your phone gets your questions, even when this laptop is closed." : s.phoneSeenAt ? "Your phone opened LockedIn. Allow notifications there to finish." : "Waiting for your phone to open the link…"}
+					{s.pushReady ? PHONE_PAIR_COPY.paired : s.phoneSeenAt ? PHONE_PAIR_COPY.opened : PHONE_PAIR_COPY.waiting}
 					{s.reachable === false ? " (Can't reach the relay right now; this laptop works on its own.)" : ""}
 				</div>
 			) : null}
@@ -47,9 +48,7 @@ export function PhoneSection() {
 				<div className="li-row" style={{ gap: 20, alignItems: "flex-start" }}>
 					<div className="li-qr" aria-label="QR code to pair your phone" dangerouslySetInnerHTML={{ __html: pairing.qrSvg }} />
 					<ol style={{ margin: 0, paddingLeft: "1.2em", display: "flex", flexDirection: "column", gap: 6, maxWidth: 420 }}>
-						<li>Point your phone&apos;s camera at the code and open the link.</li>
-						<li>On an iPhone: tap Share → <b>Add to Home Screen</b>, then open LockedIn from your Home Screen. (iPhones only allow notifications for Home Screen apps.)</li>
-						<li>Tap <b>Allow notifications</b>.</li>
+						{PHONE_PAIR_COPY.steps.map((step) => <li key={step}>{step}</li>)}
 						<li className="li-small li-muted">Or open this link on your phone: <span style={{ wordBreak: "break-all" }}>{pairing.url}</span></li>
 					</ol>
 				</div>

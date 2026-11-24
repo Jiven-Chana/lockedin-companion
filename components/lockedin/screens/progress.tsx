@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { moduleHue } from "@/src/core";
+import { moduleHue, weekLabel } from "@/src/core";
 import { lockedIn } from "../api";
 import { useData } from "../hooks";
 import { StatusTag } from "../icons";
@@ -48,22 +48,21 @@ export function ProgressScreen() {
 			<section className="li-stack" aria-labelledby="rv">
 				<h2 id="rv" className="li-h2">Ideas to revisit</h2>
 				{(misses.data ?? []).length === 0 ? <div className="li-card flat li-muted">Nothing yet. Anything you get wrong, or right but unsure, comes back here in a short retest a day or two later.</div> : null}
+				{/* Every card on this page is the same neutral card; the module's colour is only the dot (v1.0 V-1). */}
 				{[...byLecture.entries()].map(([lectureId, list]) => (
-					<Tint key={lectureId} hue={moduleHue(list[0]!.module || "HCI")}>
-						<div className="li-card li-stack" style={{ gap: 10 }}>
-							<div className="li-row">
-								<span className="li-dot" style={{ background: "var(--li-accent)" }} />
-								<b style={{ flexGrow: 1 }}>{list[0]!.module} · {list[0]!.lectureTitle}</b>
-								<button type="button" className="li-btn primary" onClick={() => start("retest", lectureId)}>Revisit now</button>
-							</div>
-							{list.map((m) => (
-								<div key={m.id} className="li-row" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
-									<StatusTag status="revisit" />
-									<span style={{ display: "flex", flexDirection: "column" }}><span>{m.questionText}</span><span className="li-small li-muted">Answer: {m.correctLabels.join("; ")}</span></span>
-								</div>
-							))}
+					<div key={lectureId} className="li-card li-stack" style={{ gap: 10 }}>
+						<div className="li-row">
+							<ModuleDot code={list[0]!.module || "HCI"} />
+							<b style={{ flexGrow: 1 }}>{list[0]!.module} · {list[0]!.lectureTitle}</b>
+							<button type="button" className="li-btn primary" onClick={() => start("retest", lectureId)}>Revisit now</button>
 						</div>
-					</Tint>
+						{list.map((m) => (
+							<div key={m.id} className="li-row" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
+								<StatusTag status="revisit" />
+								<span style={{ display: "flex", flexDirection: "column" }}><span>{m.questionText}</span><span className="li-small li-muted">Answer: {m.correctLabels.join("; ")}</span></span>
+							</div>
+						))}
+					</div>
 				))}
 			</section>
 
@@ -71,21 +70,24 @@ export function ProgressScreen() {
 				<h2 id="rm" className="li-h2">Roadmap</h2>
 				<div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16 }}>
 					{Object.entries(p?.roadmap ?? {}).map(([code, list]) => (
-						<Tint key={code} hue={moduleHue(code)}>
-							<div className="li-card li-stack" style={{ gap: 8 }}>
-								<b className="li-display" style={{ fontSize: "1.2em" }}>{code}</b>
-								{list.map((l) => (
-									<Link key={l.id} href={`/app/library/${l.id}`} className="li-row" style={{ flexWrap: "nowrap" }}>
-										<span className="li-small li-muted" style={{ width: 64 }}>Week {l.week}</span>
-										<span style={{ flexGrow: 1 }}>{l.title}</span>
-										<StatusTag status={l.status === "revisit" ? "revisit" : l.status === "answered" ? "answered" : "notyet"} />
-									</Link>
-								))}
-							</div>
-						</Tint>
+						<div key={code} className="li-card li-stack" style={{ gap: 8 }}>
+							<div className="li-row" style={{ gap: 8 }}><ModuleDot code={code} /><b className="li-display" style={{ fontSize: "1.2em" }}>{code}</b></div>
+							{list.map((l) => (
+								<Link key={l.id} href={`/app/library/${l.id}`} className="li-row" style={{ flexWrap: "nowrap" }}>
+									<span className="li-small li-muted li-week-label">{weekLabel(l.week)}</span>
+									<span style={{ flexGrow: 1, minWidth: 0 }}>{l.title}</span>
+									<StatusTag status={l.status === "revisit" ? "revisit" : l.status === "answered" ? "answered" : "notyet"} />
+								</Link>
+							))}
+						</div>
 					))}
 				</div>
 			</section>
 		</>
 	);
+}
+
+/** The module's colour as a dot: the only tinted thing on a Progress card. */
+function ModuleDot({ code }: { code: string }) {
+	return <Tint hue={moduleHue(code)} style={{ display: "inline-flex" }}><span className="li-dot" style={{ background: "var(--li-accent)" }} /></Tint>;
 }

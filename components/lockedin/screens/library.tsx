@@ -9,12 +9,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { moduleHue } from "@/src/core";
+import { moduleHue, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, StatusTag } from "../icons";
 import { MaterialUpload } from "../material-upload";
 import { Tint, useLockedIn } from "../root";
+import { SetWeek } from "../set-week";
 import { PageHead } from "../shell";
 
 const WEEKS = Array.from({ length: 20 }, (_, i) => i + 1);
@@ -72,7 +73,7 @@ export function LibraryScreen() {
 
 	const unitRow = (l: LectureWithStatus) => (
 		<div key={l.id} className="li-tl">
-			<span className="li-tl-time">{l.week > 0 ? `Week ${l.week}` : "—"}</span>
+			<span className="li-tl-time">{l.week > 0 || l.start ? weekLabel(l.week) : <SetWeek lectureId={l.id} title={l.title} onSaved={() => void course.reload()} />}</span>
 			<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 				<Link href={`/app/library/${l.id}`}><b>{l.title}</b></Link>
 				<span className="li-small li-muted">{l.start ? fmtDay(l.start, now) : "From your course material"}{l.attended === false ? " · you weren't there" : ""}{l.hasMaterials ? "" : " · no material yet"}</span>
@@ -118,7 +119,7 @@ export function LibraryScreen() {
 								<div className="li-card" style={{ padding: "8px 24px" }}>
 									{weeks.map((w) => (
 										<div key={w}>
-											{weeks.length > 1 ? <div className="li-eyebrow" style={{ marginTop: 12 }}>{w > 0 ? `Week ${w}${m.week === w ? " · this week" : ""}` : "Week unknown"}</div> : null}
+											{weeks.length > 1 ? <div className="li-eyebrow" style={{ marginTop: 12 }}>{weekLabel(w)}{w > 0 && m.week === w ? " · this week" : ""}</div> : null}
 											{shown.filter((u) => u.week === w).map(unitRow)}
 										</div>
 									))}

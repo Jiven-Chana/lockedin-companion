@@ -33,7 +33,8 @@ export type SessionPatch = Partial<Omit<CompanionSession, "id">>;
 export interface SessionEngine {
 	readonly name: EngineName;
 	start(session: CompanionSession, ctx: PrepareContext): Promise<SessionPatch>;
-	waitUntilReady(session: CompanionSession, timeoutMs: number): Promise<void>;
+	/** Resolves when question 1 is on the screen. `onNudge` fires if the teacher had to be asked for it (V-22). */
+	waitUntilReady(session: CompanionSession, timeoutMs: number, onNudge?: () => void): Promise<void>;
 	view(session: CompanionSession, lecture: Lecture): Promise<SessionView>;
 	answer(session: CompanionSession, a: AnswerInput, now: Date): Promise<{ record: AnswerRecord; patch?: SessionPatch }>;
 	/** "Show me first" on the given question. LearnHarness answers it as a
