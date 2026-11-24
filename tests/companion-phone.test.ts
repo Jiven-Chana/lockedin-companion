@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
-import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
+import { applyPlanEdits, eventsToReplay, nextVersion, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
 import type { Db, Stmt } from "../relay/src/db.ts";
 import { handle, type RelayEnv } from "../relay/src/relay.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
@@ -35,7 +35,7 @@ function sqliteDb(): Db {
 	return { prepare: (sql) => stmt(sql), batch: async (stmts) => Promise.all(stmts.map((s) => s.run())) };
 }
 
-async function setup(opts: { relayDown?: boolean } = {}) {
+async function setup(opts: { relayDown?: boolean; packs?: boolean } = {}) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-phone-"));
 	const store = new CompanionStore(dir);
 	const content = new CompanionContent(store, CONTENT);
@@ -54,6 +54,8 @@ async function setup(opts: { relayDown?: boolean } = {}) {
 		engines: { scripted, learnharness: scripted },
 		defaultEngine: "scripted",
 		relay: { url: RELAY, fetch: relayFetch },
+		// Study packs exist once the AI is wired (question banks are read from them).
+		...(opts.packs ? { generate: (async () => { throw new Error("not called"); }) as never } : {}),
 		newId: (p) => `${p}${++n}`,
 	});
 	svc.demoScenario({ name: "tayo" });
@@ -62,7 +64,14 @@ async function setup(opts: { relayDown?: boolean } = {}) {
 		const res = await relayFetch(`${RELAY}${p}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 		return res.status === 204 ? null : res.json();
 	};
-	return { svc, store, clock, phone, events: () => store.events().map((e) => e.type) };
+	/** A student's own unit with a study pack's question bank (no timetable slot of its own). */
+	const addUnit = (id: string, module: string, title: string, questions = 3) => {
+		store.saveLectures([...store.allLectures(), { id, module, title, week: 0, order: 99, kind: "lecture", hasMaterials: true, source: { file: "notes.pdf", pages: [1, 4] } }]);
+		fs.mkdirSync(store.materialsDir(id), { recursive: true });
+		fs.writeFileSync(path.join(store.materialsDir(id), "slides.md"), `# ${title}\n\n## Slide 1 — ${title}\n\nText.\n`);
+		fs.writeFileSync(path.join(store.materialsDir(id), "bank.json"), JSON.stringify(Array.from({ length: questions }, (_, i) => ({ id: `${id}-q${i + 1}`, stem: `${title}: question ${i + 1}?`, options: ["Right", "Wrong A", "Wrong B"], correct: 0, explanation: "Because (Slide 1).", slides: [1], node: "idea", difficulty: 1 }))));
+	};
+	return { svc, store, clock, phone, addUnit, events: () => store.events().map((e) => e.type) };
 }
 
 const fromLink = (url: string) => {
@@ -194,6 +203,58 @@ describe("the relay is down", () => {
 		assert.ok(svc.today().onboarded);
 		assert.equal(svc.today().phonePaired, false);
 		void events;
+	});
+});
+
+describe("Send a test question to my phone (v1.0.4)", () => {
+	async function paired() {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium");
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { nudges: { id: string; kind: string; title: string; body: string; fireAt: string; opens: string; more?: number; lectureId?: string; question?: { id: string; stem: string; options: string[] } }[] };
+		const send = async (type: string, nudgeId: string, payload: Record<string, unknown>) => s.phone("POST", `/v1/pairs/${pairId}/events`, token, [{ id: crypto.randomUUID(), at: new Date().toISOString(), type, nudgeId, payload }]);
+		return { ...s, read, send };
+	}
+
+	it("puts one real question from the student's own pack on the phone, now", async () => {
+		const { svc, read, events } = await paired();
+		const before = Date.now();
+		const r = await svc.requirePhone().sendTest();
+		assert.deepEqual([r.title, r.body, r.arrivesWithinSeconds], [PHONE_TEST_COPY.title, "Nash equilibrium: question 1?", 60]);
+		const n = (await read()).nudges.find((x) => x.id === r.nudgeId)!;
+		assert.ok(n, "on the relay");
+		assert.match(n.id, /^test:/);
+		assert.ok(Math.abs(Date.parse(n.fireAt) - before) < 5_000, "fires at real time");
+		assert.deepEqual([n.opens, n.lectureId, n.question?.id, n.more], ["question", "gt-nash", "gt-nash-q1", 4]);
+		assert.equal(events().filter((e) => e === "phone_test_sent").length, 1);
+	});
+
+	it("each test is a different question while the pack has more", async () => {
+		const { svc } = await paired();
+		const stems = [(await svc.requirePhone().sendTest()).body, (await svc.requirePhone().sendTest()).body];
+		assert.notEqual(stems[0], stems[1]);
+	});
+
+	it("a test doesn't use up the day's notification, and answering it hands off like any question", async () => {
+		const { svc, store, send, read, events } = await paired();
+		const r = await svc.requirePhone().sendTest();
+		const q = (await read()).nudges.find((x) => x.id === r.nudgeId)!.question!;
+		await send("opened", r.nudgeId, { kind: "N-1" });
+		await send("answered", r.nudgeId, { questionId: q.id, lectureId: "gt-nash", choice: 0, correct: true });
+		await send("handover", r.nudgeId, { questionId: q.id, lectureId: "gt-nash", choice: 0, correct: true });
+		await svc.requirePhone().sync({ force: true });
+		assert.equal(store.nudges().filter((n) => n.key.startsWith("test:")).length, 0, "no nudge is recorded as fired for a test");
+		const handoff = store.sessions().find((x) => x.spec.lectureId === "gt-nash");
+		assert.equal(handoff?.spec.seedAnswer?.questionId, q.id, "the laptop continues from the phone's answer");
+		assert.ok(events().includes("handover"));
+	});
+
+	it("with no study pack yet, says what is missing instead of sending nothing", async () => {
+		const s = await setup({ packs: true });
+		await s.svc.requirePhone().pair();
+		await assert.rejects(s.svc.requirePhone().sendTest(), (e: unknown) => e instanceof Error && e.message === PHONE_TEST_COPY.nothing);
+		const unpaired = await setup({ packs: true });
+		await assert.rejects(unpaired.svc.requirePhone().sendTest(), /Pair a phone first/);
 	});
 });
 

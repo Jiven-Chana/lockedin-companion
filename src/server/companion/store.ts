@@ -34,6 +34,8 @@ export interface DemoState {
 }
 
 export interface RuntimeState {
+	/** Question ids already sent as test questions, so each test is a different one while the packs have more. */
+	phoneTestQuestions?: string[];
 	/** Whether the student's AI was ready when last checked, so `engine_ready` is logged on a change, not on every restart. */
 	aiReady?: boolean;
 	/** The firm/gentle lock's "let me through" window. */

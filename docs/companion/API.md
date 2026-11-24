@@ -155,6 +155,7 @@ On when `COMPANION_RELAY_URL` is set (`501` otherwise). The laptop talks to the 
 |---|---|---|---|
 | GET | `/phone` | | `{ paired, relay, phoneSeenAt?, pushReady?, uploadedAt?, holds, reachable? }`. `holds` is the plain-words list of what the relay stores (R-7) |
 | POST | `/phone/pair` | | `{ url, qrSvg, code, codeExpiresAt, address, …status }`. Pairs, or shows the pairing again. `url` is what the QR code holds; `code` is the 6-digit code an iPhone's Home Screen app asks for (v1.0.3; `null` when the relay can't be reached; it lasts 10 minutes and asking again returns the same one while it lasts); `address` is the phone app's address without the pairing, for typing when the camera won't scan |
+| POST | `/phone/test` | | `{ nudgeId, title, body, arrivesWithinSeconds }`: "Send a test question to my phone" (v1.0.4). One question from the student's own study packs, on the phone within a minute. Its id starts `test:`, so it never counts toward the daily cap. `409 nothing_to_send` when no unit has a question bank; `409 phone_not_paired`. Logs `phone_test_sent` |
 | POST | `/phone/unpair` | | `{ paired: false }`. Deletes the pair and everything the relay holds for it |
 | POST | `/phone/sync` | | `{ uploaded, replayed }`. Upload now and pull events now (Me → Phone → Sync now) |
 

@@ -171,6 +171,21 @@ describe("N-2 resurfaced miss", () => {
 		assert.deepEqual(types(state({ misses, lectures: [HCI], profile: profile({ nudgesPerDay: 2 }) }), TUE(9, 15)), []);
 	});
 
+	it("is held back for a lecture whose material is in course units, not on the timetable slot (v1.0.4)", () => {
+		// Jiven's week, 24 Nov: his lectures have no slides attached; his notes are course units. A retest at
+		// 09:50 spent the day's one notification, so the question after the 11:00 lecture never came.
+		const slot = lecture("nc-fri", TUE(11), TUE(12), { module: "NC", hasMaterials: false });
+		const unit: Lecture = { id: "nc-notes", module: "NC", title: "Neural Computation", week: 8, order: 9, kind: "lecture", hasMaterials: true };
+		const s = state({ misses, lectures: [slot, unit], profile: { ...profile(), modules: [{ code: "NC", name: "Neural Computation" }] } });
+		assert.deepEqual(types(s, TUE(9, 50)), [], "the retest waits: a question is coming after the lecture");
+		assert.deepEqual(types(s, TUE(12, 0)), [], "and still waits in the minutes after the lecture ends, before its question goes out");
+		assert.deepEqual(types(s, TUE(12, 3)), []);
+		const [after] = dueNudges(s, TUE(12, 5), { assumeReady: true });
+		assert.deepEqual([after?.type, after?.lectureId], ["N-1", "nc-notes"], "and it comes, on the unit's material");
+		// A module with no material at all still doesn't hold the retest back.
+		assert.deepEqual(types(state({ misses, lectures: [slot] }), TUE(9, 50)), ["N-2"]);
+	});
+
 	it("needs at least 30 minutes left in the gap", () => {
 		const soon = lecture("x", TUE(9, 30), TUE(10, 30), { hasMaterials: false, kind: "event" });
 		assert.deepEqual(types(state({ misses, lectures: [soon] }), TUE(9, 15)), []);

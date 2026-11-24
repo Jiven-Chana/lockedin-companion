@@ -148,6 +148,8 @@ export const lockedIn = {
 	pairPhone: () => api<PhonePairing>("/phone/pair", { method: "POST" }),
 	unpairPhone: () => api<{ paired: false }>("/phone/unpair", { method: "POST" }),
 	syncPhone: () => api<{ uploaded: boolean; replayed: number }>("/phone/sync", { method: "POST" }),
+	/** One question from the student's own study packs, on the phone within a minute (v1.0.4). */
+	testPhone: () => api<{ nudgeId: string; title: string; body: string; arrivesWithinSeconds: number }>("/phone/test", { method: "POST" }),
 	// v0.1 the week (F-109, F-110, F-111)
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),

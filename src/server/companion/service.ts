@@ -1126,7 +1126,21 @@ export class CompanionService {
 	}
 
 	/** The phone acted on a nudge first: the laptop drops its copy (§5.2 item 5: whichever device acts first wins). */
+	/**
+	 * A question for "Send a test question to my phone": from the student's own
+	 * study packs, and one not sent as a test before while there is one.
+	 */
+	testQuestion(): NudgeQuestion | undefined {
+		const sent = new Set(this.store.runtime().phoneTestQuestions ?? []);
+		const units = this.store.lectures().filter((l) => l.hasMaterials && (this.packs?.bank(l.id)?.length ?? 0) > 0);
+		const fresh = units.map((u) => this.packs!.bank(u.id)!.find((q) => !sent.has(q.id))).find((q) => q);
+		const unit = fresh ? units.find((u) => this.packs!.bank(u.id)!.some((q) => q.id === fresh.id))! : units[0];
+		return unit ? this.questionFor(unit.id, sent) : undefined;
+	}
+
 	phoneHandledNudge(key: string, outcome: "opened" | "snoozed" | "dismissed", at: string) {
+		// A test question isn't one of the day's nudges: it never counts toward the cap.
+		if (key.startsWith("test:")) return;
 		const mine = [...this.store.nudges()].reverse().find((n) => n.key === key);
 		if (mine?.outcome) return;
 		if (mine) {

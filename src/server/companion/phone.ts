@@ -7,7 +7,7 @@
  */
 
 import QRCode from "qrcode";
-import { HANDOFF_COPY, PHONE_RULES, PLAN_COPY } from "../../core/companion/policy.ts";
+import { HANDOFF_COPY, PHONE_RULES, PHONE_TEST_COPY, PLAN_COPY } from "../../core/companion/policy.ts";
 import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type PhoneEvent, type PlanEdit, type RelaySchedule } from "../../core/companion/sync.ts";
 import { FEELINGS, proposeTarget } from "../../core/companion/checkin.ts";
 import type { ScheduledNudge } from "../../core/companion/nudges.ts";
@@ -170,6 +170,38 @@ export class PhoneLink {
 		await this.upload(p, true);
 		this.svc.log("phone_send_now", { nudgeId: nudge.id, lectureId: n1.lectureId ?? null, withQuestion: !!n1.question });
 		return { nudgeId: nudge.id, title: n1.title, body: n1.body, arrivesWithinSeconds: 60 };
+	}
+
+	/**
+	 * "Send a test question to my phone" (v1.0.4): one real question from the
+	 * student's own study packs, on the relay now, so they can see the phone
+	 * works without waiting for a lecture to end. It hands off like any
+	 * question, and its id starts "test:", so it never counts as the day's nudge.
+	 */
+	async sendTest() {
+		const p = this.pairing();
+		if (!p) throw new CompanionError("phone_not_paired", 409, "Pair a phone first (Me → Phone).");
+		const question = this.svc.testQuestion();
+		if (!question) throw new CompanionError("nothing_to_send", 409, PHONE_TEST_COPY.nothing);
+		const now = Date.now();
+		const nudge = {
+			id: `test:${now}`,
+			kind: "N-1" as const,
+			title: PHONE_TEST_COPY.title,
+			body: question.stem,
+			lectureId: question.lectureId,
+			opens: "question" as const,
+			question,
+			fireAt: new Date(now).toISOString(),
+			snoozeFireAt: new Date(now + PHONE_RULES.sendNowSnoozeMs).toISOString(),
+			expiresAt: new Date(now + PHONE_RULES.sendNowExpiresMs).toISOString(),
+			more: HANDOFF_COPY.more(),
+		};
+		const r = this.store.runtime();
+		this.store.saveRuntime({ phoneNowNudge: nudge, phoneTestQuestions: [...(r.phoneTestQuestions ?? []), question.id].slice(-50) });
+		await this.upload(p, true);
+		this.svc.log("phone_test_sent", { nudgeId: nudge.id, lectureId: question.lectureId, questionId: question.id });
+		return { nudgeId: nudge.id, title: nudge.title, body: nudge.body, arrivesWithinSeconds: 60 };
 	}
 
 	/** What the phone gets: the week's nudges (with the hand-off count and the check-in's answers worked out here) and blocks. */
