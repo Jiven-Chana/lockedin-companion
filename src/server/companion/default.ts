@@ -116,7 +116,7 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		},
 		engines: {
 			learnharness: new LearnHarnessEngine(createLearnHarnessPort()),
-			scripted: new ScriptedEngine((id) => content.scriptedSet(id)),
+			scripted: new ScriptedEngine((id) => content.scriptedSet(id), (picks) => content.practiseSet(picks)),
 		},
 		defaultEngine: configuredEngine(env),
 		...(explicit ? {} : { engineWhenAiReady: "learnharness" as const }),

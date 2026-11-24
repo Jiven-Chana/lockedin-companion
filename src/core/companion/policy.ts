@@ -19,6 +19,7 @@ export const SESSION_BUDGETS: Record<SessionKind, SessionBudget> = {
 	"missed-lecture": { questions: 6, minutes: 15, parts: 3 }, // N-3: three 5-minute pieces, 2 questions each
 	retest: { questions: 3, minutes: 4 }, // N-2 wording
 	"try-now": { questions: 3, minutes: 3 }, // J1: taste before setup
+	practise: { questions: 5, minutes: 3 }, // V-40: a quick round across a module (PRACTISE_RULES)
 };
 
 /** "Keep going" adds this many questions (§6.7). */
@@ -227,6 +228,15 @@ export const CONFIDENCE_TAPS = [
  * or fading while other ideas are available.
  */
 export const PRACTISE_RULES = { questions: 5, minutes: 3, more: 3, gapShare: 0.6 } as const;
+
+/** Practise, in words (V-50: on screen the mode is "Practise"). */
+export const PRACTISE_COPY = {
+	mode: "Practise",
+	learnMode: "Learn",
+	button: "Practise this module",
+	noQuestions: "No questions for this module yet. Add its slides or notes and they'll be written for you.",
+	noMore: "That's every question this module has for now.",
+} as const;
 
 /** A session you left is offered again on Today for this long (R-5). */
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;

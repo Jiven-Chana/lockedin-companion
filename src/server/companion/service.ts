@@ -28,7 +28,7 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -36,6 +36,7 @@ import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
 import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
 import { earnedMilestones, needsAttention, type AttentionLine } from "../../core/companion/milestones.ts";
 import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
@@ -1254,7 +1255,8 @@ export class CompanionService {
 	startHandoff(h: { lectureId: string; questionId?: string; choice?: number; correct?: boolean; at: string; phoneEventId: string }) {
 		const key = `handoff:${h.phoneEventId}`;
 		if (this.store.nudges().some((n) => n.key === key)) return null;
-		const spec = specFor("post-lecture", h.lectureId, this.store.profile()?.prefs);
+		// The phone's question is the first question of a Practise round; the laptop carries on with the rest (V-40).
+		const spec: SessionSpec = { ...specFor("post-lecture", h.lectureId, this.store.profile()?.prefs), study: "practise" };
 		const q = h.questionId ? this.packs?.bank(h.lectureId)?.find((x) => x.id === h.questionId) : undefined;
 		if (h.questionId && h.choice !== undefined && h.correct !== undefined) {
 			spec.seedAnswer = { questionId: h.questionId, choice: h.choice, correct: h.correct, at: h.at, ...(q ? { stem: q.stem, choiceLabel: q.options[h.choice] ?? "" } : {}) };
@@ -1384,6 +1386,8 @@ export class CompanionService {
 		const block = c.type === "block" ? this.blockOfNudge(c.key) : null;
 		const firstStep = block ? this.firstStepOf(block) : null;
 		if (firstStep) c = { ...c, spec: { ...c.spec, firstQuestionId: firstStep.questionId }, text: NUDGE_TEXT.block(block!.minutes, PLAN_COPY.firstStep(firstStep.slide)) };
+		// The question after a lecture opens a Practise round (V-40).
+		if (c.type === "N-1") c = { ...c, spec: { ...c.spec, study: "practise" } };
 		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
 		const lecture = c.type === "N-1" ? this.store.lectures().find((l) => c.key === `N-1:${l.id}` || c.key.startsWith(`forced:N-1:${l.id}:`)) ?? this.lectureById(c.lectureId ?? "") : undefined;
 		const used = new Set(this.store.nudges().map((n) => n.questionId).filter((q): q is string => !!q));
@@ -1520,7 +1524,9 @@ export class CompanionService {
 			if (misses.length === 0) throw badRequest("nothing to retest for this lecture");
 			spec = { ...spec, missIds: misses.map((m) => m.id) };
 		}
-		const engine = opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine();
+		// Practise runs on the question bank and needs no AI (V-40). A unit with no bank yet can only be taught, so it stays Learn.
+		if (spec.study === "practise" && !spec.practise && !this.content.scriptedSet(spec.lectureId)) spec = { ...spec, study: "learn" };
+		const engine = spec.study === "practise" ? "scripted" : (opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine());
 		const session: CompanionSession = {
 			id: this.id("s"),
 			engine,
@@ -1532,7 +1538,7 @@ export class CompanionService {
 			state: "preparing",
 		};
 		this.store.saveSession(session);
-		this.log("session_prepare_started", { sessionId: session.id, engine, kind: spec.kind, lectureId: spec.lectureId, prewarm: !!opts.nudgeKey });
+		this.log("session_prepare_started", { sessionId: session.id, engine, kind: spec.kind, study: spec.study ?? "learn", lectureId: spec.lectureId, prewarm: !!opts.nudgeKey });
 		const run = this.prepare(session.id).finally(() => this.preparing.delete(session.id));
 		this.preparing.set(session.id, run);
 		return { sessionId: session.id };
@@ -1654,7 +1660,62 @@ export class CompanionService {
 			}
 			return next;
 		});
-		return v.status === "done" ? { ...v, ...this.doneExtras(session, now) } : v;
+		return { ...v, ...this.studyOf(session, lecture, v.budget), ...(v.status === "done" ? this.doneExtras(session, now) : {}) };
+	}
+
+	/** Learn or Practise, for the header (V-40, V-50). A round across a module is named after the module. */
+	private studyOf(session: CompanionSession, lecture: Pick<Lecture, "module">, budget: number): Pick<SessionView, "study" | "practiseOf"> & { goal?: string } {
+		const study = session.spec.study ?? "learn";
+		if (!session.spec.practise) return { study };
+		const name = this.store.profile()?.modules.find((m) => m.code === session.spec.practise!.module)?.name ?? lecture.module;
+		return { study, practiseOf: name, goal: goalFor(session.spec, { title: name }, budget) };
+	}
+
+	/**
+	 * Start a Practise round across a module (V-40): questions from the
+	 * module's banks, chosen by the mixing rule. No AI, no wait.
+	 */
+	startPractise(raw: unknown): { sessionId: string } {
+		const code = (raw as { module?: unknown } | null)?.module;
+		if (typeof code !== "string" || !this.requireProfile().modules.some((m) => m.code === code)) throw badRequest("module must be one of your modules");
+		const picks = this.practisePicks(code, PRACTISE_RULES.questions, new Set());
+		if (picks.length === 0) throw new CompanionError("no_questions", 422, PRACTISE_COPY.noQuestions);
+		const spec: SessionSpec = {
+			kind: "practise", lectureId: picks[0]!.lectureId, mode: "question-first", study: "practise",
+			budget: { questions: picks.length, minutes: PRACTISE_RULES.minutes },
+			practise: { module: code, picks },
+		};
+		return this.createSession(spec);
+	}
+
+	/** The questions for a Practise round: what `pickPractise` chooses from the module's banks and the student's history. */
+	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>): { lectureId: string; questionId: string }[] {
+		const now = this.now();
+		const candidates: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
+		if (candidates.length === 0) return [];
+		// How often, and when last, each question has been asked: on the laptop or the phone.
+		const asked = new Map<string, { times: number; last: number }>();
+		const events = this.store.events();
+		for (const e of events) {
+			if (e.type !== "answer" && e.type !== "answered") continue;
+			const id = e.data.questionId;
+			if (typeof id !== "string") continue;
+			const at = new Date(e.t).getTime();
+			const a = asked.get(id);
+			asked.set(id, { times: (a?.times ?? 0) + 1, last: Math.max(a?.last ?? at, at) });
+		}
+		// Where each idea stands: a gap, fading, fine, or not met yet.
+		const banks = new Map<string, Map<string, QuestionInfo>>();
+		const questionInfo = (questionId: string, lectureId: string) => {
+			if (!banks.has(lectureId)) banks.set(lectureId, new Map((this.packs?.bank(lectureId) ?? []).map((q) => [q.id, { difficulty: q.difficulty, nodeId: q.node }])));
+			return banks.get(lectureId)!.get(questionId);
+		};
+		const replay = replayScore({ events, blocks: this.store.blocks(), lectures: this.store.allLectures(), ideas: this.packIdeas(), questionInfo, now });
+		const fading = new Set(fadingAt(replay, now));
+		const standing = new Map<string, IdeaStanding>();
+		for (const i of replay.ideas.values()) standing.set(i.key, i.toRevisit ? "gap" : fading.has(i.key) ? "fading" : i.lastRight ? "ok" : "new");
+		for (const m of this.store.misses()) if (m.status === "open" && m.nodeId) standing.set(`${m.lectureId}#${m.nodeId}`, "gap");
+		return pickPractise({ candidates, asked, standing, n, exclude }).map((c) => ({ lectureId: c.lectureId, questionId: c.question.id }));
 	}
 
 	/**
@@ -1738,14 +1799,15 @@ export class CompanionService {
 			lastActivityAt: now.toISOString(),
 			state: s.state === "stopped" || s.state === "ready" ? "active" : s.state,
 		}))!;
-		const miss = missFromAnswer(record, { sessionId: id, lectureId: session.spec.lectureId, now });
+		const lectureId = record.lectureId ?? session.spec.lectureId;
+		const miss = missFromAnswer(record, { sessionId: id, lectureId, now });
 		let misses = this.store.misses();
 		if (miss) misses = mergeMisses(misses, [miss]);
 		if (session.spec.kind === "retest" && counts && session.spec.missIds) misses = applyRetestAnswer(misses, session.spec.missIds, updated.answered, record, now);
 		if (miss || session.spec.kind === "retest") this.store.saveMisses(misses);
 		this.log("answer", {
-			sessionId: id, lectureId: session.spec.lectureId, questionId: record.questionId, nodeId: record.nodeId ?? null,
-			slides: parseSlideRefs(record.explanation), n: updated.answered, engine: session.engine, kind: session.spec.kind,
+			sessionId: id, lectureId, questionId: record.questionId, nodeId: record.nodeId ?? null,
+			slides: parseSlideRefs(record.explanation), n: updated.answered, engine: session.engine, kind: session.spec.kind, study: session.spec.study ?? "learn",
 			graded: record.graded, correct: record.correct, dontKnow: record.dontKnow, confidence: record.confidence ?? null,
 			why: !!record.why, whyLength: record.why?.length ?? 0, assisted: (session.hintedQuestionIds ?? []).includes(record.questionId),
 			msOnQuestion: session.questionShownAt ? now.getTime() - new Date(session.questionShownAt).getTime() : null,
@@ -1777,11 +1839,21 @@ export class CompanionService {
 		const { session, engine } = this.requireSession(id);
 		const n = (raw as { questions?: unknown } | null)?.questions ?? KEEP_GOING_QUESTIONS;
 		if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 10) throw badRequest("questions must be 1–10");
-		const budget = session.budget + (n as number);
-		const raised = this.store.updateSession(id, (s) => ({ ...s, budget, state: s.state === "done" || s.state === "stopped" ? "active" : s.state }))!;
+		let extra: { lectureId: string; questionId: string }[] = [];
+		if (session.spec.practise) {
+			extra = this.practisePicks(session.spec.practise.module, n as number, new Set(session.spec.practise.picks.map((p) => p.questionId)));
+			if (extra.length === 0) throw new CompanionError("no_more_questions", 409, PRACTISE_COPY.noMore);
+		}
+		const budget = session.budget + (session.spec.practise ? extra.length : (n as number));
+		const raised = this.store.updateSession(id, (s) => ({
+			...s,
+			budget,
+			...(s.spec.practise ? { spec: { ...s.spec, practise: { ...s.spec.practise, picks: [...s.spec.practise.picks, ...extra] } } } : {}),
+			state: s.state === "done" || s.state === "stopped" ? "active" : s.state,
+		}))!;
 		const { patch } = await engine.more(raised, n as number);
 		this.store.updateSession(id, (s) => ({ ...s, ...patch, lastActivityAt: this.now().toISOString() }));
-		this.log("keep_going", { sessionId: id, added: n, budget });
+		this.log("keep_going", { sessionId: id, added: session.spec.practise ? extra.length : n, budget });
 		return { budget };
 	}
 

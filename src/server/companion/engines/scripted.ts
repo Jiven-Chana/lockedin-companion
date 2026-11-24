@@ -31,10 +31,14 @@ function wrap<T>(fn: () => T): T {
 export class ScriptedEngine implements SessionEngine {
 	readonly name = "scripted" as const;
 
-	constructor(private readonly loadSet: (lectureId: string) => ScriptedSet | null) {}
+	/** `loadPicks` builds the set for a Practise round that mixes units (V-40). */
+	constructor(
+		private readonly loadSet: (lectureId: string) => ScriptedSet | null,
+		private readonly loadPicks?: (picks: { lectureId: string; questionId: string }[]) => ScriptedSet | null,
+	) {}
 
 	private set(session: CompanionSession): ScriptedSet {
-		const set = this.loadSet(session.spec.lectureId);
+		const set = session.spec.practise && this.loadPicks ? this.loadPicks(session.spec.practise.picks) : this.loadSet(session.spec.lectureId);
 		if (!set) throw new EngineError("no_scripted_set", `no scripted questions for ${session.spec.lectureId}`, 422);
 		// "Quiz me on this idea" (F-106): only that node's questions, when it has any.
 		const nodes = session.spec.nodes;

@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { moduleHue, weekLabel } from "@/src/core";
+import { moduleHue, PRACTISE_COPY, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, StatusTag } from "../icons";
@@ -56,6 +56,14 @@ function WeekControl({ mod, onChange }: { mod: CourseModule; onChange: () => voi
 
 export function LibraryScreen() {
 	const router = useRouter();
+	const practise = async (code: string) => {
+		try {
+			const { sessionId } = await lockedIn.startPractise(code);
+			router.push(`/app/session/${sessionId}`);
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
+		}
+	};
 	const { now } = useLockedIn();
 	const [q, setQ] = useState("");
 	const [adding, setAdding] = useState<string | null>(null);
@@ -107,6 +115,8 @@ export function LibraryScreen() {
 								<h2 id={`m-${m.code}`} className="li-h2" style={{ flexGrow: 1 }}>{m.name}</h2>
 								<WeekControl key={`${m.code}-${m.week}-${m.reading}`} mod={m} onChange={() => void course.reload()} />
 								<span className="li-small li-muted">{m.units.filter((l) => l.status !== "not-started").length} of {m.units.length} started</span>
+								{/* A quick round across the whole module (V-40): only once a unit has material to draw questions from. */}
+								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn primary" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
 								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>
 							{adding === m.code ? (

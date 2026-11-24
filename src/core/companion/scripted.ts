@@ -179,7 +179,7 @@ export function scriptedView(set: ScriptedSet, state: ScriptedState, session: Co
 		...base,
 		...(prose ? { prose } : {}),
 		// The question's own slide (lo-fi: "the slide this question comes from"): the bank's, else the one its lead-in cites.
-		question: withSlides(toSessionQuestion(qd), q.slides?.length ? q.slides : parseSlideRefs(q.leadIn ?? "")),
+		question: { ...withSlides(toSessionQuestion(qd), q.slides?.length ? q.slides : parseSlideRefs(q.leadIn ?? "")), ...(q.lectureId ? { lectureId: q.lectureId } : {}) },
 		canHint: !!q.hint,
 		slideRefs: [...new Set([...parseSlideRefs(prose), ...(feedback?.slideRefs ?? [])])].sort((a, b) => a - b),
 	};
@@ -203,7 +203,7 @@ export function scriptedAnswer(
 	const qd = scriptedQuestionData(session.id, q);
 	const answer = buildAnswer(qd, answerRequestFor(qd, a), "quiz");
 	answer.answeredAt = now.toISOString();
-	const record = answerRecordFrom(answer, q.id, q.nodeId);
+	const record = { ...answerRecordFrom(answer, q.id, q.nodeId), ...(q.lectureId ? { lectureId: q.lectureId } : {}) };
 	return { state: { ...state, answers: [...state.answers, record], position: state.position + 1 }, record };
 }
 

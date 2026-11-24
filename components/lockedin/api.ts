@@ -159,6 +159,8 @@ export const lockedIn = {
 	refreshCalendar: () => api<{ added: number }>("/timetable/refresh", { method: "POST" }),
 	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
 	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string; href?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
+	/** Start a Practise round across a module (V-40): bank questions, no AI. */
+	startPractise: (module: string) => api<{ sessionId: string }>("/practise", { body: { module } }),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
 	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),

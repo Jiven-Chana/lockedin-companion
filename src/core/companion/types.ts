@@ -15,8 +15,14 @@
 export type EngineName = "learnharness" | "scripted";
 export const ENGINE_NAMES: readonly EngineName[] = ["learnharness", "scripted"];
 
-export type SessionKind = "post-lecture" | "missed-lecture" | "retest" | "try-now" | "block";
-export const SESSION_KINDS: readonly SessionKind[] = ["post-lecture", "missed-lecture", "retest", "try-now", "block"];
+export type SessionKind = "post-lecture" | "missed-lecture" | "retest" | "try-now" | "block" | "practise";
+export const SESSION_KINDS: readonly SessionKind[] = ["post-lecture", "missed-lecture", "retest", "try-now", "block", "practise"];
+/**
+ * The two ways to study (V-40, V-50). Practise is fast questions from the
+ * question bank, with no AI. Learn is the tutor teaching. On screen they are
+ * "Practise" and "Learn".
+ */
+export type StudyMode = "learn" | "practise";
 
 export type SessionMode = "question-first" | "show-first";
 
@@ -40,6 +46,10 @@ export interface SessionSpec {
 	seedAnswer?: { questionId: string; choice: number; correct: boolean; at: string; stem?: string; choiceLabel?: string };
 	/** A study block's first step (V-44): the session opens on this bank question. */
 	firstQuestionId?: string;
+	/** Learn or Practise (V-40). Absent means Learn. */
+	study?: StudyMode;
+	/** A Practise round across a module (V-40): the questions chosen for it, in the order asked. */
+	practise?: { module: string; picks: { lectureId: string; questionId: string }[] };
 }
 
 export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
@@ -64,6 +74,8 @@ export interface SessionQuestion {
 	role: "check" | "predict";
 	/** The slides this question comes from, when the question bank knows them: the slide panel opens on the first. */
 	slides?: number[];
+	/** The unit this question comes from, when a round mixes units: the slide panel shows that unit's slides. */
+	lectureId?: string;
 }
 
 export interface SessionFeedback {
@@ -86,6 +98,10 @@ export interface SessionView {
 	kind: SessionKind;
 	mode: SessionMode;
 	lecture: { id: string; title: string; module: string };
+	/** Learn or Practise (V-40). Set by the service on every view; absent means Learn. */
+	study?: StudyMode;
+	/** Practise across a module: the module's name, for the header. */
+	practiseOf?: string;
 	/** "5 questions on Personas and scenarios, about 10 minutes" */
 	goal: string;
 	status: SessionStatus;
@@ -130,6 +146,8 @@ export interface AnswerRecord {
 	questionId: string;
 	questionText: string;
 	nodeId?: string;
+	/** The unit the question came from, when it differs from the session's (a mixed Practise round). */
+	lectureId?: string;
 	/** false for ungraded (ask) answers. */
 	graded: boolean;
 	correct: boolean;
@@ -162,6 +180,8 @@ export interface ScriptedQuestion {
 	retestOnly?: boolean;
 	/** The slides it comes from (study-pack bank questions carry them). */
 	slides?: number[];
+	/** The unit it comes from, when a round mixes units (Practise). */
+	lectureId?: string;
 }
 
 export interface ScriptedSet {

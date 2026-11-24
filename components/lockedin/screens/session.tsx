@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BLOCK_RULES, CONFIDENCE_TAPS, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { BLOCK_RULES, CONFIDENCE_TAPS, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
@@ -62,7 +62,8 @@ export function SessionScreen({ id }: { id: string }) {
 	useEffect(() => { void load(); }, [load]);
 	usePoll(() => void load(), 750, !view || view.status === "preparing" || view.status === "thinking");
 
-	const lectureId = view?.lecture.id;
+	// A Practise round mixes units, so the panel follows the unit of the question on screen (V-40).
+	const lectureId = view?.question?.lectureId ?? view?.lecture.id;
 	useEffect(() => {
 		if (lectureId) lockedIn.slides(lectureId).then((r) => { setSlides(r.slides); setHasPdf(r.hasPdf); }).catch(() => { setSlides([]); setHasPdf(false); });
 	}, [lectureId]);
@@ -208,6 +209,7 @@ export function SessionScreen({ id }: { id: string }) {
 	const s = slides.find((x) => x.number === pos.number);
 	const fb = view.feedback;
 
+	const practising = view.study === "practise";
 	const at = questionNumber({ answered: view.answered, budget: view.budget, done: view.status === "done", reviewing });
 	return (
 		<Tint hue={moduleHue(view.lecture.module)}>
@@ -215,8 +217,9 @@ export function SessionScreen({ id }: { id: string }) {
 				<div className="li-focus-top">
 					<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>
 					<span style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
-						<b className="li-display" style={{ fontSize: "1.25em" }}>{view.lecture.module} · {view.lecture.title}</b>
-						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.goal}{view.engine === "scripted" ? " · scripted questions" : ""} · stop any time, nothing is lost</span>
+						{/* The mode has a name (V-40, V-50): Practise, or Learn. */}
+						<b className="li-display" style={{ fontSize: "1.25em" }}><span className="li-mode" data-study={practising ? "practise" : "learn"}>{practising ? PRACTISE_COPY.mode : PRACTISE_COPY.learnMode}</span> {view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</b>
+						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.goal} · stop any time, nothing is lost</span>
 					</span>
 					<span className="li-qdots" aria-hidden="true">{at.dots.map((d, i) => <i key={i} data-state={d} />)}</span>
 					<b style={{ fontSize: "1.1em" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : SESSION_COPY.position(at.current, at.total)}</b>
@@ -304,11 +307,16 @@ export function SessionScreen({ id }: { id: string }) {
 										{view.kind === "retest" ? <span className="li-small li-muted">{SESSION_COPY.confidenceRevisitHint}</span> : null}
 									</div>
 								) : null}
-								<label className="li-stack" style={{ gap: 6 }}>
-									<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
-									<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
-								</label>
-								<MicButton mic={mic} />
+								{/* Saying why belongs to Learn, where the tutor reads it. Practise asks for an answer and how sure you are (V-51). */}
+								{practising ? null : (
+									<>
+										<label className="li-stack" style={{ gap: 6 }}>
+											<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
+											<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
+										</label>
+										<MicButton mic={mic} />
+									</>
+								)}
 								{hint ? <div className="li-note" role="note"><b>Hint:</b> {hint}</div> : null}
 								{error ? <div className="li-note" role="alert">{error}</div> : null}
 								<div className="li-row">
@@ -363,7 +371,7 @@ export function SessionScreen({ id }: { id: string }) {
 							<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}>›</button>
 						</div>
 						<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
-							{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>}
+							{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</span>}
 							{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 						</div>
 						{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
