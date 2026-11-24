@@ -291,3 +291,37 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-milestone { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 14px; border: 1.5px dashed var(--li-line); color: var(--li-muted); }
 .li-milestone[data-earned="true"] { border: 1.5px solid var(--li-solid); background: var(--li-solid-bg); color: var(--li-solid-ink); }
 
+/* v1.1 (V-37): the Week page as a timetable. Fixed things are flat; study blocks are solid, in their module's colour, and can be dragged. */
+.li-tt { display: flex; flex-direction: column; gap: 8px; }
+.li-tt-head { display: grid; grid-template-columns: 52px repeat(7, minmax(0, 1fr)); padding: 0 0 4px; }
+.li-tt-head b { text-align: center; padding: 4px 0; border-radius: 10px; }
+.li-tt-head b[data-today="true"] { background: var(--li-soft); color: var(--li-accent-text); }
+.li-tt-body { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); background: var(--li-surface); border: 1px solid var(--li-line); border-radius: 16px; overflow: hidden; }
+.li-tt-hours { position: relative; }
+.li-tt-hours span { position: absolute; right: 8px; transform: translateY(-50%); font-size: 0.75em; color: var(--li-muted); }
+.li-tt-hours span:first-child { transform: translateY(2px); }
+.li-tt-hours span:last-child { transform: translateY(-100%); }
+.li-tt-days { position: relative; border-left: 1px solid var(--li-line); }
+.li-tt-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--li-line); opacity: 0.7; }
+.li-tt-day { position: absolute; top: 0; bottom: 0; width: calc(100% / 7); border-left: 1px solid var(--li-line); }
+.li-tt-day:first-of-type { border-left: none; }
+.li-tt-day[data-today="true"] { background: color-mix(in srgb, var(--li-soft) 45%, transparent); }
+.li-tt-item { position: absolute; left: 3px; right: 3px; border-radius: 8px; overflow: hidden; font-size: 0.78em; line-height: 1.25; }
+.li-tt-item b, .li-tt-item span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-tt-fixed { padding: 3px 6px; background: var(--li-soft); color: var(--li-ink); border-left: 3px solid var(--li-accent); opacity: 0.85; }
+.li-tt-commit { padding: 3px 6px; color: var(--li-muted); border: 1px dashed var(--li-line); background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--li-line) 60%, transparent) 6px 7px); }
+.li-tt-block { overflow: visible; z-index: 1; }
+.li-tt-grab { height: 100%; padding: 3px 6px; border-radius: 8px; background: var(--li-accent); color: var(--li-accent-ink); cursor: grab; touch-action: none; user-select: none; box-shadow: 0 2px 6px var(--li-shadow); }
+.li-tt-grab[data-status="proposed"] { background: var(--li-surface); color: var(--li-ink); border: 2px dashed var(--li-accent); }
+.li-tt-grab[data-status="started"] { cursor: default; opacity: 0.75; }
+.li-tt-grab[data-selected="true"], .li-tt-grab:focus-visible { outline: 3px solid var(--li-ink); outline-offset: 1px; }
+.li-tt-grab[data-moving="true"] { cursor: grabbing; box-shadow: 0 10px 24px var(--li-shadow); transform: scale(1.02); }
+.li-tt-grab[data-moving="true"][data-ok="false"] { background: var(--li-revisit-bg); color: var(--li-revisit-ink); border: 2px solid var(--li-revisit); }
+/* A tapped block's options stay at the bottom of the screen, so they are seen without scrolling past the grid. */
+.li-tt-options { position: sticky; bottom: 12px; z-index: 5; max-width: 440px; border-radius: 12px; box-shadow: 0 12px 32px var(--li-shadow); }
+.li-week-list { display: none; }
+@media (max-width: 900px) {
+	.li-tt-wrap { display: none; }
+	.li-week-list { display: grid; }
+}
+

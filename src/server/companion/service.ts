@@ -921,6 +921,9 @@ export class CompanionService {
 			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
+			// For the timetable (V-37): where a block may not go, and the modules a block can be given.
+			quietHours: profile.prefs.quietHours,
+			modules: profile.modules.map((m) => ({ code: m.code, name: m.name, hasMaterial: this.store.lectures().some((l) => l.module === m.code && l.hasMaterials) })),
 		};
 	}
 

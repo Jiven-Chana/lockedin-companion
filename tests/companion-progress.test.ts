@@ -180,6 +180,16 @@ describe("study blocks carry a module, and can't be dropped on a lecture (V-37)"
 		assert.equal(svc.plan("2026-11-23").blocks.find((b) => b.id === "blk1")!.module, null);
 	});
 
+	it("the plan carries what the timetable needs: quiet hours, and the modules a block can be given", async () => {
+		const { svc } = await withBlock();
+		const plan = svc.plan("2026-11-23");
+		assert.deepEqual(Object.keys(plan.quietHours).sort(), ["from", "to"]);
+		assert.match(plan.quietHours.from, /^\d\d:\d\d$/);
+		const byCode = Object.fromEntries(plan.modules.map((m) => [m.code, m.hasMaterial]));
+		assert.deepEqual([byCode.GT, byCode.HCI], [true, false], "a module says whether it has material yet");
+		assert.ok(plan.modules.every((m) => m.name.length > 0));
+	});
+
 	const drops: Array<[string, Partial<StudyBlock>, string | null]> = [
 		["a free time the same day", { start: "12:00" }, null],
 		["starting the minute the lecture ends", { start: "11:00" }, null],
