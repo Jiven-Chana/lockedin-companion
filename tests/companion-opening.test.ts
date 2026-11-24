@@ -9,6 +9,8 @@ import {
 	estimateSlideTokens,
 	parseSlideRefs,
 	parseSlides,
+	slidePosition,
+	slidePositionLabel,
 	specFor,
 	trimSlides,
 	type Lecture,
@@ -110,5 +112,30 @@ describe("slides", () => {
 		assert.deepEqual(parseSlideRefs("See (Slide 4). Also (Slides 6–8) and (slide 2, 10) and (Slides 3 and 5)."), [2, 3, 4, 5, 6, 7, 8, 10]);
 		assert.deepEqual(parseSlideRefs("Slide 4 without brackets"), []);
 		assert.deepEqual(parseSlideRefs(undefined), []);
+	});
+});
+
+describe("moving through a unit's own slides (v1.0 S-1)", () => {
+	const unit = Array.from({ length: 21 }, (_, i) => 18 + i); // pages 18 to 38 of a semester file
+	const cases: Array<[string, number[], number | null | undefined, Partial<ReturnType<typeof slidePosition>>]> = [
+		["nothing chosen opens on the unit's first page, not page 1", unit, undefined, { number: 18, index: 0, prev: null, next: 19, total: 21 }],
+		["a page of the unit", unit, 25, { number: 25, index: 7, prev: 24, next: 26 }],
+		["the last page has no next", unit, 38, { number: 38, prev: 37, next: null, last: 38 }],
+		["a citation to a page the unit doesn't have shows the first page", unit, 3, { number: 18, index: 0 }],
+		["a deck numbered from 1 behaves as before", [1, 2, 3, 4, 5], 2, { number: 2, prev: 1, next: 3, first: 1, last: 5 }],
+		["pages with a gap skip it", [3, 4, 9, 10], 4, { number: 4, next: 9 }],
+		["no slides", [], 1, { number: null, total: 0, prev: null, next: null }],
+	];
+	for (const [name, numbers, wanted, expected] of cases) {
+		it(name, () => {
+			const pos = slidePosition(numbers, wanted);
+			for (const [k, v] of Object.entries(expected)) assert.equal(pos[k as keyof typeof pos], v, k);
+		});
+	}
+
+	it("the label names the page as the file numbers it", () => {
+		assert.equal(slidePositionLabel(slidePosition(unit, 18), true), "Page 18 of 38");
+		assert.equal(slidePositionLabel(slidePosition([1, 2, 3], 2), false), "Slide 2 of 3");
+		assert.equal(slidePositionLabel(slidePosition([], null), false), "Slides");
 	});
 });

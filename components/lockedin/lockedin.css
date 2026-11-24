@@ -169,6 +169,13 @@ button.li-chip:hover { border-color: var(--li-accent); }
 /* Slides are printed paper in every theme, so their muted ink is fixed too. */
 .li-slide-muted { color: var(--li-slide-muted-ink); }
 .li-slide h3 { margin: 0; font-size: 1.5em; line-height: 1.15; }
+/* v1.0 S-2: the real PDF page as a picture. The card takes the page's own shape. */
+.li-slide[data-page="true"] { aspect-ratio: auto; padding: 0; gap: 0; overflow: hidden; }
+.li-page-img { display: block; width: 100%; height: auto; background: #ffffff; }
+.li-slide-row .li-page-img { border: 1px solid var(--li-line); border-radius: 12px; }
+.li-page-text { padding: 10px 16px; font-size: 0.9em; }
+.li-page-text summary { cursor: pointer; font-weight: 600; }
+.li-slide[data-page="true"] .li-page-text { border-top: 1px solid #e6e4ee; color: var(--li-slide-ink); }
 .li-slide ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
 .li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); font-size: 18px; }
 .li-dots { display: flex; gap: 4px; }

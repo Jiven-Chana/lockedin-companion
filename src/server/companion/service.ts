@@ -90,6 +90,8 @@ export interface CompanionServiceDeps {
 	autoFallback?: boolean;
 	readyTimeoutMs?: number;
 	convertPdf?: PdfConverter;
+	/** Draws one page of a PDF as a PNG (the engine's renderer); null when the page can't be drawn. */
+	renderPdfPage?: (pdfPath: string, page: number) => Promise<Uint8Array | null>;
 	/** Fetches a calendar link (network guards live in the default implementation). */
 	fetchCalendar?: (url: string) => Promise<string>;
 	/**
@@ -121,6 +123,8 @@ const MODULE_CODE = /^[A-Za-z0-9 _-]{1,32}$/;
 
 export class CompanionService {
 	private readonly preparing = new Map<string, Promise<void>>();
+	/** Page pictures being drawn right now, so two requests for one page draw it once. */
+	private readonly drawingPages = new Map<string, Promise<string>>();
 	private aiReady = false;
 	/** Connect your AI (F-101). Null when the engine isn't wired (tests). */
 	readonly ai: CompanionAi | null;
@@ -666,7 +670,39 @@ export class CompanionService {
 	lectureSlides(lectureId: string) {
 		assertSafeId(lectureId, "lecture id");
 		const md = this.content.slidesMarkdown(lectureId);
-		return { slides: md ? parseSlides(md) : [] };
+		return { slides: md ? parseSlides(md) : [], hasPdf: this.content.pdfPath(lectureId) !== null };
+	}
+
+	/**
+	 * The picture of one page of a unit's own PDF, for the slide panel (V-21):
+	 * drawn once, then kept beside the unit's material. Returns the PNG's path.
+	 */
+	async slidePage(lectureId: string, page: number): Promise<string> {
+		assertSafeId(lectureId, "lecture id");
+		if (!Number.isInteger(page) || page < 1) throw badRequest("the page must be a whole number from 1");
+		const missing = () => new CompanionError("page_not_found", 404, "There is no picture of that page.");
+		const pdf = this.content.pdfPath(lectureId);
+		const md = pdf ? this.content.slidesMarkdown(lectureId) : null;
+		if (!pdf || !md || !parseSlides(md).some((sl) => sl.number === page)) throw missing();
+		const file = path.join(/* turbopackIgnore: true */ this.content.pagesDir(lectureId), `${page}.png`);
+		if (fs.existsSync(/* turbopackIgnore: true */ file)) return file;
+		if (!this.deps.renderPdfPage) throw new CompanionError("pdf_unavailable", 501, "Page pictures are not available here.");
+		const key = `${lectureId}:${page}`;
+		let drawing = this.drawingPages.get(key);
+		if (!drawing) {
+			const render = this.deps.renderPdfPage;
+			drawing = (async () => {
+				const png = await render(pdf, page);
+				if (!png) throw missing();
+				fs.mkdirSync(/* turbopackIgnore: true */ path.dirname(file), { recursive: true });
+				// Written under another name first, so a half-written picture is never served.
+				fs.writeFileSync(/* turbopackIgnore: true */ `${file}.part`, png);
+				fs.renameSync(/* turbopackIgnore: true */ `${file}.part`, /* turbopackIgnore: true */ file);
+				return file;
+			})().finally(() => this.drawingPages.delete(key));
+			this.drawingPages.set(key, drawing);
+		}
+		return drawing;
 	}
 
 	/** Ideas to revisit (open misses), optionally for one lecture: never "overdue". */
@@ -766,7 +802,8 @@ export class CompanionService {
 		const lecture = this.store.lectures().find((l) => l.id === lectureId);
 		if (!lecture) throw notFound("lecture");
 		if (!this.deps.convertPdf) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
-		const pages = await this.deps.convertPdf(pdf);
+		// A copy: the reader uses up the bytes it is given, and the file itself is kept below (S-2).
+		const pages = await this.deps.convertPdf(pdf.slice());
 		if (pages === "too-long") throw badRequest("the PDF has too many pages");
 		if (pages === "unreadable") throw badRequest("the PDF could not be read");
 		const assembled = assembleSlidesMarkdown(pages, lecture.title);

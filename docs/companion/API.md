@@ -48,10 +48,11 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
-| GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }] }` for the slide panel |
+| GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }], hasPdf }` for the slide panel. Slide numbers are the original file's page numbers, so a unit can run 18 to 38. `hasPdf` is true only when the stored PDF has content |
+| GET | `/materials/:lectureId/pages/:n` | | The picture (PNG) of page n of the unit's own PDF (v1.0, V-21). Drawn once and kept in `materials/<id>/pages/`. 404 `page_not_found` when the unit has no PDF or page n isn't one of its slides |
 | GET | `/lectures/:id/map` | | The concept map: `{ source: "authored" \| "headings", mermaid, nodes: [{ id, title, slides, status: solid \| shaky \| revisit \| notyet, answers }], edges: [{ from, to }] }` |
 | GET | `/misses` | `?lectureId=` | Ideas to revisit (open misses): `{ misses: [{ id, lectureId, lectureTitle, module, questionText, correctLabels, explanation, reason, createdAt, nextDue }] }` |
-| GET | `/materials/:lectureId/pdf` | | the slide PDF (for the slide sheet; render page n with pdfjs) |
+| GET | `/materials/:lectureId/pdf` | | the whole slide PDF. No screen uses it; the slide panel uses `/pages/:n` |
 | POST | `/materials/:lectureId` | PDF bytes, or multipart `file` | Replaces the material of a lecture or course unit → `{ lectureId, slideCount, needsCaption: number[], slides }`. Pages in `needsCaption` had no text (no OCR). Open to everyone since v0.1 (F-104) |
 | DELETE | `/materials/:lectureId` | | A course unit is hidden (history kept); a timetable lecture loses its uploaded material |
 

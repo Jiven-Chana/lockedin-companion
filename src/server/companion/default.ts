@@ -21,6 +21,7 @@
 
 import path from "node:path";
 import { PATHS } from "../../../config.ts";
+import { MATERIALS_RULES } from "../../core/companion/policy.ts";
 import { ENGINE_NAMES, type EngineName } from "../../core/companion/types.ts";
 import { convertPdf } from "../../agent/subagents/pdf-ops.ts";
 import { readSettings } from "../../store/settings.ts";
@@ -29,7 +30,7 @@ import { OffsetClock } from "./clock.ts";
 import { CompanionContent } from "./content.ts";
 import { LearnHarnessEngine } from "./engines/learnharness.ts";
 import { ScriptedEngine } from "./engines/scripted.ts";
-import { createAiPort, createLearnHarnessPort, generate } from "./lh-port.ts";
+import { createAiPort, createLearnHarnessPort, generate, renderPdfPage } from "./lh-port.ts";
 import { verifyProviderKey } from "./ai.ts";
 import { fetchCalendarText } from "./calendar-fetch.ts";
 import { CompanionService, type PdfConverter } from "./service.ts";
@@ -117,6 +118,7 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
 		convertPdf: pdfConverter,
+		renderPdfPage: (file, page) => renderPdfPage(file, page, MATERIALS_RULES.pageImageDpi),
 		fetchCalendar: (url) => fetchCalendarText(url),
 		engineStatus: learnHarnessStatus,
 	});

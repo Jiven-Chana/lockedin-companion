@@ -102,7 +102,8 @@ export class CourseMaterials {
 		if (f.bytes.length > MATERIALS_RULES.maxFileBytes) throw badRequest(`${f.name} is over 25 MB`);
 		if (isPdf(f)) {
 			if (!this.opts.pdfToPages) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
-			const pages = await this.opts.pdfToPages(f.bytes);
+			// The reader uses up the bytes it is given: hand it a copy, so the file itself can still be kept (S-2).
+			const pages = await this.opts.pdfToPages(f.bytes.slice());
 			if (pages === "too-long") throw badRequest(`${f.name} has too many pages`);
 			if (pages === "unreadable") throw badRequest(`${f.name} could not be read`);
 			return { kind: "pdf", pages };

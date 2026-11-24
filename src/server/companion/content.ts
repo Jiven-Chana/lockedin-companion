@@ -61,8 +61,15 @@ export class CompanionContent {
 		return p ? fs.readFileSync(/* turbopackIgnore: true */ p, "utf-8") : null;
 	}
 
+	/** The unit's original PDF. An empty file (uploads saved before v1.0 lost their bytes) is no PDF. */
 	pdfPath(lectureId: string): string | null {
-		return this.find(lectureId, "slides.pdf");
+		const p = this.find(lectureId, "slides.pdf");
+		return p && fs.statSync(/* turbopackIgnore: true */ p).size > 0 ? p : null;
+	}
+
+	/** Where the pictures of a unit's PDF pages are kept (V-21). */
+	pagesDir(lectureId: string): string {
+		return path.join(/* turbopackIgnore: true */ this.store.materialsDir(assertSafeId(lectureId, "lecture id")), "pages");
 	}
 
 	/** The scripted set for a lecture, validated. Throws on an invalid file (authoring error). */
@@ -93,7 +100,13 @@ export class CompanionContent {
 		const dir = this.store.materialsDir(lectureId);
 		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
 		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.md"), files.slidesMd, "utf-8");
-		if (files.pdf) fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
+		// The old PDF may be one file shared with sibling units (a hard link): remove
+		// the name before writing, so only this unit changes. Its page pictures go too.
+		fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "pages"), { recursive: true, force: true });
+		if (files.pdf) {
+			fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), { force: true });
+			fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
+		}
 		return dir;
 	}
 

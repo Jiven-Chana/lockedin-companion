@@ -32,6 +32,7 @@ import { MODEL_SLOTS } from "../../core/settings.ts";
 import type { AiPort } from "./ai.ts";
 import { Type } from "typebox";
 import { piEngineForSpec } from "../../agent/models.ts";
+import { getHeadless } from "../../agent/subagents/headless.ts";
 import { runSubmitAgent } from "../../agent/subagents/submit-agent.ts";
 import { isSubscriptionProvider } from "../../agent/subscription-connections.ts";
 import { modelsNotConfigured } from "../../core/settings.ts";
@@ -227,6 +228,16 @@ export function createAiPort(): AiPort {
 			return { ok: true };
 		},
 	};
+}
+
+/**
+ * One page of a PDF as a PNG (V-21), drawn by the engine's own PDF renderer
+ * (pdfjs into a native canvas, in this process: no browser). Null when the
+ * file has no such page.
+ */
+export async function renderPdfPage(pdfPath: string, page: number, dpi: number): Promise<Uint8Array | null> {
+	const [rendered] = await getHeadless().renderPdfPages(pdfPath, [page], { dpi });
+	return rendered ? new Uint8Array(rendered.png) : null;
 }
 
 /** The engine role whose prompts and limits fit each slot (ROLE_SLOT, reversed). */

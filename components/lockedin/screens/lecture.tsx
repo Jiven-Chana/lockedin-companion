@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { moduleHue, type SessionKind } from "@/src/core";
-import { ApiError, lockedIn, type PackData } from "../api";
+import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
 import { fmtDay, fmtTime, useData, usePoll } from "../hooks";
 import { StatusTag } from "../icons";
 import { Prose } from "../prose";
 import { Tint, useLockedIn } from "../root";
+import { SlidePage } from "../slide-page";
 
 type Tab = "map" | "explainers" | "slides" | "revisit";
 
@@ -108,7 +109,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 				) : null}
 
 				<div role="tablist" aria-label="Lecture" className="li-seg" style={{ alignSelf: "flex-start" }}>
-					{([["map", "Concept map"], ["explainers", `Explainers (${pack.data?.explainers.length ?? 0})`], ["slides", `Slides (${slides.data?.length ?? 0})`], ["revisit", `Ideas to revisit (${openMisses.length})`]] as [Tab, string][]).map(([k, label]) => (
+					{([["map", "Concept map"], ["explainers", `Explainers (${pack.data?.explainers.length ?? 0})`], ["slides", `Slides (${slides.data?.slides.length ?? 0})`], ["revisit", `Ideas to revisit (${openMisses.length})`]] as [Tab, string][]).map(([k, label]) => (
 						<button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
 					))}
 				</div>
@@ -169,12 +170,9 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 
 				{tab === "slides" ? (
 					<div className="li-stack" style={{ gap: 10 }}>
-						{(slides.data ?? []).length === 0 ? <div className="li-card li-empty">No slides yet for this lecture.</div> : null}
-						{(slides.data ?? []).map((s) => (
-							<details key={s.number} className="li-card flat" open={openSlide === s.number} style={{ padding: "14px 20px" }}>
-								<summary style={{ cursor: "pointer", fontWeight: 700 }}><span className="li-muted">Slide {s.number} · </span>{s.title}</summary>
-								<div style={{ marginTop: 10 }}><Prose text={s.body} /></div>
-							</details>
+						{(slides.data?.slides ?? []).length === 0 ? <div className="li-card li-empty">No slides yet for this lecture.</div> : null}
+						{(slides.data?.slides ?? []).map((s) => (
+							<SlideRow key={s.number} lectureId={lectureId} slide={s} hasPdf={slides.data?.hasPdf ?? false} open={openSlide === s.number} />
 						))}
 					</div>
 				) : null}
@@ -232,5 +230,17 @@ function PackProgress({ data, onStart, onCancel }: { data: PackData | null; onSt
 			{!data?.running && (meta.state === "failed" || meta.state === "cancelled") ? <button type="button" className="li-btn primary" onClick={() => onStart(false)}>Resume</button> : null}
 			{!data?.running && meta.state === "ready" ? <button type="button" className="li-btn ghost" onClick={() => onStart(true)}>Regenerate</button> : null}
 		</div>
+	);
+}
+
+/** One slide in the lecture's list. Its page picture is only asked for once the row is open, so a long deck isn't drawn all at once. */
+function SlideRow({ lectureId, slide, hasPdf, open }: { lectureId: string; slide: SlideSection; hasPdf: boolean; open: boolean }) {
+	const [isOpen, setIsOpen] = useState(open);
+	useEffect(() => setIsOpen(open), [open]);
+	return (
+		<details className="li-card flat" open={isOpen} onToggle={(e) => setIsOpen(e.currentTarget.open)} style={{ padding: "14px 20px" }}>
+			<summary style={{ cursor: "pointer", fontWeight: 700 }}><span className="li-muted">{hasPdf ? "Page" : "Slide"} {slide.number} · </span>{slide.title}</summary>
+			{isOpen ? <div className="li-slide-row" style={{ marginTop: 10 }}>{hasPdf ? <SlidePage lectureId={lectureId} slide={slide} hasPdf /> : <Prose text={slide.body} />}</div> : null}
+		</details>
 	);
 }

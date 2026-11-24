@@ -206,6 +206,10 @@ export const MATERIALS_RULES = {
 	textPageChars: 2_500,
 	/** A proposal waits this long for the student to confirm it. */
 	pendingUploadHours: 24,
+	/** The slide panel's picture of a PDF page (V-21): sharp on a laptop screen, a few hundred KB a page. */
+	pageImageDpi: 120,
+	/** Above this many slides the panel hides its row of dots (a long deck would be a strip of 80). */
+	maxSlideDots: 20,
 } as const;
 
 /** Five days away or more earns a "welcome back" (J6, R-6). */

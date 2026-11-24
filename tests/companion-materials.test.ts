@@ -26,8 +26,12 @@ const NOW = new Date(2026, 10, 23, 12); // Mon 23 Nov 2026
 
 /** A fake PDF: the bytes are the page titles joined by "|". */
 const pdf = (...titles: string[]) => new Uint8Array([0x25, 0x50, 0x44, 0x46, ...new TextEncoder().encode(titles.join("|"))]);
-const pdfToPages = async (data: Uint8Array): Promise<SlidePage[]> =>
-	new TextDecoder().decode(data.slice(4)).split("|").map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.` }));
+/** Like the real PDF reader, the fake one uses up the bytes it is given (v1.0 S-2: the stored PDF came out empty). */
+const pdfToPages = async (data: Uint8Array): Promise<SlidePage[]> => {
+	const titles = new TextDecoder().decode(data.slice(4)).split("|");
+	data.fill(0);
+	return titles.map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: `# ${t}\nBody of ${t}.` }));
+};
 
 async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) => unknown } = {}) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-mat-"));
@@ -35,6 +39,7 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 	const content = new CompanionContent(store, CONTENT);
 	const clock = new ManualClock(NOW);
 	const calls: GenerateRequest[] = [];
+	const renders: string[] = [];
 	const generate: Generate = async <T,>(req: GenerateRequest) => {
 		calls.push(req);
 		const value = opts.split ? opts.split(req) : { units: [] };
@@ -49,6 +54,11 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 		engines: { scripted: new ScriptedEngine((id) => content.scriptedSet(id)), learnharness: new ScriptedEngine((id) => content.scriptedSet(id)) },
 		defaultEngine: "scripted",
 		convertPdf: pdfToPages,
+		renderPdfPage: async (file, page) => {
+			renders.push(`${path.basename(path.dirname(file))}:${page}`);
+			await new Promise((r) => setTimeout(r, 2));
+			return fs.statSync(file).size > 0 ? new TextEncoder().encode(`png of page ${page}`) : null;
+		},
 		generate,
 		promptsDir: PROMPTS,
 		newId: (p) => `${p}${++n}`,
@@ -56,7 +66,7 @@ async function setup(opts: { aiReady?: boolean; split?: (req: GenerateRequest) =
 	// The AI's readiness without the engine: stub the check the materials use.
 	(svc.courseMaterials as unknown as { opts: { aiReady: () => Promise<boolean> } }).opts.aiReady = async () => opts.aiReady ?? false;
 	await svc.onboardFlow({ calendar: { kind: "none" }, modules: [{ code: "GT", name: "Game Theory" }] });
-	return { svc, store, dir, calls, events: () => store.events().map((e) => e.type) };
+	return { svc, store, dir, calls, renders, events: () => store.events().map((e) => e.type) };
 }
 
 const semester = () => pdf("Game Theory", ...Array.from({ length: 13 }, (_, i) => `Dominance ${i}`), ...Array.from({ length: 14 }, (_, i) => `Nash ${i}`));
@@ -144,6 +154,51 @@ describe("saving the confirmed units", () => {
 		assert.equal(a.ino, b.ino, "one copy of the PDF on disk");
 		assert.ok(events().includes("materials_saved"));
 		assert.throws(() => svc.saveMaterials("GT", { uploadId: r.uploadId, units }), /expired/, "a saved upload can't be saved twice");
+	});
+
+	it("the stored PDF is the uploaded file, not an empty one (S-2)", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const stored = fs.readFileSync(path.join(store.materialsDir(saved.units[0]!.id), "slides.pdf"));
+		assert.deepEqual(new Uint8Array(stored), semester());
+		assert.equal(svc.materials(saved.units[0]!.id).hasPdf, true);
+		assert.equal(svc.lectureSlides(saved.units[0]!.id).hasPdf, true);
+	});
+
+	it("an empty stored PDF (uploads from before the fix) counts as no PDF", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const id = saved.units[0]!.id;
+		fs.truncateSync(path.join(store.materialsDir(id), "slides.pdf"), 0);
+		assert.equal(svc.materials(id).hasPdf, false);
+		assert.equal(svc.lectureSlides(id).hasPdf, false);
+		await assert.rejects(svc.slidePage(id, 2), (e: CompanionError) => e.status === 404 && e.code === "page_not_found");
+	});
+
+	it("a page of the unit is drawn once and kept; other pages and units without a PDF are not found (V-21)", async () => {
+		const { svc, r, renders } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const nash = saved.units[1]!.id; // pages 15 to 28
+		const [a, b] = await Promise.all([svc.slidePage(nash, 15), svc.slidePage(nash, 15)]);
+		assert.equal(a, b);
+		assert.equal(fs.readFileSync(a, "utf-8"), "png of page 15");
+		await svc.slidePage(nash, 15);
+		assert.deepEqual(renders, [`${nash}:15`], "drawn once, then read from disk");
+		await assert.rejects(svc.slidePage(nash, 3), (e: CompanionError) => e.code === "page_not_found", "page 3 belongs to the other unit");
+		await assert.rejects(svc.slidePage(nash, 1.5), (e: CompanionError) => e.status === 400);
+		await assert.rejects(svc.slidePage("hci-w3-personas", 1), (e: CompanionError) => e.code === "page_not_found", "the sample lecture has no PDF");
+		assert.equal(svc.lectureSlides("hci-w3-personas").hasPdf, false);
+	});
+
+	it("replacing a unit's material keeps the new PDF and forgets the old page pictures", async () => {
+		const { svc, r, store } = await proposed();
+		const saved = svc.saveMaterials("GT", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, ...u })) });
+		const id = saved.units[0]!.id; // pages 2 to 14
+		const old = await svc.slidePage(id, 2);
+		await svc.importMaterials(id, pdf("One", "Two"));
+		assert.deepEqual(new Uint8Array(fs.readFileSync(path.join(store.materialsDir(id), "slides.pdf"))), pdf("One", "Two"));
+		assert.equal(fs.existsSync(old), false);
+		assert.equal(fs.readFileSync(await svc.slidePage(id, 2), "utf-8"), "png of page 2");
 	});
 
 	it("units are quizzable straight away, with no timetable", async () => {

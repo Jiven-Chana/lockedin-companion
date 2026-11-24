@@ -85,6 +85,38 @@ export function parseSlideRefs(text: string | undefined): number[] {
 	return [...refs].sort((x, y) => x - y);
 }
 
+export interface SlidePosition {
+	/** The slide shown, or null when the unit has none. */
+	number: number | null;
+	index: number;
+	total: number;
+	first: number | null;
+	last: number | null;
+	prev: number | null;
+	next: number | null;
+}
+
+/**
+ * Where the slide panel is in a unit's own slides (v1.0 S-1). A unit made
+ * from part of a file keeps the file's page numbers (18 to 38, say), so
+ * the panel moves through the numbers that exist, never 1, 2, 3. A wanted
+ * number the unit doesn't have (nothing chosen yet, or a citation to another
+ * unit's page) shows the first slide.
+ */
+export function slidePosition(numbers: readonly number[], wanted: number | null | undefined): SlidePosition {
+	const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+	if (sorted.length === 0) return { number: null, index: -1, total: 0, first: null, last: null, prev: null, next: null };
+	const found = wanted == null ? -1 : sorted.indexOf(wanted);
+	const index = found >= 0 ? found : 0;
+	return { number: sorted[index]!, index, total: sorted.length, first: sorted[0]!, last: sorted.at(-1)!, prev: sorted[index - 1] ?? null, next: sorted[index + 1] ?? null };
+}
+
+/** "Page 18 of 38" for a real PDF page, "Slide 3 of 10" for slide text. The last number is the unit's last page, so it matches what citations say. */
+export function slidePositionLabel(pos: SlidePosition, realPage: boolean): string {
+	const word = realPage ? "Page" : "Slide";
+	return pos.number === null ? `${word}s` : `${word} ${pos.number} of ${pos.last}`;
+}
+
 export const estimateSlideTokens = (text: string): number => Math.ceil(text.length / 4);
 
 /**

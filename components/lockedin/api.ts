@@ -121,7 +121,8 @@ export const lockedIn = {
 	lectures: (q?: string) => api<{ lectures: LectureWithStatus[] }>(`/lectures${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((r) => r.lectures),
 	missed: (id: string, missed = true) => api<Lecture>(`/lectures/${encodeURIComponent(id)}/missed`, { body: { missed } }),
 	roadmap: () => api<Record<string, LectureWithStatus[]>>("/roadmap"),
-	slides: (id: string) => api<{ slides: SlideSection[] }>(`/materials/${encodeURIComponent(id)}/slides`).then((r) => r.slides),
+	/** The unit's slides as text, and whether it kept its PDF (then each page has a picture, V-21). */
+	slides: (id: string) => api<{ slides: SlideSection[]; hasPdf: boolean }>(`/materials/${encodeURIComponent(id)}/slides`),
 	map: (id: string) => api<ConceptMapData>(`/lectures/${encodeURIComponent(id)}/map`),
 	progress: () => api<ProgressData>("/progress"),
 	misses: (lectureId?: string) => api<{ misses: MissItem[] }>(`/misses${lectureId ? `?lectureId=${encodeURIComponent(lectureId)}` : ""}`).then((r) => r.misses),
