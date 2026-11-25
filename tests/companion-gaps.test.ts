@@ -188,3 +188,40 @@ describe("a gap closes after two sure right answers on different days, through t
 	});
 });
 
+describe("the gaps list: module, idea, the questions missed (V-39)", () => {
+	it("names the idea and its unit, what was chosen, and how far it is towards leaving", async () => {
+		const { svc, clock, session } = await setup(day(20, 13));
+		assert.deepEqual(svc.gaps(), { modules: [], ideas: 0 });
+		await session(["Nash 1?", "Nash 3?"], 100);
+		let g = svc.gaps();
+		assert.deepEqual([g.ideas, g.modules.map((m) => [m.code, m.name, m.ideas.length])], [1, [["GT", "Game Theory", 1]]]);
+		const idea = g.modules[0]!.ideas[0]!;
+		assert.deepEqual([idea.key, idea.title, idea.unit, idea.missed, idea.right, idea.needed, idea.confidentError, idea.canPractise], ["gt-2#nash", "Nash equilibrium", "Nash", 2, 0, 2, true, true]);
+		assert.deepEqual(idea.questions.map((q) => [q.text, q.chosen, q.correct, q.reason, q.slide]).sort(), [["Nash 1?", ["Wrong A"], ["Right"], "wrong", 1], ["Nash 3?", ["Wrong A"], ["Right"], "wrong", 1]]);
+
+		clock.set(day(21, 13));
+		await session([], 70);
+		g = svc.gaps();
+		assert.deepEqual([g.modules[0]!.ideas[0]!.right, g.modules[0]!.ideas[0]!.missed], [1, 2]);
+
+		clock.set(day(22, 13));
+		await session([], 70);
+		assert.deepEqual(svc.gaps(), { modules: [], ideas: 0 }, "the idea has left the list");
+	});
+
+	it("\"Practise this idea\" is a round on that idea only", async () => {
+		const { svc, store, session } = await setup(day(20, 13));
+		// A second idea in the same unit, so staying on one idea means something.
+		const bankFile = path.join(store.materialsDir("gt-2"), "bank.json");
+		const bank = JSON.parse(fs.readFileSync(bankFile, "utf-8")) as { id: string; stem: string; node: string }[];
+		fs.writeFileSync(bankFile, JSON.stringify([...bank, { ...bank[0], id: "gt-2-q4", stem: "Mixed 4?", node: "mixed" }, { ...bank[0], id: "gt-2-q5", stem: "Mixed 5?", node: "mixed" }]));
+		await session(["Nash 1?"], 70);
+		const { sessionId } = svc.startPractise({ module: "GT", idea: "gt-2#nash" });
+		const spec = store.session(sessionId)!.spec;
+		assert.deepEqual([spec.practise!.idea, spec.practise!.picks.map((p) => p.questionId).sort()], ["gt-2#nash", ["gt-2-q1", "gt-2-q2", "gt-2-q3"]]);
+		await assert.rejects(svc.more(sessionId, {}), (e: { code?: string }) => e.code === "no_more_questions", "more stays on the idea too");
+		assert.throws(() => svc.startPractise({ module: "GT", idea: "gt-2#nothing" }), (e: { status?: number; code?: string }) => e.status === 422 && e.code === "no_questions");
+		assert.throws(() => svc.startPractise({ module: "GT", idea: "nash" }), (e: { status?: number }) => e.status === 400);
+	});
+});
+

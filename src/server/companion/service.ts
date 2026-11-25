@@ -28,7 +28,7 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { BLOCK_RULES, GAP_COPY, GAP_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -36,8 +36,8 @@ import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
 import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
-import { closeGaps, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
-import { pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
+import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
+import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
 import { earnedMilestones, needsAttention, type AttentionLine } from "../../core/companion/milestones.ts";
 import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
@@ -1696,6 +1696,50 @@ export class CompanionService {
 		for (const key of new Set(closed.map(ideaKeyOfMiss))) this.log("gap_closed", { idea: key, questions: closed.filter((m) => ideaKeyOfMiss(m) === key).length });
 	}
 
+	/**
+	 * Gaps by idea (V-39): module, then idea, then the questions missed on it,
+	 * with how far each idea is towards leaving the list (V-43). Only ideas
+	 * with a gap are listed. Confident errors come first within a module.
+	 */
+	gaps() {
+		const profile = this.requireProfile();
+		const lectures = new Map(this.store.allLectures().map((l) => [l.id, l]));
+		const titles = new Map(this.packIdeas().map((i) => [`${i.lectureId}#${i.nodeId}`, i.title]));
+		const ideas = gapsByIdea(this.store.misses(), this.rightAnswers()).flatMap((g) => {
+			const unit = lectures.get(g.lectureId);
+			if (!unit) return [];
+			const bank = this.packs?.bank(g.lectureId) ?? [];
+			return [{
+				key: g.key,
+				lectureId: g.lectureId,
+				nodeId: g.nodeId,
+				module: unit.module,
+				unit: unit.title,
+				title: titles.get(g.key) ?? (g.nodeId === GENERAL_IDEA ? GAP_COPY.wholeUnit(unit.title) : g.nodeId.replace(/[-_]+/g, " ")),
+				missed: g.misses.length,
+				right: g.right,
+				needed: g.needed,
+				confidentError: g.confidentError,
+				// "Practise this idea" needs questions on it to draw from.
+				canPractise: bank.some((q) => q.node === g.nodeId) || (g.nodeId === GENERAL_IDEA && bank.length > 0),
+				questions: g.misses.map((m) => ({
+					id: m.id,
+					text: m.questionText,
+					chosen: m.chosen ?? [],
+					reason: m.reason,
+					correct: m.correctLabels,
+					explanation: m.explanation ?? null,
+					slide: parseSlideRefs(m.explanation)[0] ?? bank.find((q) => q.id === m.questionId)?.slides[0] ?? null,
+					at: m.createdAt,
+				})),
+			}];
+		});
+		const modules = profile.modules
+			.map((m) => ({ code: m.code, name: m.name, ideas: ideas.filter((i) => i.module === m.code) }))
+			.filter((m) => m.ideas.length > 0);
+		return { modules, ideas: ideas.length };
+	}
+
 	/** Learn or Practise, for the header (V-40, V-50). A round across a module is named after the module. */
 	private studyOf(session: CompanionSession, lecture: Pick<Lecture, "module">, budget: number): Pick<SessionView, "study" | "practiseOf"> & { goal?: string } {
 		const study = session.spec.study ?? "learn";
@@ -1711,20 +1755,25 @@ export class CompanionService {
 	startPractise(raw: unknown): { sessionId: string } {
 		const code = (raw as { module?: unknown } | null)?.module;
 		if (typeof code !== "string" || !this.requireProfile().modules.some((m) => m.code === code)) throw badRequest("module must be one of your modules");
-		const picks = this.practisePicks(code, PRACTISE_RULES.questions, new Set());
-		if (picks.length === 0) throw new CompanionError("no_questions", 422, PRACTISE_COPY.noQuestions);
+		// "Practise this idea" (V-39): the round stays on one idea of one unit.
+		const idea = (raw as { idea?: unknown }).idea;
+		if (idea !== undefined && (typeof idea !== "string" || !idea.includes("#"))) throw badRequest("idea must be an idea key, lectureId#nodeId");
+		const picks = this.practisePicks(code, idea ? GAP_RULES.newQuestions : PRACTISE_RULES.questions, new Set(), idea as string | undefined);
+		if (picks.length === 0) throw new CompanionError("no_questions", 422, idea ? GAP_COPY.noQuestions : PRACTISE_COPY.noQuestions);
 		const spec: SessionSpec = {
 			kind: "practise", lectureId: picks[0]!.lectureId, mode: "question-first", study: "practise",
 			budget: { questions: picks.length, minutes: PRACTISE_RULES.minutes },
-			practise: { module: code, picks },
+			practise: { module: code, picks, ...(idea ? { idea: idea as string } : {}) },
 		};
 		return this.createSession(spec);
 	}
 
 	/** The questions for a Practise round: what `pickPractise` chooses from the module's banks and the student's history. */
-	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>): { lectureId: string; questionId: string }[] {
+	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>, idea?: string): { lectureId: string; questionId: string }[] {
 		const now = this.now();
-		const candidates: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
+		const all: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
+		// One idea only: its own questions, or the whole unit's when the gap is on the unit in general.
+		const candidates = !idea ? all : all.filter((c) => (idea.endsWith(`#${GENERAL_IDEA}`) ? `${c.lectureId}#${GENERAL_IDEA}` === idea : ideaKeyOf(c) === idea));
 		if (candidates.length === 0) return [];
 		// How often, and when last, each question has been asked: on the laptop or the phone.
 		const asked = new Map<string, { times: number; last: number }>();
@@ -1877,7 +1926,7 @@ export class CompanionService {
 		if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 10) throw badRequest("questions must be 1–10");
 		let extra: { lectureId: string; questionId: string }[] = [];
 		if (session.spec.practise) {
-			extra = this.practisePicks(session.spec.practise.module, n as number, new Set(session.spec.practise.picks.map((p) => p.questionId)));
+			extra = this.practisePicks(session.spec.practise.module, n as number, new Set(session.spec.practise.picks.map((p) => p.questionId)), session.spec.practise.idea);
 			if (extra.length === 0) throw new CompanionError("no_more_questions", 409, PRACTISE_COPY.noMore);
 		}
 		const budget = session.budget + (session.spec.practise ? extra.length : (n as number));
@@ -2105,7 +2154,8 @@ export class CompanionService {
 			tryNow: tryNow ? { lectureId: tryNow.id, title: tryNow.title, module: tryNow.module, spec: specFor("try-now", tryNow.id, state.profile?.prefs) } : null,
 			lectures: todays,
 			nextBlock,
-			readyToRevisit: state.misses.filter((m) => m.status === "open").length,
+			// Ideas with a gap (V-39), not missed questions: several questions on one idea are one thing to revisit.
+			readyToRevisit: gapsByIdea(state.misses, []).length,
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
 			phonePaired: this.phone?.paired() ?? false,

@@ -230,6 +230,23 @@ export const CONFIDENCE_TAPS = [
  */
 export const GAP_RULES = { rightAnswers: 2, sureConfidence: 70, newQuestions: 5 } as const;
 
+/** Gaps by idea, in words. Nothing is dated or called overdue (R-6): a gap is something ready to grow (V-49). */
+export const GAP_COPY = {
+	title: "Ideas to revisit",
+	empty: "Nothing to revisit. Anything you get wrong, or right but unsure, shows up here by idea.",
+	ideas: (n: number) => `${n} ${n === 1 ? "idea" : "ideas"}`,
+	missed: (n: number) => `${n} missed`,
+	/** How far an idea is towards leaving the list (V-43). */
+	progress: (right: number, needed: number) => (right === 0 ? `Leaves this list after ${needed} right answers, on different days, when you're fairly sure or certain.` : `${right} of ${needed} right answers towards leaving this list. One more, on another day.`),
+	practise: "Practise this idea",
+	youChose: "You chose",
+	dontKnow: "You said you didn't know",
+	unsure: "Right, but you weren't sure",
+	answer: "Answer",
+	wholeUnit: (unit: string) => `${unit} (in general)`,
+	noQuestions: "No more questions on this idea for now.",
+} as const;
+
 /**
  * Practise (V-40): a round's size, and how much of it may go to repair.
  * `gapShare` keeps a round mixed: at most this share goes to ideas with a gap

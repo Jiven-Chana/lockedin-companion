@@ -52,6 +52,19 @@ export interface MaterialProposal {
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
 
+/** Gaps by idea (V-39, V-43). */
+export interface GapsData {
+	ideas: number;
+	modules: {
+		code: string;
+		name: string;
+		ideas: {
+			key: string; lectureId: string; nodeId: string; module: string; unit: string; title: string;
+			missed: number; right: number; needed: number; confidentError: boolean; canPractise: boolean;
+			questions: { id: string; text: string; chosen: string[]; reason: "wrong" | "dont-know" | "low-confidence"; correct: string[]; explanation: string | null; slide: number | null; at: string }[];
+		}[];
+	}[];
+}
 export type Banner = (NudgeRecord & { ready: boolean; startsAt: number }) | null;
 export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "not-started"; revisit: number };
 
@@ -160,7 +173,9 @@ export const lockedIn = {
 	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
 	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string; href?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
 	/** Start a Practise round across a module (V-40): bank questions, no AI. */
-	startPractise: (module: string) => api<{ sessionId: string }>("/practise", { body: { module } }),
+	startPractise: (module: string, idea?: string) => api<{ sessionId: string }>("/practise", { body: { module, ...(idea ? { idea } : {}) } }),
+	/** Gaps by idea (V-39): module, idea, the questions missed. */
+	gaps: () => api<GapsData>("/gaps"),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
 	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),

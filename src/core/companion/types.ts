@@ -49,7 +49,7 @@ export interface SessionSpec {
 	/** Learn or Practise (V-40). Absent means Learn. */
 	study?: StudyMode;
 	/** A Practise round across a module (V-40): the questions chosen for it, in the order asked. */
-	practise?: { module: string; picks: { lectureId: string; questionId: string }[] };
+	practise?: { module: string; picks: { lectureId: string; questionId: string }[]; /** "Practise this idea" (V-39): the idea the round stays on, as `lectureId#nodeId`. */ idea?: string };
 }
 
 export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
