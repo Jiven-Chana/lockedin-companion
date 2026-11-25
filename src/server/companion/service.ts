@@ -528,6 +528,7 @@ export class CompanionService {
 				name: m.name,
 				units: list.length,
 				preparing: list.filter((u) => this.packs?.isRunning(u.id) || ["queued", "generating"].includes(this.packs?.status(u.id)?.state ?? "")).length,
+				ready: list.filter((u) => this.packs?.status(u.id)?.state === "ready").length,
 				list: list.map((u) => ({ id: u.id, title: u.title, week: u.week })),
 			};
 		});
@@ -700,6 +701,30 @@ export class CompanionService {
 		const view = this.setupWeekView(plan.week, plan.message);
 		this.log("setup_week", { energy, target, week: plan.week, blocks: view.blocks.length });
 		return view;
+	}
+
+	/**
+	 * "Later" on setup's week step: the total and the suggested blocks go, as
+	 * if the step had not been opened. A target is only ever set by the
+	 * student (V-5). Blocks already kept with "Looks good" are theirs and stay.
+	 */
+	skipSetupWeek(): SetupView {
+		const profile = this.requireProfile();
+		const week = profile.setup?.week;
+		if (!this.inSetup(profile) || !week) return this.setup();
+		const end = dateKey(addDays(new Date(`${week}T12:00:00`), 6));
+		const blocks = this.store.blocks();
+		const inWeek = (x: StudyBlock) => x.date >= week && x.date <= end;
+		const { week: _week, ...setup } = profile.setup!;
+		if (blocks.some((x) => inWeek(x) && (x.status === "accepted" || x.status === "started"))) {
+			this.store.saveProfile({ ...profile, setup });
+			return this.setup();
+		}
+		this.store.saveBlocks(blocks.filter((x) => !(inWeek(x) && x.status === "proposed" && x.source === "planner")));
+		const { routine: _routine, ...rest } = profile;
+		this.store.saveProfile({ ...rest, plan: { ...this.planSettings(), weeklyTargetMinutes: null }, setup });
+		this.log("setup_week", { skipped: true });
+		return this.setup();
 	}
 
 	/** Where setup ends: the first unit in keep-up order, from the student's own slides. */

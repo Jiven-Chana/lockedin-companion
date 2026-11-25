@@ -417,8 +417,9 @@ export interface SetupModuleLine {
 	code: string;
 	name: string;
 	units: number;
-	/** Units whose study pack is still being written. */
+	/** Units whose study pack is still being written, and those whose pack is written. */
 	preparing: number;
+	ready: number;
 	list: { id: string; title: string; week: number }[];
 }
 export interface SetupWeek {

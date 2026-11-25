@@ -240,6 +240,23 @@ describe("setup: your week (V-45, V-63)", () => {
 		assert.equal(store.blocks().filter((b) => b.status === "accepted").length, 2);
 	});
 
+	it("\"Later\" on the week leaves no total and no suggested blocks: a target is only ever set by the student (V-5)", async () => {
+		const { svc, store } = make();
+		await svc.setupTimetable(gt);
+		svc.setupWeek({ energy: ["morning"] });
+		const s = svc.skipSetupWeek();
+		assert.equal(s.week, null);
+		assert.equal(store.profile()?.plan?.weeklyTargetMinutes ?? null, null);
+		assert.equal(store.profile()?.routine, undefined);
+		assert.equal(store.blocks().filter((b) => b.status === "proposed").length, 0);
+		// Blocks already kept with "Looks good" are the student's and stay.
+		const w = svc.setupWeek({ weeklyTargetMinutes: 100 });
+		svc.acceptBlocks({ week: w.week });
+		svc.skipSetupWeek();
+		assert.equal(store.blocks().filter((b) => b.status === "accepted").length, 2);
+		assert.equal(store.profile()?.plan?.weeklyTargetMinutes, 100);
+	});
+
 	it("a module with slides is what the blocks study", async () => {
 		const { svc } = make();
 		await svc.setupTimetable(gt);

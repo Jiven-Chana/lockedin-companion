@@ -524,6 +524,9 @@ export const SETUP_COPY = {
 		other: "Use another AI account",
 		choosing: "Choosing your models…",
 		connected: "Connected ✓",
+		/** ChatGPT's own switch: without it no session can start, so setup asks for it in one tap and never sets it by itself. */
+		background: "LockedIn prepares your slides and questions while you do other things. ChatGPT needs your OK for that.",
+		allow: "Allow",
 	},
 	timetable: {
 		title: "Your timetable",
@@ -535,6 +538,8 @@ export const SETUP_COPY = {
 		none: "No modules found in that calendar. Add yours below.",
 		failed: "Couldn't read that calendar. Check the link.",
 		file: "Use a calendar file instead",
+		useLink: "Use a link instead",
+		connected: "Your timetable is connected.",
 		add: "Add a module",
 		addPlaceholder: "Module name",
 		addButton: "Add",
@@ -561,6 +566,12 @@ export const SETUP_COPY = {
 		energy: "When do you have energy?",
 		energies: { morning: "Morning", afternoon: "Afternoon", evening: "Evening" },
 		target: "Study time each week",
+		hours: (minutes: number) => {
+			const h = Math.floor(minutes / 60);
+			const m = minutes % 60;
+			if (!m) return `${h} ${h === 1 ? "hour" : "hours"}`;
+			return h ? `${h} h ${m} min` : `${m} min`;
+		},
 		fewer: "Less study time",
 		more: "More study time",
 		blocks: "Your blocks",
@@ -570,7 +581,7 @@ export const SETUP_COPY = {
 	},
 	phone: {
 		title: "Your phone",
-		lead: "One question after each lecture arrives on your phone. Scan the code, then type the code your phone shows.",
+		lead: "Get one question on your phone after each lecture.",
 		finish: "Finish",
 	},
 	end: {
@@ -580,6 +591,16 @@ export const SETUP_COPY = {
 		noSlides: "Add your slides and LockedIn will teach from them.",
 		addSlides: "Add your slides",
 		today: "Go to Today",
+	},
+	/** What is read, and what never is (R-7, Q-10): closed until asked for. */
+	reads: {
+		label: "What LockedIn reads",
+		lines: [
+			"Event times and titles, to find your modules, lectures and free time.",
+			"Your slides and notes, to teach from them and write your questions.",
+			"Never your location, contacts or anything else on your laptop.",
+			"Nothing leaves this laptop except what the tutor needs, sent to the AI you connect.",
+		],
 	},
 	already: "You're already set up.",
 	moduleExists: (name: string) => `You already have a module called ${name}.`,

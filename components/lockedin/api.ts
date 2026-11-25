@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -58,7 +58,7 @@ export interface LearnSheet {
 export interface ChatTurnData { say: string; chips?: string[]; done?: boolean; draft?: Record<string, unknown>; fallback?: boolean }
 export interface CheckinData { started: number; minutes: number; text: string; target: number | null; nextWeek: string; roomMinutes: number; feelings: Record<string, string> }
 export interface PackData { meta: PackMeta | null; explainers: Explainer[]; questions: number; running: boolean }
-export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
+export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; share?: "less" | "more"; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
 	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
@@ -248,6 +248,17 @@ export const lockedIn = {
 	saveMaterials: (code: string, body: { uploadId: string; units: { file: number; title: string; week: number; pages: [number, number] }[] }) => api<{ units: Lecture[] }>(`/modules/${encodeURIComponent(code)}/materials`, { method: "PUT", body }),
 	replaceMaterials: (lectureId: string, file: File) => { const f = new FormData(); f.append("file", file); return api<{ slideCount: number; needsCaption: number[] }>(`/materials/${encodeURIComponent(lectureId)}`, { raw: f }); },
 	removeMaterials: (lectureId: string) => api(`/materials/${encodeURIComponent(lectureId)}`, { method: "DELETE" }),
+	// v2.0 step 7: the first run (V-45), modules by hand (V-64), a module's share of the week (V-63)
+	setup: () => api<SetupView>("/setup"),
+	setupTimetable: (body: { calendar: { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules: { name: string; code?: string }[]; timeZone?: string }) => api<SetupView>("/setup/timetable", { body }),
+	setupStep: (step: number) => api<SetupView>("/setup/step", { body: { step } }),
+	setupWeek: (body: { energy?: EnergyTime[]; weeklyTargetMinutes?: number }) => api<SetupWeek>("/setup/week", { body }),
+	skipSetupWeek: () => api<SetupView>("/setup/week", { method: "DELETE" }),
+	setupDone: () => api<SetupView>("/setup/done", { method: "POST" }),
+	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
+	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
+	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
+	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
 	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[]; timeZone?: string }) =>

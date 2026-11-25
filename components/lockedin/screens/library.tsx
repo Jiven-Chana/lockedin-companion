@@ -9,7 +9,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LEARN_COPY, moduleHue, NOTE_COPY, PRACTISE_COPY, weekLabel } from "@/src/core";
+import { LEARN_COPY, moduleHue, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, weekLabel, type WeekShare } from "@/src/core";
+import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, StatusTag } from "../icons";
@@ -53,6 +54,28 @@ function WeekControl({ mod, onChange }: { mod: CourseModule; onChange: () => voi
 			<button type="button" className="li-btn" onClick={() => setOpen(false)}>Cancel</button>
 			{error ? <span className="li-small" role="alert">{error}</span> : null}
 		</div>
+	);
+}
+
+/** A module's share of the week (V-63): one tap, never hours. The week's blocks follow it the next time they are suggested. */
+function ShareControl({ mod, onChange, onError }: { mod: CourseModule; onChange: () => void; onError: (m: string) => void }) {
+	const current: WeekShare = mod.share ?? "normal";
+	const set = async (share: WeekShare) => {
+		if (share === current) return;
+		try {
+			await lockedIn.setModuleShare(mod.code, share);
+			onChange();
+		} catch (e) {
+			onError(e instanceof ApiError ? e.message : "Couldn't save that");
+		}
+	};
+	return (
+		<span className="li-weekshare li-small">
+			<span className="li-muted" id={`share-${mod.code}`}>{SHARE_COPY.label}</span>
+			<span className="li-seg" role="group" aria-labelledby={`share-${mod.code}`}>
+				{WEEK_SHARES.map((s) => <button key={s} type="button" aria-pressed={current === s} onClick={() => void set(s)}>{SHARE_COPY[s]}</button>)}
+			</span>
+		</span>
 	);
 }
 
@@ -109,6 +132,8 @@ export function LibraryScreen() {
 					<span style={{ position: "absolute", left: 14, color: "var(--li-muted)" }}><Icon.search /></span>
 					<input className="li-input" style={{ paddingLeft: 44 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your course and slides, e.g. ethnography" />
 				</label>
+				{/* A module the timetable doesn't know about (V-64): a name is enough. */}
+				<div style={{ marginTop: 12 }}><AddModule onAdd={() => void course.reload()} /></div>
 			</PageHead>
 			{msg ? <div className="li-note" role="status">{msg}</div> : null}
 			{course.error ? <div className="li-card">Couldn&apos;t load your course: {course.error.message}</div> : null}
@@ -131,7 +156,13 @@ export function LibraryScreen() {
 								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>
 							{/* What the app holds about you here (V-53): one quiet link, closed until asked for. */}
-							{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" style={{ alignSelf: "flex-start" }} aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
+							{!hits ? (
+								<div className="li-row" style={{ gap: 16 }}>
+									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
+									<span style={{ flexGrow: 1 }} />
+									<ShareControl mod={m} onChange={() => void course.reload()} onError={setMsg} />
+								</div>
+							) : null}
 							{knowing === m.code ? <ModuleNotes code={m.code} onClose={() => setKnowing(null)} /> : null}
 							{learning === m.code ? <LearnSheet code={m.code} onClose={() => setLearning(null)} onPractise={() => void practise(m.code)} /> : null}
 							{adding === m.code ? (

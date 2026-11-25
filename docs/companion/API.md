@@ -22,6 +22,25 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 | GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read", link, refreshedAt, timeZone }`. `link` is masked (host and the end of the file name, never the private token). A subscribed link is re-read when the app opens and every 6 hours (F-108) |
 | DELETE | `/data` | | `{ deleted: true }`. Deletes the student's records, sessions (and their LearnHarness chats) and the event log; lecture materials stay |
 
+## The first run (v2.0 step 7; V-45, V-63 to V-66)
+
+Five steps (sign in, timetable, slides, week, phone); every step but sign-in can be left for later. A profile made here is not `onboarded` (in `GET /today`) until `POST /setup/done`.
+
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/setup` | | `SetupView`: `{ started, done, step: 1–5, phone: { available, paired }, calendar, modules: [{ code, name, units, preparing, ready, list: [{ id, title, week }] }], week: SetupWeek \| null, end: { lectureId, module, title } \| null }`. `started` is false until the timetable step has made the profile; `done` is true for anyone set up before v2.0 |
+| POST | `/setup/timetable` | `{ calendar: { kind: "link", url } \| { kind: "file", text } \| { kind: "none" }, modules: [{ name, code? }], timeZone? }` | `SetupView`. Makes the profile the first time, with no modules if there are none ("Later"). Sent again, it adds what is new. `409 already_set_up` once setup is over |
+| POST | `/setup/step` | `{ step: 2–5 }` | `SetupView`: the step reached, so a closed tab reopens there |
+| POST | `/setup/week` | `{ energy?: ("morning" \| "afternoon" \| "evening")[], weeklyTargetMinutes? }` | `SetupWeek`: `{ energy, target, week, blocks: [{ id, date, start, minutes, module, title, why }], message }`. What isn't sent stays as it was; the total starts at 300. Suggests the week again each call, and plans next week when this one has no room left. "Looks good" is `POST /blocks/accept { week }` |
+| DELETE | `/setup/week` | | `SetupView`. "Later": the total and the suggested blocks go. Blocks already accepted stay |
+| POST | `/setup/done` | | `SetupView` with `done: true`. Logs `onboarding_done` (`flow: "v2.0"`) once |
+| POST | `/modules` | `{ name }` | `{ code, name }`: "+ Add a module" (V-64), in setup and the Library. `400` for an empty or repeated name, or more than 20 modules |
+| PUT | `/modules/:code/share` | `{ share: "less" \| "normal" \| "more" }` | The module with its share of the week (V-63). `GET /course` carries `share` when it isn't normal |
+| POST | `/modules/:code/materials/quick` | multipart `file` fields | `{ units, skipped }`: read, split and save every unit with enough text, with no checklist (V-66). `400` when nothing is worth studying |
+| PUT | `/lectures/:id/title` | `{ title }` (1 to 120 characters) | The unit. Only for a unit made from the student's own material |
+
+`GET /plan` blocks carry `why` (a sentence, or null for a block the student made or moved) and each stored block `placed`: `{ by: "anchor" } \| { by: "energy", when } \| { by: "after-lecture", module } \| { by: "gap" }`.
+
 ## Connect your AI (v0.1 F-101)
 
 The student's AI connection and LearnHarness's three model slots (Strong, Cheap, Vision). Every call goes through the engine's own sign-in, key and settings functions (`lh-port.ts` `createAiPort`). `AiStatus` = `{ provider, chatgpt: { connected, pending, allowBackgroundUse, email, error, available }, keys: { anthropic, openai, openrouter }, slots: { strong?, cheap?, vision? }, modelsReady, ready, blocker, catalog: [{ id, name, provider, input, reasoning, supportedLevels, cost }] }`. Events: `ai_connected`, `ai_disconnected`, `ai_error`, `engine_ready`.
