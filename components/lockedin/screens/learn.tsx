@@ -117,6 +117,12 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 	}
 }
 
+/** The student is typing in a text box: the keyboard stays where it is. */
+function isTyping(): boolean {
+	const a = document.activeElement;
+	return a instanceof HTMLTextAreaElement || (a instanceof HTMLInputElement && a.type !== "checkbox" && a.type !== "radio");
+}
+
 export function LearnScreen({ id, view, reload, loadError }: { id: string; view: SessionView; reload: () => Promise<void>; loadError: string | null }) {
 	const router = useRouter();
 	const learn = view.learn!;
@@ -164,11 +170,16 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 		return () => clearInterval(t);
 	}, []);
 
-	// A new question: a clean slate, and the keyboard lands on it.
+	// A new question: a clean slate, and the keyboard lands on it. Never while the student is typing: the
+	// tutor's next question often arrives mid-sentence, and the rest of the sentence must not be lost.
 	useEffect(() => {
 		setPicked([]); setDontKnow(false); setConf(null); setWhy(""); setWritten(""); setHint(null); setError(null);
-		if (q) stem.current?.focus();
+		if (q && !isTyping()) stem.current?.focus();
 	}, [q?.id]);
+	// The tutor has spoken and waits: the keyboard lands on "Carry on", unless the student is typing.
+	const carryOn = useRef<HTMLButtonElement>(null);
+	const waiting = view.status === "reply" && !learn.finished;
+	useEffect(() => { if (waiting && !isTyping()) carryOn.current?.focus(); }, [waiting, learn.phase]);
 	// A new step starts at its top; something added to the step is brought into view.
 	const stepKey = learn.step[0]?.type === "answered" ? learn.step[0].id : "first";
 	useEffect(() => { window.scrollTo({ top: 0 }); }, [stepKey]);
@@ -411,7 +422,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 									<div className="li-row">
 										{learn.phase === "probe" ? <button type="button" className="li-btn" onClick={() => void tell({ say: "skipProbe" })} disabled={!!busy}>{LEARN_COPY.skipProbe}</button> : null}
 										{learn.finished ? <button type="button" className="li-btn primary big" onClick={finish} disabled={!!busy}>{LEARN_COPY.finish}</button> : null}
-										<button type="button" className={`li-btn${learn.finished ? "" : " primary big"}`} autoFocus={!learn.finished} onClick={() => void tell({ say: learn.phase === "plan" ? "planOk" : "carryOn" })} disabled={!!busy}>{learn.phase === "plan" ? LEARN_COPY.planOk : LEARN_COPY.carryOn}</button>
+										<button type="button" ref={carryOn} className={`li-btn${learn.finished ? "" : " primary big"}`} onClick={() => void tell({ say: learn.phase === "plan" ? "planOk" : "carryOn" })} disabled={!!busy}>{learn.phase === "plan" ? LEARN_COPY.planOk : LEARN_COPY.carryOn}</button>
 									</div>
 								) : null}
 

@@ -362,6 +362,8 @@ button.li-chip:hover { border-color: var(--li-accent); }
 /* The line to the tutor stays in reach at the bottom of the window, however long the step is. */
 .li-say { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--li-line); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-surface); z-index: 2; }
 .li-say textarea { resize: none; }
+/* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
+.li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
 .li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 0; }
 .li-plan li + li::before { content: ""; position: absolute; left: 13px; top: -9px; height: 18px; border-left: 2px solid currentColor; opacity: 0.35; }
