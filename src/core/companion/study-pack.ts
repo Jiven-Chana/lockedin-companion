@@ -25,6 +25,9 @@ export interface BankQuestion {
 	/** The concept-map node it tests. */
 	node: string;
 	difficulty: 1 | 2 | 3;
+	/** "gap": written for "Practise this idea" (V-39), around something the student got wrong. Absent: written with the pack. */
+	origin?: "gap";
+	writtenAt?: string;
 }
 
 export interface Explainer {
@@ -57,6 +60,8 @@ export interface PackMeta {
 	stages: Record<PackStage, StageState>;
 	startedAt: string;
 	finishedAt?: string;
+	/** The highest question number ever given in this unit, so a number is never reused for a different question. */
+	lastQuestionNumber?: number;
 	/** The model per stage ("provider/id"). */
 	models: Partial<Record<PackStage, string>>;
 	/** USD, summed over calls; null on a subscription (or when no call reported a price). */
@@ -167,6 +172,44 @@ export function stripQuestionIds(body: string, ids: Iterable<string>): string {
 	return out.replace(/[ \t]+\n/g, "\n").trim();
 }
 
+/** A stem reduced to what makes it the same question: case, spacing and punctuation don't. */
+export const stemKey = (stem: string) => stem.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+const numberOf = (id: string, letter: "q" | "g") => Number(new RegExp(`-${letter}(\\d+)$`).exec(id)?.[1] ?? 0);
+
+/**
+ * Ids for a bank that is written again (v2.0, V-39): the student's history
+ * points at questions by id, so an id must keep meaning the same question.
+ *  - A question whose stem matches one in the previous bank keeps that id.
+ *  - Any other gets the next number never used in this unit (`lastNumber`).
+ *  - Questions written for a gap are kept, when their idea is still on the map.
+ */
+export function assignQuestionIds(
+	lectureId: string,
+	fresh: readonly Omit<BankQuestion, "id">[],
+	previous: readonly BankQuestion[],
+	lastNumber = 0,
+	nodes?: ReadonlySet<string>,
+): { bank: BankQuestion[]; lastNumber: number } {
+	const byStem = new Map(previous.filter((q) => q.origin !== "gap").map((q) => [stemKey(q.stem), q.id]));
+	let next = Math.max(lastNumber, ...previous.map((q) => numberOf(q.id, "q")));
+	const taken = new Set<string>();
+	const bank: BankQuestion[] = fresh.map((q) => {
+		const kept = byStem.get(stemKey(q.stem));
+		const id = kept && !taken.has(kept) ? kept : `${lectureId}-q${++next}`.slice(-60);
+		taken.add(id);
+		return { ...q, id } as BankQuestion;
+	});
+	const stems = new Set(bank.map((q) => stemKey(q.stem)));
+	for (const q of previous) if (q.origin === "gap" && (!nodes || nodes.has(q.node)) && !stems.has(stemKey(q.stem))) bank.push(q);
+	return { bank, lastNumber: next };
+}
+
+/** The id for a new question written for a gap: `<unit>-g<n>`, never reusing a number. */
+export function nextGapId(lectureId: string, bank: readonly BankQuestion[], offset = 0): string {
+	return `${lectureId}-g${Math.max(0, ...bank.map((q) => numberOf(q.id, "g"))) + 1 + offset}`.slice(-60);
+}
+
 /** The scripted engine's set from a bank (spec F-105: generated banks replace hand-authored sets). */
 export function bankToScriptedSet(lectureId: string, bank: readonly BankQuestion[], explainers: readonly Explainer[] = []): ScriptedSet {
 	const exampleFor = new Map(explainers.map((e) => [e.node, e.body]));
@@ -183,6 +226,8 @@ export function bankToScriptedSet(lectureId: string, bank: readonly BankQuestion
 				correct: [q.correct],
 				explanation: /\(Slides? \d/.test(q.explanation) ? q.explanation : `${q.explanation}${cite}`,
 				nodeId: q.node,
+				slides: q.slides,
+				ai: true,
 				...(example ? { workedExample: example } : {}),
 			};
 		}),

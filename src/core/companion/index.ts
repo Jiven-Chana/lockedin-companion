@@ -32,3 +32,7 @@ export * from "./sync.ts";
 export * from "./diagram.ts";
 export * from "./score.ts";
 export * from "./milestones.ts";
+export * from "./practise.ts";
+export * from "./gaps.ts";
+export * from "./learn.ts";
+export * from "./notes.ts";

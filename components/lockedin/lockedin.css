@@ -180,6 +180,20 @@ button.li-chip:hover { border-color: var(--li-accent); }
 .li-slide[data-page="true"] .li-page-text { border-top: 1px solid #e6e4ee; color: var(--li-slide-ink); }
 .li-slide ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
 .li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); font-size: 18px; }
+/* Gaps by idea (V-39): module, idea, question, each a row that opens. */
+.li-gap-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.li-gap-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 10px; border: none; border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.li-gap-row:hover, .li-gap-row[aria-expanded="true"] { background: var(--li-soft); }
+.li-gap-q .li-gap-row { min-height: 38px; font-size: 0.95em; }
+.li-gap-detail { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 10px 32px; }
+/* The session's mode, named in the header (V-50). */
+.li-mode { display: inline-block; font-size: 0.62em; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 10px; border-radius: 999px; border: 2px solid var(--li-deep-ink); vertical-align: middle; margin-right: 6px; }
+.li-mode[data-study="practise"] { background: var(--li-deep-ink); color: var(--li-deep); }
+/* The set as dots: done, the one you are on, still to come. Shape as well as colour (never colour alone). */
+.li-qdots { display: inline-flex; gap: 6px; align-items: center; }
+.li-qdots i { width: 10px; height: 10px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; }
+.li-qdots i[data-state="done"] { background: var(--li-deep-accent); border-color: var(--li-deep-accent); }
+.li-qdots i[data-state="current"] { border-color: var(--li-deep-ink); width: 14px; height: 14px; }
 .li-dots { display: flex; gap: 4px; }
 .li-dots span { flex: 1; height: 6px; border-radius: 3px; background: var(--li-deep-line); }
 .li-dots span[data-on="true"] { background: var(--li-deep-accent); }
@@ -325,3 +339,69 @@ button.li-chip:hover { border-color: var(--li-accent); }
 	.li-week-list { display: grid; }
 }
 
+
+/* Learn (v2.0 step 5): one column, one step at a time. The plan and the slide open only when asked for (AE-5, AFF-C, AE2-3). */
+.li-learn .li-panes { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 880px; margin: 0 auto; }
+.li-learn .li-panes[data-panel="open"] { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); max-width: none; }
+.li-learn .li-qcard { gap: 16px; }
+.li-learn-tool { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; color: var(--li-deep-ink); font-weight: 700; }
+.li-learn-tool[aria-pressed="true"] { background: var(--li-deep-ink); color: var(--li-deep); border-color: var(--li-deep-ink); }
+.li-step { display: flex; flex-direction: column; gap: 14px; }
+.li-step > .li-prose-block > :first-child, .li-you > :first-child { margin-top: 0; }
+.li-you { border-left: 3px solid var(--li-accent); padding: 2px 0 2px 14px; color: var(--li-muted); }
+.li-you b { color: var(--li-ink); }
+.li-answered { border: 1px solid var(--li-line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.li-answered ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.li-answered li { display: flex; gap: 10px; align-items: baseline; }
+.li-answered li[data-answer="true"] { font-weight: 700; }
+.li-answered .li-tag { font-size: 0.8em; font-weight: 700; color: var(--li-muted); white-space: nowrap; }
+.li-artifact { border: 1px solid var(--li-line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.li-artifact img { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #ffffff; border-radius: 10px; }
+.li-artifact iframe { width: 100%; border: 0; border-radius: 10px; background: #ffffff; }
+.li-making { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--li-soft); }
+/* The line to the tutor stays in reach at the bottom of the window, however long the step is. */
+.li-say { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--li-line); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-surface); z-index: 2; }
+.li-say textarea { resize: none; }
+/* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
+.li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
+.li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 0; }
+.li-plan li + li::before { content: ""; position: absolute; left: 13px; top: -9px; height: 18px; border-left: 2px solid currentColor; opacity: 0.35; }
+.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 999px; border: 2px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; opacity: 0.55; }
+.li-plan li[data-state="done"] .li-plan-mark { opacity: 1; }
+.li-plan li[data-state="current"] .li-plan-mark { opacity: 1; border-width: 3px; }
+.li-plan li[data-state="current"] .li-plan-title { font-weight: 700; }
+.li-plan li[data-state="todo"] .li-plan-title { opacity: 0.75; }
+.li-plan-word { font-size: 0.75em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.li-tabs { display: inline-flex; gap: 6px; }
+.li-tabs button { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; color: var(--li-deep-ink); font-weight: 700; }
+.li-tabs button[aria-selected="true"] { background: var(--li-deep-ink); color: var(--li-deep); border-color: var(--li-deep-ink); }
+
+/* ─── the first run (v2.0 step 7, V-45): one column, one main action per step ─── */
+.li-setup { min-height: 100vh; width: 100%; max-width: 760px; margin: 0 auto; padding: 48px 24px 64px; display: flex; flex-direction: column; gap: 24px; }
+.li-setup-card { padding: 36px; border-radius: 28px; display: flex; flex-direction: column; gap: 20px; }
+.li-setup-lead { margin: 0; font-size: 1.1em; }
+.li-setup-bar { width: 36px; height: 6px; border-radius: 3px; background: var(--li-line); }
+.li-setup-bar[data-on="true"] { background: var(--li-accent); }
+.li-setup-foot { gap: 12px; margin-top: 4px; }
+.li-setup-module { min-height: 48px; padding: 8px 14px; }
+.li-setup-module[data-on="true"] { border-color: var(--li-accent); background: var(--li-soft); }
+.li-setup-drop { min-height: 76px; padding: 14px; }
+.li-setup-pick { min-width: 120px; justify-content: center; }
+.li-setup-pick[aria-pressed="true"] { background: var(--li-accent); border-color: var(--li-accent); color: var(--li-accent-ink); }
+.li-setup-step { width: 48px; height: 48px; padding: 0; justify-content: center; font-size: 1.4em; border-radius: 999px; }
+.li-setup-target { min-width: 130px; text-align: center; font-family: var(--li-font-display); font-size: 1.6em; }
+.li-setup-block { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: 14px; background: var(--li-surface); border: 1px solid var(--li-line); border-left: 6px solid var(--li-accent); }
+.li-setup-when { flex: 0 0 150px; }
+.li-setup-reads { color: var(--li-muted); padding: 0 12px; }
+.li-setup-reads summary { cursor: pointer; }
+.li-setup-reads ul { margin: 8px 0 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.li-add { align-self: flex-start; gap: 8px; }
+.li-weekshare { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.li-weekshare .li-seg { padding: 2px; flex-wrap: nowrap; }
+.li-weekshare .li-seg button { padding: 4px 12px; min-height: 30px; font-size: 0.9em; }
+@media (max-width: 640px) {
+	.li-setup-card { padding: 24px 18px; }
+	.li-setup-block { flex-wrap: wrap; }
+	.li-setup-when { flex-basis: 100%; }
+}

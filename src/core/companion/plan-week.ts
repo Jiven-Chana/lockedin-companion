@@ -5,9 +5,9 @@
  * ticks, moves or removes each proposal; nothing is ever "missed" (R-6).
  */
 
-import { PLAN_RULES } from "./policy.ts";
+import { PLAN_COPY, PLAN_RULES, SHARE_RULES } from "./policy.ts";
 import { addDays, addMinutes, atTime, dateKey, formatHM, isoWeekday, minutesOfDay, parseHM, wakingWindow } from "./time.ts";
-import type { Lecture, ModuleInfo, Profile, Routine, StudyBlock } from "./types.ts";
+import type { BlockPlaced, EnergyTime, Lecture, ModuleInfo, Profile, Routine, StudyBlock } from "./types.ts";
 import { currentWeek } from "./units.ts";
 
 // ─── the pacing rule ────────────────────────────────────────────────────────
@@ -25,10 +25,11 @@ export interface PacedUnit {
  * What to study, in order (spec §5.5). Per module: keep up with the current
  * week (and the one before) first, in course order; then earlier units
  * marked revisit, most recent first, no more than maxGapWeeksBack behind.
- * Modules take turns. `blocks` caps the list; gap units get at most
- * gapShare of it, except in a reading week (catch-up time).
+ * Modules take turns, by their share of the week (V-63). `blocks` caps the
+ * list; gap units get at most gapShare of it, except in a reading week
+ * (catch-up time).
  */
-export function pacedUnits(input: { modules: readonly Pick<ModuleInfo, "code" | "weekOneStart" | "readingWeeks">[]; units: readonly UnitStatus[]; now: Date; blocks: number }): PacedUnit[] {
+export function pacedUnits(input: { modules: readonly Pick<ModuleInfo, "code" | "weekOneStart" | "readingWeeks" | "share">[]; units: readonly UnitStatus[]; now: Date; blocks: number }): PacedUnit[] {
 	const keepUp: PacedUnit[][] = [];
 	const gaps: PacedUnit[][] = [];
 	let anyReading = false;
@@ -50,9 +51,17 @@ export function pacedUnits(input: { modules: readonly Pick<ModuleInfo, "code" | 
 		keepUp.push(k.map((u) => ({ lectureId: u.id, module: m.code, reason: "keep-up" })));
 		gaps.push(g.map((u) => ({ lectureId: u.id, module: m.code, reason: "gap" })));
 	}
+	const shares = input.modules.map((m) => SHARE_RULES[m.share ?? "normal"]);
 	const interleave = (lists: PacedUnit[][]) => {
 		const out: PacedUnit[] = [];
-		for (let i = 0; lists.some((l) => i < l.length); i++) for (const l of lists) if (l[i]) out.push(l[i]!);
+		const next = lists.map(() => 0);
+		for (let round = 0; lists.some((l, i) => next[i]! < l.length); round++) {
+			lists.forEach((l, i) => {
+				const share = shares[i]!;
+				if ((round + 1) % share.every !== 0) return;
+				for (let n = share.turns; n > 0 && next[i]! < l.length; n--) out.push(l[next[i]!++]!);
+			});
+		}
 		return out;
 	};
 	const k = interleave(keepUp);
@@ -122,7 +131,25 @@ function busyOn(day: Date, input: PlanInput): Busy[] {
 	return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
-interface Slot { day: Date; start: Date; score: number; afterModule?: string; anchor?: string }
+interface Slot { day: Date; start: Date; score: number; afterModule?: string; anchor?: string; energy?: EnergyTime }
+
+/** What put a slot at the top, in the order the reasons are given: last week's slot, the student's energy, a lecture just before, else a free gap. */
+function placedOf(s: Slot): BlockPlaced {
+	if (s.anchor) return { by: "anchor" };
+	if (s.energy) return { by: "energy", when: s.energy };
+	if (s.afterModule) return { by: "after-lecture", module: s.afterModule };
+	return { by: "gap" };
+}
+
+/** "because you have energy in the afternoon": why the planner put a block where it is, or null for one the student made or moved. */
+export function blockWhy(block: Pick<StudyBlock, "placed">, modules: readonly Pick<ModuleInfo, "code" | "name">[]): string | null {
+	const p = block.placed;
+	if (!p) return null;
+	if (p.by === "anchor") return PLAN_COPY.placed.anchor;
+	if (p.by === "energy") return PLAN_COPY.placed.energy(p.when);
+	if (p.by === "after-lecture") return PLAN_COPY.placed.afterLecture(modules.find((m) => m.code === p.module)?.name ?? p.module);
+	return PLAN_COPY.placed.gap;
+}
 
 function slotsOn(day: Date, input: PlanInput, len: number, anchors: Set<string>): Slot[] {
 	const { start: wake, end: sleep } = wakingWindow(day, input.quietHours);
@@ -149,14 +176,18 @@ function slotsOn(day: Date, input: PlanInput, len: number, anchors: Set<string>)
 			if (s < notBefore) continue;
 			const key = `${isoWeekday(day)}@${formatHM(s)}`;
 			let score = 0;
+			let energy: EnergyTime | undefined;
 			if (anchors.has(key)) score += 4;
 			for (const e of input.routine?.energy ?? []) {
 				const [from, to] = PLAN_RULES.energy[e];
-				if (minutesOfDay(s) >= parseHM(from) && minutesOfDay(s) < parseHM(to)) score += 2;
+				if (minutesOfDay(s) >= parseHM(from) && minutesOfDay(s) < parseHM(to)) {
+					score += 2;
+					energy ??= e;
+				}
 			}
 			const rightAfterLecture = g.after?.lecture && s.getTime() === roundUp(g.start).getTime();
 			if (rightAfterLecture) score += 1;
-			out.push({ day, start: s, score, ...(rightAfterLecture && g.after?.module ? { afterModule: g.after.module } : {}), ...(anchors.has(key) ? { anchor: key } : {}) });
+			out.push({ day, start: s, score, ...(rightAfterLecture && g.after?.module ? { afterModule: g.after.module } : {}), ...(anchors.has(key) ? { anchor: key } : {}), ...(energy ? { energy } : {}) });
 		}
 	}
 	return out;
@@ -230,6 +261,7 @@ export function proposeWeek(input: PlanInput): PlanResult {
 			...(f ? { lectureId: f.lectureId, module: f.module, reason: f.reason } : {}),
 			...(first ? { firstTaskQuestionId: first } : {}),
 			...(s.anchor ? { anchorOf: s.anchor } : {}),
+			placed: placedOf(s),
 		};
 	});
 	const plannedMinutes = alreadyMinutes + proposals.length * len;

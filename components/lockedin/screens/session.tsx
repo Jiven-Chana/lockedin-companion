@@ -10,12 +10,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CONFIDENCE_TAPS, MATERIALS_RULES, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
-import { useLocalFlag, usePoll } from "../hooks";
-import { FocusRing } from "../icons";
+import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
+import { LearnAsk } from "../learn-ask";
+import { LearnScreen } from "./learn";
 import { MicButton, useMic } from "../mic";
-import { Prose } from "../prose";
+import { InlineProse, Prose } from "../prose";
 import { Tint } from "../root";
 import { SlidePage } from "../slide-page";
 
@@ -46,6 +47,8 @@ export function SessionScreen({ id }: { id: string }) {
 	const [hasPdf, setHasPdf] = useState(false);
 	const [slide, setSlide] = useState<number | null>(null);
 	const [notify, setNotify] = useLocalFlag("li-notify");
+	const [onBreak, setOnBreak] = useState<number | null>(null);
+	const [breakOver, setBreakOver] = useState(false);
 	const qRef = useRef<HTMLHeadingElement>(null);
 
 	const load = useCallback(async () => {
@@ -60,17 +63,19 @@ export function SessionScreen({ id }: { id: string }) {
 	useEffect(() => { void load(); }, [load]);
 	usePoll(() => void load(), 750, !view || view.status === "preparing" || view.status === "thinking");
 
-	const lectureId = view?.lecture.id;
+	// A Practise round mixes units, so the panel follows the unit of the question on screen (V-40).
+	const lectureId = view?.question?.lectureId ?? view?.lecture.id;
 	useEffect(() => {
 		if (lectureId) lockedIn.slides(lectureId).then((r) => { setSlides(r.slides); setHasPdf(r.hasPdf); }).catch(() => { setSlides([]); setHasPdf(false); });
 	}, [lectureId]);
 
 	// The panel follows the slide the teacher cites, unless the student picked one.
 	// A unit keeps its file's page numbers (18 to 38, say), so the panel moves through those (S-1).
-	const cited = view?.feedback?.slideRefs[0] ?? view?.slideRefs[0];
-	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 	const reviewing = !!answered && !!view?.feedback && view.feedback.questionId === answered.question.id;
 	const showQuestion = view?.status === "question" && view.question && !reviewing;
+	// While a question is being answered the panel shows that question's own slide (lo-fi task 1).
+	const cited = (showQuestion ? view?.question?.slides?.[0] : undefined) ?? view?.feedback?.slideRefs[0] ?? view?.slideRefs[0];
+	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 
 	useEffect(() => {
 		if (showQuestion) {
@@ -143,6 +148,28 @@ export function SessionScreen({ id }: { id: string }) {
 			setBusy(null);
 		}
 	}
+	useEffect(() => {
+		if (onBreak === null || breakOver) return;
+		const t = setTimeout(() => endBreak(true), Math.max(0, onBreak - Date.now()));
+		return () => clearTimeout(t);
+	}, [onBreak, breakOver]);
+	// A break is offered only at the end of a set (INT-03-c, S-69). One buzz when it is over; taking longer loses nothing.
+	function startBreak() {
+		setBreakOver(false);
+		setOnBreak(Date.now() + BLOCK_RULES.breakMinutes * 60_000);
+		void lockedIn.event("break_started", { sessionId: id, minutes: BLOCK_RULES.breakMinutes });
+	}
+	function endBreak(natural: boolean) {
+		void lockedIn.event("break_ended", { sessionId: id, natural });
+		if (natural) {
+			setBreakOver(true);
+			try { navigator.vibrate?.(200); } catch { /* no buzz on this device */ }
+			if (typeof Notification !== "undefined" && Notification.permission === "granted") new Notification("LockedIn", { body: SESSION_COPY.breakEnded });
+		} else {
+			setOnBreak(null);
+			setBreakOver(false);
+		}
+	}
 	async function keepGoing() {
 		setBusy("more");
 		try {
@@ -156,6 +183,8 @@ export function SessionScreen({ id }: { id: string }) {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
+			// Learn has its own screen, and its own keys.
+			if (view?.learn || view?.status === "ask") return;
 			if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
 			// Esc while speaking drops what was said (the engine's rule), not the whole session.
 			if (e.key === "Escape" && mic.dictation.active) { mic.dictation.cancel(); return; }
@@ -179,21 +208,43 @@ export function SessionScreen({ id }: { id: string }) {
 		);
 	}
 
+	// The module's first Learn session (V-52): one card, once, before the tutor starts.
+	if (view.status === "ask" && view.ask) {
+		return (
+			<Tint hue={moduleHue(view.lecture.module)}>
+				<div className="li-focus li-learn">
+					<div className="li-focus-top">
+						<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>
+						<b className="li-display" style={{ fontSize: "1.25em", flexGrow: 1 }}><span className="li-mode" data-study="learn">{PRACTISE_COPY.learnMode}</span> {view.lecture.module} · {view.lecture.title}</b>
+					</div>
+					<div className="li-panes" data-panel="closed">
+						<section className="li-qcard"><LearnAsk sessionId={id} name={view.ask.name} canCopy={view.ask.canCopy} onDone={() => void load()} /></section>
+					</div>
+				</div>
+			</Tint>
+		);
+	}
+	// Learn (the tutor teaching) is its own screen: one column, one step at a time.
+	if (view.learn) return <LearnScreen id={id} view={view} reload={load} loadError={error} />;
+
 	const failure = sessionFailure(view.error);
 	const s = slides.find((x) => x.number === pos.number);
 	const fb = view.feedback;
 
+	const practising = view.study === "practise";
+	const at = questionNumber({ answered: view.answered, budget: view.budget, done: view.status === "done", reviewing });
 	return (
 		<Tint hue={moduleHue(view.lecture.module)}>
 			<div className="li-focus">
 				<div className="li-focus-top">
 					<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>
 					<span style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
-						<b className="li-display" style={{ fontSize: "1.25em" }}>{view.lecture.module} · {view.lecture.title}</b>
-						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.goal}{view.engine === "scripted" ? " · scripted questions" : ""} · stop any time, nothing is lost</span>
+						{/* The mode has a name (V-40, V-50): Practise, or Learn. */}
+						<b className="li-display" style={{ fontSize: "1.25em" }}><span className="li-mode" data-study={practising ? "practise" : "learn"}>{practising ? PRACTISE_COPY.mode : PRACTISE_COPY.learnMode}</span> {view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</b>
+						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.goal} · stop any time, nothing is lost</span>
 					</span>
-					<FocusRing done={view.answered} total={view.budget} />
-					<b style={{ fontSize: "1.1em", minWidth: 60 }}>{view.answered} of {view.budget}</b>
+					<span className="li-qdots" aria-hidden="true">{at.dots.map((d, i) => <i key={i} data-state={d} />)}</span>
+					<b style={{ fontSize: "1.1em" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : SESSION_COPY.position(at.current, at.total)}</b>
 				</div>
 
 				<div className="li-panes">
@@ -219,14 +270,14 @@ export function SessionScreen({ id }: { id: string }) {
 						{reviewing && fb && answered ? (
 							<>
 								<p className="li-muted" style={{ margin: 0 }}>You answered</p>
-								<h2 className="li-q-stem" style={{ fontSize: "1.35em" }}>{answered.question.stem}</h2>
+								<h2 className="li-q-stem" style={{ fontSize: "1.35em" }}><InlineProse text={answered.question.stem} /></h2>
 								<div className="li-stack" style={{ gap: 8 }}>
 									{answered.question.options.map((o) => {
 										const isAnswer = fb.correctLabels.includes(o.label);
 										const isMiss = answered.picked === o.index && !isAnswer;
 										return (
 											<div key={o.index} className={`li-opt ${isAnswer ? "is-answer" : isMiss ? "is-miss" : ""}`} style={{ cursor: "default" }}>
-												<span style={{ flexGrow: 1 }}>{o.label}</span>
+												<span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
 												{isAnswer ? <b className="li-small">✓ Answer</b> : isMiss ? <b className="li-small">Your pick</b> : null}
 											</div>
 										);
@@ -255,12 +306,14 @@ export function SessionScreen({ id }: { id: string }) {
 						{showQuestion && view.question ? (
 							<>
 								{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : null}
-								<h2 className="li-q-stem" tabIndex={-1} ref={qRef}>{view.question.stem}</h2>
+								<h2 className="li-q-stem" tabIndex={-1} ref={qRef}><InlineProse text={view.question.stem} /></h2>
+								{/* AI is labelled as AI, with its source (X-9; synthesis change 6). */}
+								{view.question.ai ? <span className="li-small" style={{ color: "var(--li-muted)" }}>{GAP_COPY.writtenByAi(view.question.slides?.[0] ?? null)}</span> : null}
 								{view.question.context ? <p className="li-muted" style={{ margin: 0 }}>{view.question.context}</p> : null}
 								<div role="radiogroup" aria-label="Answers" className="li-stack" style={{ gap: 10 }}>
 									{view.question.options.map((o) => (
 										<button key={o.index} type="button" role="radio" aria-checked={picked === o.index} className="li-opt" onClick={() => setPicked(o.index)}>
-											<span className="li-kbd">{o.index}</span><span style={{ flexGrow: 1 }}>{o.label}</span>
+											<span className="li-kbd">{o.index}</span><span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
 										</button>
 									))}
 									{view.question.kind === "quiz" ? (
@@ -278,11 +331,16 @@ export function SessionScreen({ id }: { id: string }) {
 										{view.kind === "retest" ? <span className="li-small li-muted">{SESSION_COPY.confidenceRevisitHint}</span> : null}
 									</div>
 								) : null}
-								<label className="li-stack" style={{ gap: 6 }}>
-									<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
-									<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
-								</label>
-								<MicButton mic={mic} />
+								{/* Saying why belongs to Learn, where the tutor reads it. Practise asks for an answer and how sure you are (V-51). */}
+								{practising ? null : (
+									<>
+										<label className="li-stack" style={{ gap: 6 }}>
+											<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
+											<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
+										</label>
+										<MicButton mic={mic} />
+									</>
+								)}
 								{hint ? <div className="li-note" role="note"><b>Hint:</b> {hint}</div> : null}
 								{error ? <div className="li-note" role="alert">{error}</div> : null}
 								<div className="li-row">
@@ -295,19 +353,37 @@ export function SessionScreen({ id }: { id: string }) {
 
 						{view.status === "done" && !reviewing ? (
 							<>
-								<span className="li-eyebrow">Session done</span>
-								<h2 className="li-q-stem">{view.answered} of {view.budget} answered{view.endedEarly ? ", and the teacher wrapped up" : ""}.</h2>
-								{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : <p className="li-muted" style={{ margin: 0 }}>Anything you missed comes back later in a short retest. Nothing is ever overdue.</p>}
-								{!notify && typeof Notification !== "undefined" && Notification.permission !== "denied" ? (
-									<div className="li-note li-row">
-										<span style={{ flexGrow: 1 }}>Want a desktop notification when the next one is ready?</span>
-										<button type="button" className="li-btn soft" onClick={async () => { const p = await Notification.requestPermission(); setNotify(p === "granted"); void lockedIn.event("settings_changed", { changed: ["notifications"], granted: p === "granted" }); }}>Turn on</button>
-									</div>
-								) : null}
-								<div className="li-row">
-									<button type="button" className="li-btn" onClick={keepGoing} disabled={!!busy}>{busy === "more" ? "Adding…" : "Keep going (+3)"}</button>
-									<Link className="li-btn primary big" href="/app">Done</Link>
-								</div>
+								{onBreak ? (
+									<>
+										<span className="li-eyebrow">On a break</span>
+										<h2 className="li-q-stem">{breakOver ? SESSION_COPY.breakEnded : SESSION_COPY.onBreak(fmtTime(new Date(onBreak)))}</h2>
+										{breakOver ? null : <p className="li-muted" style={{ margin: 0 }}>{SESSION_COPY.breakNote}</p>}
+										<div className="li-row">
+											<button type="button" className="li-btn primary big" onClick={() => endBreak(false)}>{SESSION_COPY.breakOverButton}</button>
+										</div>
+									</>
+								) : (
+									<>
+										<span className="li-eyebrow">{SESSION_COPY.setFinished}</span>
+										<h2 className="li-q-stem">{SESSION_COPY.doneTitle(view.answered, view.lecture.title)}{view.endedEarly ? " The teacher wrapped up." : ""}</h2>
+										{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : null}
+										{/* No score (R-6): what comes back, and what is next. */}
+										<p style={{ margin: 0 }}>{SESSION_COPY.comingBack(view.comingBack ?? [])}</p>
+										{view.nextBlockAt ? <p className="li-note" style={{ margin: 0 }}>{SESSION_COPY.nextBlock(`${fmtDay(view.nextBlockAt, new Date())} ${fmtTime(view.nextBlockAt)}`)}</p> : null}
+										<p className="li-small li-muted" style={{ margin: 0 }}>{SESSION_COPY.noScore} {SESSION_COPY.breakRule}</p>
+										{!notify && typeof Notification !== "undefined" && Notification.permission !== "denied" ? (
+											<div className="li-note li-row">
+												<span style={{ flexGrow: 1 }}>Want a desktop notification when the next one is ready?</span>
+												<button type="button" className="li-btn soft" onClick={async () => { const p = await Notification.requestPermission(); setNotify(p === "granted"); void lockedIn.event("settings_changed", { changed: ["notifications"], granted: p === "granted" }); }}>Turn on</button>
+											</div>
+										) : null}
+										<div className="li-row" style={{ flexWrap: "wrap" }}>
+											<button type="button" className="li-btn" onClick={startBreak}>{SESSION_COPY.takeBreak(BLOCK_RULES.breakMinutes)}</button>
+											<button type="button" className="li-btn" onClick={keepGoing} disabled={!!busy}>{busy === "more" ? "Adding…" : SESSION_COPY.moreQuestions(KEEP_GOING_QUESTIONS)}</button>
+											<Link className="li-btn primary big" href="/app">{SESSION_COPY.finish}</Link>
+										</div>
+									</>
+								)}
 							</>
 						) : null}
 					</section>
@@ -319,7 +395,7 @@ export function SessionScreen({ id }: { id: string }) {
 							<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}>›</button>
 						</div>
 						<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
-							{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.lecture.module} · {view.lecture.title}</span>}
+							{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</span>}
 							{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 						</div>
 						{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}

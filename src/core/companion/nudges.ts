@@ -87,6 +87,8 @@ export function sessionKindForNudge(type: NudgeType): SessionKind {
 export function goalFor(spec: SessionSpec, lecture: Pick<Lecture, "title">, budget = spec.budget.questions): string {
 	const minutes = Math.round((spec.budget.minutes * budget) / Math.max(1, spec.budget.questions));
 	if (spec.kind === "retest") return `${budget} questions on what you missed, about ${minutes} minutes`;
+	// A Practise round is across a module, not one lecture (V-40); the caller passes the module's name as the title.
+	if (spec.kind === "practise") return `${budget} quick questions across ${lecture.title}, about ${Math.max(1, minutes)} ${Math.max(1, minutes) === 1 ? "minute" : "minutes"}`;
 	if (spec.kind === "missed-lecture" && spec.budget.parts)
 		return `${lecture.title} in ${spec.budget.parts} short pieces, about ${spec.budget.minutes} minutes`;
 	return `${budget} questions on ${lecture.title}, about ${minutes} minutes`;

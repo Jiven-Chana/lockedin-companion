@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { moduleHue, PACK_COPY, packStatusLine, weekLabel, type SessionKind } from "@/src/core";
+import { LEARN_COPY, moduleHue, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -40,15 +40,20 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 	if (lectures.data && !lecture) return <div className="li-card li-empty">That isn&apos;t in your course any more. <Link href="/app/library">Back to the Library</Link></div>;
 	if (!lecture) return <div className="li-card li-empty">Loading…</div>;
 
-	async function start(kind: SessionKind, nodes?: string[]) {
+	// Two ways to study (V-40): Learn is the tutor, Practise is quick questions from the bank.
+	async function go(start: () => Promise<{ sessionId: string }>) {
 		setBusy(true);
+		setMsg(null);
 		try {
-			const { sessionId } = await lockedIn.startSession({ kind, lectureId, ...(nodes?.length ? { nodes } : {}) });
-			router.push(`/app/session/${sessionId}`);
+			router.push(`/app/session/${(await start()).sessionId}`);
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
 		} finally {
 			setBusy(false);
 		}
 	}
+	const learn = (nodes?: string[]) => go(() => lockedIn.startLearn({ lectureId, ...(nodes?.length ? { nodes } : {}) }));
+	const practise = (kind: "post-lecture" | "retest" = "post-lecture") => go(() => lockedIn.startSession({ kind, lectureId, study: "practise" }));
 
 	const node = map.data?.nodes.find((n) => n.id === selected) ?? null;
 	const gaps = (map.data?.nodes ?? []).filter((n) => n.status === "revisit" || n.status === "shaky").length;
@@ -68,8 +73,9 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					</div>
 				</header>
 				<div className="li-row">
-					<button type="button" className="li-btn primary big" disabled={!lecture.hasMaterials || busy} onClick={() => start(lecture.attended === false ? "missed-lecture" : "post-lecture")}>{lecture.attended === false ? "Show me this lecture" : "Quiz me"}</button>
-					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => start("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
+					<button type="button" className="li-btn primary big" disabled={!lecture.hasMaterials || busy} onClick={() => void learn()}>{LEARN_COPY.button}</button>
+					<button type="button" className="li-btn big" disabled={!lecture.hasMaterials || busy} onClick={() => void practise()}>{PRACTISE_COPY.thisButton}</button>
+					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => void practise("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
 					{lecture.start ? <button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button> : null}
 					<label className="li-btn ghost" style={{ cursor: "pointer" }}>
 						{lecture.hasMaterials ? "Replace material" : "Add slides (PDF)"}
@@ -142,7 +148,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 										return ex ? <ExplainerCard explainer={ex} onSlide={(n) => { setOpenSlide(n); setTab("slides"); }} /> : null;
 									})()}
 									<div className="li-row">
-										<button type="button" className="li-btn primary" disabled={busy || !lecture.hasMaterials} onClick={() => start("post-lecture", [node.id])}>Quiz me on this idea</button>
+										<button type="button" className="li-btn primary" disabled={busy || !lecture.hasMaterials} onClick={() => void learn([node.id])}>{LEARN_COPY.ideaButton}</button>
 										{node.slides[0] ? <button type="button" className="li-btn" onClick={() => { setOpenSlide(node.slides[0]!); setTab("slides"); }}>Open slide {node.slides[0]}</button> : null}
 									</div>
 								</div>
@@ -150,7 +156,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 								<div className="li-stack" style={{ gap: 10 }}>
 									<h2 className="li-h2">Pick an idea</h2>
 									<span className="li-muted">Click a box on the map to see where you are with it.</span>
-									{gaps ? <button type="button" className="li-btn soft" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => start(openMisses.length ? "retest" : "post-lecture")}>Quiz the gaps ({gaps})</button> : null}
+									{gaps ? <button type="button" className="li-btn soft" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => void practise(openMisses.length ? "retest" : "post-lecture")}>Practise the gaps ({gaps})</button> : null}
 								</div>
 							)}
 						</aside>
@@ -166,7 +172,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 								explainer={e}
 								busy={busy}
 								onSlide={(n) => { setOpenSlide(n); setTab("slides"); }}
-								onTry={() => { void lockedIn.event("explainer_opened", { lectureId, node: e.node, via: "try" }); void start("post-lecture", [e.node]); }}
+								onTry={() => { void lockedIn.event("explainer_opened", { lectureId, node: e.node, via: "try" }); void learn([e.node]); }}
 							/>
 						))}
 					</div>

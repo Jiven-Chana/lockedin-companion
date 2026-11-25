@@ -73,6 +73,20 @@ export class CompanionContent {
 	}
 
 	/** The scripted set for a lecture, validated. Throws on an invalid file (authoring error). */
+	/**
+	 * The set for a Practise round (V-40): the chosen questions, in the order
+	 * chosen, each knowing the unit it came from.
+	 */
+	practiseSet(picks: readonly { lectureId: string; questionId: string }[]): ScriptedSet | null {
+		const sets = new Map<string, ScriptedSet | null>();
+		const questions = picks.flatMap((p) => {
+			if (!sets.has(p.lectureId)) sets.set(p.lectureId, this.scriptedSet(p.lectureId));
+			const q = sets.get(p.lectureId)?.questions.find((x) => x.id === p.questionId);
+			return q ? [{ ...q, lectureId: p.lectureId }] : [];
+		});
+		return questions.length ? { lectureId: picks[0]!.lectureId, questions } : null;
+	}
+
 	scriptedSet(lectureId: string): ScriptedSet | null {
 		const p = this.find(lectureId, "questions.json");
 		if (!p) {

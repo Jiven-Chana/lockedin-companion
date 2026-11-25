@@ -232,9 +232,13 @@ describe("the real engine by default (F-102)", () => {
 		await svc.requireAi().chooseForMe("chatgpt");
 		assert.equal(svc.defaultEngine(), "learnharness");
 		assert.ok(events().includes("engine_ready"));
+		// The tutor runs Learn; the sample taste is quick questions and stays on the bank (two modes only).
+		svc.onboard({});
+		const learn = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(learn.sessionId);
 		const taste = svc.firstTaste();
 		await svc.whenReady(taste.sessionId);
-		assert.deepEqual(usedEngines, ["learnharness"]);
+		assert.deepEqual(usedEngines, ["learnharness", "scripted"]);
 		await svc.requireAi().disconnect("chatgpt", new Request("http://localhost:3000/"));
 		assert.equal(svc.defaultEngine(), "scripted");
 	});

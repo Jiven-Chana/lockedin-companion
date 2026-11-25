@@ -22,6 +22,25 @@ All routes live under `/api/companion/`. They are thin wrappers over `CompanionS
 | GET | `/reads` | | "What I read": `{ source, label, events, lectures, modules, weekdays, lastReadAt, location: "never read", link, refreshedAt, timeZone }`. `link` is masked (host and the end of the file name, never the private token). A subscribed link is re-read when the app opens and every 6 hours (F-108) |
 | DELETE | `/data` | | `{ deleted: true }`. Deletes the student's records, sessions (and their LearnHarness chats) and the event log; lecture materials stay |
 
+## The first run (v2.0 step 7; V-45, V-63 to V-66)
+
+Five steps (sign in, timetable, slides, week, phone); every step but sign-in can be left for later. A profile made here is not `onboarded` (in `GET /today`) until `POST /setup/done`.
+
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/setup` | | `SetupView`: `{ started, done, step: 1–5, phone: { available, paired }, calendar, modules: [{ code, name, units, preparing, ready, list: [{ id, title, week }] }], week: SetupWeek \| null, end: { lectureId, module, title } \| null }`. `started` is false until the timetable step has made the profile; `done` is true for anyone set up before v2.0 |
+| POST | `/setup/timetable` | `{ calendar: { kind: "link", url } \| { kind: "file", text } \| { kind: "none" }, modules: [{ name, code? }], timeZone? }` | `SetupView`. Makes the profile the first time, with no modules if there are none ("Later"). Sent again, it adds what is new. `409 already_set_up` once setup is over |
+| POST | `/setup/step` | `{ step: 2–5 }` | `SetupView`: the step reached, so a closed tab reopens there |
+| POST | `/setup/week` | `{ energy?: ("morning" \| "afternoon" \| "evening")[], weeklyTargetMinutes? }` | `SetupWeek`: `{ energy, target, week, blocks: [{ id, date, start, minutes, module, title, why }], message }`. What isn't sent stays as it was; the total starts at 300. Suggests the week again each call, and plans next week when this one has no room left. "Looks good" is `POST /blocks/accept { week }` |
+| DELETE | `/setup/week` | | `SetupView`. "Later": the total and the suggested blocks go. Blocks already accepted stay |
+| POST | `/setup/done` | | `SetupView` with `done: true`. Logs `onboarding_done` (`flow: "v2.0"`) once |
+| POST | `/modules` | `{ name }` | `{ code, name }`: "+ Add a module" (V-64), in setup and the Library. `400` for an empty or repeated name, or more than 20 modules |
+| PUT | `/modules/:code/share` | `{ share: "less" \| "normal" \| "more" }` | The module with its share of the week (V-63). `GET /course` carries `share` when it isn't normal |
+| POST | `/modules/:code/materials/quick` | multipart `file` fields | `{ units, skipped }`: read, split and save every unit with enough text, with no checklist (V-66). `400` when nothing is worth studying |
+| PUT | `/lectures/:id/title` | `{ title }` (1 to 120 characters) | The unit. Only for a unit made from the student's own material |
+
+`GET /plan` blocks carry `why` (a sentence, or null for a block the student made or moved) and each stored block `placed`: `{ by: "anchor" } \| { by: "energy", when } \| { by: "after-lecture", module } \| { by: "gap" }`.
+
 ## Connect your AI (v0.1 F-101)
 
 The student's AI connection and LearnHarness's three model slots (Strong, Cheap, Vision). Every call goes through the engine's own sign-in, key and settings functions (`lh-port.ts` `createAiPort`). `AiStatus` = `{ provider, chatgpt: { connected, pending, allowBackgroundUse, email, error, available }, keys: { anthropic, openai, openrouter }, slots: { strong?, cheap?, vision? }, modelsReady, ready, blocker, catalog: [{ id, name, provider, input, reasoning, supportedLevels, cost }] }`. Events: `ai_connected`, `ai_disconnected`, `ai_error`, `engine_ready`.
@@ -115,7 +134,16 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 | POST | `/sessions/:id/stop` | | 204. No model call; reopening resumes on the same question |
 | POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn. On a session that never reached question 1 it asks the teacher again and the view goes back to `preparing` |
 | POST | `/sessions/:id/practice` | | `{ sessionId }`: "Use practice questions". A new session for the same lecture on its question bank, without the AI. Only for a failed session whose view has `practiceAvailable: true`; logged as `engine_fallback {chosen: true}` |
+| GET | `/learn?module=CODE` | | The module's Learn start sheet (v2.0 step 5): `{ module, connected, minutes, suggestion: { type: "resume", sessionId, lectureId, title, at } \| { type: "next", lectureId, title } \| null, week: { week, lectureIds } \| null, lectures, topics }`. `topics` are what a typed goal is matched against in the browser |
+| POST | `/learn` | `{ lectureId, nodes?, goal? }` or `{ module, week: true, goal? }` | `{ sessionId }`: start Learn (V-47). `409 not_connected` with no AI connected, `409 no_material`, `409 nothing_this_week` |
+| POST | `/sessions/:id/say` | `{ text, questionId? }` or `{ say: "skipProbe" \| "planOk" \| "carryOn" }` | `{ queued, answer }`. Learn only (`409 not_learn`). With `questionId` the tutor answers beside the open question (`answer`), which stays open. `queued: true` when the tutor was writing and takes it at its next pause |
+| POST | `/sessions/:id/how` | `{ start?: "examples" \| "questions" \| "explanations", steps?: "small" \| "big", check?: "often" \| "end", more? }`, `{ same: true }` or `{ skip: true }` | `{ ok }`: the first-time card (v2.0 step 6, V-52). A module's first Learn session has `status: "ask"` and `ask: { module, name, canCopy }` until this is called; the tutor then starts. The module is never asked again |
+| GET / PUT | `/modules/:code/notes` | PUT `{ how?: string, where?: string }` (120 and 250 words at most; an empty string clears) | `{ module, asked, how, where, last }`: what LockedIn knows about the student in that module (V-53). `where` is rewritten by the AI after each Learn session; `last` is the last session's plan and where it stopped |
+| POST | `/sessions/:id/finish` | | `{ ok }`: the student's "Finish". A Learn session is never ended for them |
+| GET | `/sessions/:id/steps` | | `{ steps: LearnItem[][] }`: every step of a Learn session so far, oldest first ("Earlier") |
 | GET | `/sessions/:id/cost` | **demo.** | `{ sessionId, engine, cost }` (USD; checkpoint criterion 4) |
+
+**Learn (v2.0 step 5).** `POST /sessions` also takes `kind: "learn"` and `study: "learn" | "practise"`; any session the tutor runs is Learn and any on the question bank is Practise. A Learn view has `status` `"reply"` as well (the tutor has spoken and waits), no question count, and `learn: { phase: "probe" | "plan" | "teach", step: LearnItem[], earlier, plan?, minutes, endsAt?, timeUp, finished, covered?, unit? }`. A step is everything since the last answer; the screen shows one step at a time. `question.kind` may be `"write"` (answer with `{ questionId, text }`), and `question.guess` marks a question that is never marked. Poll while `preparing` or `thinking`, and every few seconds while a step holds a `making` item.
 
 `SessionView` (see `types.ts`): `{ id, engine, kind, mode, lecture, goal, status: "preparing" | "question" | "thinking" | "done" | "error", activity?, answered, budget, prose?, question?: { id, kind: "quiz" | "ask", stem, context?, options: [{ index, label }], multi, role }, feedback?: { questionId, correct, dontKnow, shown, correctLabels, explanation?, slideRefs }, canHint, endedEarly?, error?, slideRefs }`.
 
@@ -169,7 +197,7 @@ Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", corre
 |---|---|---|---|
 | GET / PUT | `/blocks` | `StudyBlock[]` or `{ blocks }` of `{ id, date: "YYYY-MM-DD", start: "HH:MM", minutes: 10–120, status, source, lectureId? }` (v0.1: dated blocks; v0.0's weekly slots are dropped on read) | `{ blocks }` |
 | PUT | `/blocks/:id` | `{ status?: "accepted" \| "started" \| "removed", date?, start?, minutes?, source?, module?: string \| null }` | One action on a block (F-110). A move keeps its focus and chooses a proposal. A move onto a lecture, a routine commitment, another block, quiet hours or past midnight is refused: `409 block_overlaps`, `error` is the line to show, `detail.problem` is `lecture`, `commitment`, `block`, `quiet` or `past-midnight`, and the block stays where it was (v1.1, V-37). `module` is one of the student's module codes (the block then studies that module's next unit) or `null` for free study; `400` for an unknown code. Logs `plan_accepted`, `plan_moved`, `plan_removed`, `block_started` or `plan_module_set` |
-| POST | `/blocks/:id/start` | | Start a study block (v1.1.1, V-44) → `{ block, sessionId \| null }`. Marks it `started` and opens a `block` session on its unit (else the latest lecture), beginning on its first step. A block starts on its own day: `409 block_not_today` otherwise, and `PUT /blocks/:id { status: "started" }` refuses the same way. Starting a started block opens a session again and counts once. Logs `block_started { via: "start" }`; opening the block's notification does the same with `via: "nudge"` (a `block_started` with no `via` is the notification firing) |
+| POST | `/blocks/:id/start` | `{ study?: "learn" \| "practise" }` | Start a study block (v1.1.1, V-44; v2.0 step 5: in the mode the block suggests, or the one given. `GET /plan` and `GET /today` carry each block's `mode: { study, label, other }`) → `{ block, sessionId \| null }`. Marks it `started` and opens a `block` session on its unit (else the latest lecture), beginning on its first step. A block starts on its own day: `409 block_not_today` otherwise, and `PUT /blocks/:id { status: "started" }` refuses the same way. Starting a started block opens a session again and counts once. Logs `block_started { via: "start" }`; opening the block's notification does the same with `via: "nudge"` (a `block_started` with no `via` is the notification firing) |
 | POST | `/blocks/accept` | `{ ids? }` or `{ week? }` | Accepts the listed proposals, or every proposal that week → the plan |
 | POST | `/blocks/:id/skip` | | Removes the block (one tap, X-7) → `StudyBlock` |
 | GET | `/blocks/active` | | `{ active: { block, startedAt, endsAt, minutesLeft, onBreak, phaseEndsAt } \| null, lock, simulated: true }` |

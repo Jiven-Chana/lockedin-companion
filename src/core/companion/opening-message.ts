@@ -32,6 +32,10 @@ const GOALS: Record<SessionSpec["kind"], string> = {
 	"try-now": "help me recall and use the main ideas from this lecture.",
 	"missed-lecture": "learn the main ideas of a lecture I missed, one short piece at a time.",
 	retest: "revisit the ideas I got wrong or was unsure about.",
+	// Practise runs on the question bank and never opens a chat; the line is here for completeness.
+	practise: "practise what I have covered, with quick questions.",
+	// Learn has its own first message (learn.ts, buildLearnOpening).
+	learn: "teach me this, one idea at a time.",
 };
 
 function budgetLine(spec: SessionSpec): string {

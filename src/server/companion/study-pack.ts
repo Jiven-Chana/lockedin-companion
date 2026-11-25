@@ -19,14 +19,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { splitNodeLabel } from "../../core/companion/concept-map.ts";
 import { safeMermaid } from "../../core/companion/diagram.ts";
-import { MATERIALS_RULES, PACK_COPY, PACK_RULES } from "../../core/companion/policy.ts";
+import { GAP_RULES, MATERIALS_RULES, PACK_COPY, PACK_RULES } from "../../core/companion/policy.ts";
 import { parseSlides, trimSlides } from "../../core/companion/slides.ts";
 import {
 	checkExplainer,
 	stripQuestionIds,
 	checkMapNodes,
+	assignQuestionIds,
 	checkQuestion,
+	nextGapId,
 	newPackMeta,
+	stemKey,
 	type BankQuestion,
 	type Explainer,
 	type PackMeta,
@@ -44,7 +47,7 @@ export interface StudyPackDeps {
 	mapSource: (lectureId: string) => string | null;
 	generate: Generate;
 	promptsDir: string;
-	log: (type: "pack_started" | "pack_stage" | "pack_retry" | "pack_ready" | "pack_failed", data: Record<string, unknown>) => void;
+	log: (type: "pack_started" | "pack_stage" | "pack_retry" | "pack_ready" | "pack_failed" | "gap_questions_written", data: Record<string, unknown>) => void;
 	now: () => Date;
 	/** Is the student's AI reachable right now? After a failed try this decides between waiting for it and trying again. Default: yes. */
 	connected?: () => Promise<boolean>;
@@ -73,6 +76,9 @@ const realSleep = (ms: number, signal: AbortSignal) =>
 		};
 		signal.addEventListener("abort", stop, { once: true });
 	});
+
+/** The schema for questions written around a gap: the bank's question, up to `n` of them. */
+const gapSchema = (n: number) => ({ ...BANK_SCHEMA, properties: { questions: { ...BANK_SCHEMA.properties.questions, minItems: 1, maxItems: n } } });
 
 const read = <T>(file: string): T | null => {
 	try {
@@ -180,7 +186,11 @@ export class StudyPacks {
 		const prev = this.status(lectureId);
 		const meta = newPackMeta(lectureId, this.deps.now().toISOString());
 		if (prev && !opts.fresh) for (const s of Object.keys(meta.stages) as PackStage[]) if (prev.stages[s] === "done" || prev.stages[s] === "skipped") meta.stages[s] = prev.stages[s];
-		if (opts.fresh) for (const f of ["bank.json", "explainers.json"]) fs.rmSync(/* turbopackIgnore: true */ this.file(lectureId, f), { force: true });
+		if (opts.fresh) {
+			// The old bank is kept aside until the new one is written, so questions the student has met keep their ids.
+			if (fs.existsSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"))) fs.renameSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"), /* turbopackIgnore: true */ this.file(lectureId, "bank.prev.json"));
+			fs.rmSync(/* turbopackIgnore: true */ this.file(lectureId, "explainers.json"), { force: true });
+		}
 		// Packs run one at a time: behind another one, this pack waits its turn.
 		if (this.running.size > 0) meta.state = "queued";
 		const controller = new AbortController();
@@ -199,6 +209,65 @@ export class StudyPacks {
 	cancel(lectureId: string): PackMeta | null {
 		this.running.get(lectureId)?.abort();
 		return this.status(lectureId);
+	}
+
+	/**
+	 * "Practise this idea" (V-39): the AI writes `n` new questions on one idea,
+	 * around what the student got wrong on it. They are checked like any bank
+	 * question, must not repeat a question the idea already has, and are added
+	 * to the unit's bank marked `origin: "gap"`, so Practise can use them again.
+	 * Returns the questions written; throws when none are usable.
+	 */
+	async writeForIdea(
+		lectureId: string,
+		node: string,
+		misses: readonly { stem: string; chosen: string[]; correct: string[]; reason: string; confidence?: number; why?: string }[],
+		n: number,
+		signal?: AbortSignal,
+	): Promise<BankQuestion[]> {
+		const md = this.deps.slidesMarkdown(lectureId);
+		const parsed = parseMermaidPlan(this.deps.mapSource(lectureId) ?? "");
+		const nodes = parsed.ok && parsed.plan ? parsed.plan.nodes.map((x) => ({ id: x.id, ...splitNodeLabel(x.title || x.id) })) : [];
+		const idea = nodes.find((x) => x.id === node);
+		if (!md || !idea) throw new Error("this idea has no slides or is not on the unit's map");
+		const bank = this.bank(lectureId) ?? [];
+		const ctx = { slides: new Set(parseSlides(md).map((s) => s.number)), nodes: new Set([node]) };
+		const existing = new Set(bank.map((q) => stemKey(q.stem)));
+		const usableOf = (qs: Omit<BankQuestion, "id">[]) => {
+			const seen = new Set(existing);
+			return qs.filter((q) => {
+				if (checkQuestion({ ...q, id: "q" } as BankQuestion, ctx) || seen.has(stemKey(q.stem))) return false;
+				seen.add(stemKey(q.stem));
+				return true;
+			});
+		};
+		const missText = misses.map((m, i) => [
+			`${i + 1}. "${m.stem}"`,
+			`   Right answer: ${m.correct.join("; ")}`,
+			m.reason === "dont-know" ? "   They said they didn't know." : m.reason === "low-confidence" ? "   They got it right but were unsure." : `   They chose: ${m.chosen.join("; ") || "(not recorded)"}`,
+			...(m.confidence !== undefined ? [`   How sure they were: ${m.confidence}%`] : []),
+			...(m.why ? [`   Their reason: "${m.why.slice(0, 300)}"`] : []),
+		].join("\n")).join("\n");
+		const onIdea = bank.filter((q) => q.node === node).map((q) => `- ${q.stem}`).join("\n") || "(none)";
+		const r = await this.deps.generate<{ questions: Omit<BankQuestion, "id">[] }>({
+			slot: PACK_RULES.slots.bank,
+			system: this.prompt("gap-questions.md"),
+			user: `IDEA\n${idea.id}: ${idea.title} (Slides ${idea.slides.join(", ")})\n\nWRITE ${n} QUESTIONS\n\nWHAT THEY GOT WRONG\n${missText || "(nothing recorded)"}\n\nQUESTIONS THAT ALREADY EXIST ON THIS IDEA\n${onIdea}\n\nSLIDES\n${trimSlides(md, PACK_RULES.slideTokenBudget).markdown}`,
+			toolName: "submit_questions", toolDescription: "Submit the new questions.", schema: gapSchema(n), ...(signal ? { signal } : {}),
+			validate: (v) => {
+				const qs = (v as { questions: Omit<BankQuestion, "id">[] }).questions;
+				if (usableOf(qs).length >= Math.min(n, GAP_RULES.minUsable)) return null;
+				const problems = qs.map((q, i) => [i, checkQuestion({ ...q, id: "q" } as BankQuestion, ctx) ?? (existing.has(stemKey(q.stem)) ? "this repeats an existing question" : null)] as const).filter(([, p]) => p);
+				return `fix these questions: ${problems.slice(0, 5).map(([i, p]) => `#${i + 1}: ${p}`).join("; ")}`;
+			},
+		});
+		const usable = usableOf(r.value.questions).slice(0, n);
+		if (usable.length === 0) throw new Error("no usable questions");
+		const at = this.deps.now().toISOString();
+		const written = usable.map((q, i) => ({ ...q, id: nextGapId(lectureId, bank, i), origin: "gap", writtenAt: at }) as BankQuestion);
+		fs.writeFileSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"), JSON.stringify([...bank, ...written], null, "\t"));
+		this.deps.log("gap_questions_written", { lectureId, node, asked: n, written: written.length, misses: misses.length, model: r.model });
+		return written;
 	}
 
 	private prompt(name: string) {
@@ -304,15 +373,20 @@ export class StudyPacks {
 					},
 				});
 				spend(r, "bank");
-				const bank: BankQuestion[] = [];
+				const usable: Omit<BankQuestion, "id">[] = [];
 				r.value.questions.forEach((q, i) => {
-					const item = { ...q, id: `${id}-q${i + 1}`.slice(-60) } as BankQuestion;
-					const problem = checkQuestion(item, ctx);
-					if (problem) meta.dropped.push({ stage: "bank", id: item.id, reason: problem });
-					else bank.push(item);
+					const problem = checkQuestion({ ...q, id: `q${i + 1}` } as BankQuestion, ctx);
+					if (problem) meta.dropped.push({ stage: "bank", id: `${id}-#${i + 1}`, reason: problem });
+					else usable.push(q);
 				});
-				if (bank.length === 0) throw new Error("no usable questions");
+				if (usable.length === 0) throw new Error("no usable questions");
+				// A pack made again keeps the ids of questions the student may have answered (V-39).
+				const previous = read<BankQuestion[]>(this.file(id, "bank.prev.json")) ?? [];
+				const assigned = assignQuestionIds(id, usable, previous, meta.lastQuestionNumber ?? 0, nodeSet);
+				meta.lastQuestionNumber = assigned.lastNumber;
+				const bank = assigned.bank;
 				fs.writeFileSync(/* turbopackIgnore: true */ this.file(id, "bank.json"), JSON.stringify(bank, null, "\t"));
+				fs.rmSync(/* turbopackIgnore: true */ this.file(id, "bank.prev.json"), { force: true });
 				return "done";
 			});
 			const bank = this.bank(id) ?? [];

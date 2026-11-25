@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { MILESTONE_GROUPS, moduleHue, PROGRESS_COPY, type ScoreRange } from "@/src/core";
 import { lockedIn, type ProgressAttention, type ProgressData, type ProgressPoint } from "../api";
+import { GapsByIdea } from "../gaps";
 import { useData } from "../hooks";
 import { StatusTag } from "../icons";
 import { Tint } from "../root";
@@ -66,7 +67,7 @@ function ModuleDot({ code }: { code: string }) {
 export function ProgressScreen() {
 	const router = useRouter();
 	const progress = useData(() => lockedIn.progress());
-	const misses = useData(() => lockedIn.misses());
+	const gaps = useData(() => lockedIn.gaps());
 	const [range, setRange] = useState<ScoreRange>("week");
 	const [picked, setPicked] = useState<Partial<Record<ScoreRange, number>>>({});
 	const [busy, setBusy] = useState<string | null>(null);
@@ -75,7 +76,8 @@ export function ProgressScreen() {
 	async function start(spec: { kind: "retest" | "try-now" | "post-lecture"; lectureId: string; nodes?: string[] }, extra?: object) {
 		setBusy(spec.lectureId);
 		try {
-			const { sessionId } = await lockedIn.startSession({ ...(extra ?? {}), ...spec });
+			// Getting something back is Practise: quick questions from the bank (V-40).
+			const { sessionId } = await lockedIn.startSession({ ...(extra ?? {}), ...spec, study: "practise" });
 			router.push(`/app/session/${sessionId}`);
 		} finally {
 			setBusy(null);
@@ -93,9 +95,6 @@ export function ProgressScreen() {
 
 	// Ideas to revisit: the module that needs attention first (V-36).
 	const first = p.attention.find((a) => a.kind === "module")?.module ?? null;
-	const byLecture = new Map<string, NonNullable<typeof misses.data>>();
-	for (const m of misses.data ?? []) byLecture.set(m.lectureId, [...(byLecture.get(m.lectureId) ?? []), m]);
-	const revisit = [...byLecture.entries()].sort((a, b) => Number(b[1][0]!.module === first) - Number(a[1][0]!.module === first));
 
 	return (
 		<>
@@ -186,25 +185,8 @@ export function ProgressScreen() {
 				))}
 			</section>
 
-			<section className="li-stack" aria-labelledby="rv">
-				<h2 id="rv" className="li-h2">Ideas to revisit</h2>
-				{(misses.data ?? []).length === 0 ? <div className="li-card flat li-muted">Nothing yet. Anything you get wrong, or right but unsure, comes back here in a short retest a day or two later.</div> : null}
-				{revisit.map(([lectureId, items]) => (
-					<div key={lectureId} className="li-card li-stack" style={{ gap: 10 }}>
-						<div className="li-row">
-							<ModuleDot code={items[0]!.module || "HCI"} />
-							<b style={{ flexGrow: 1 }}>{items[0]!.module} · {items[0]!.lectureTitle}</b>
-							<button type="button" className="li-btn primary" disabled={busy !== null} onClick={() => start({ kind: "retest", lectureId })}>Revisit now</button>
-						</div>
-						{items.map((m) => (
-							<div key={m.id} className="li-row" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
-								<StatusTag status="revisit" />
-								<span style={{ display: "flex", flexDirection: "column" }}><span>{m.questionText}</span><span className="li-small li-muted">Answer: {m.correctLabels.join("; ")}</span></span>
-							</div>
-						))}
-					</div>
-				))}
-			</section>
+			{/* Gaps by idea (V-39): module, then idea, then the questions missed. */}
+			<GapsByIdea data={gaps.data ?? null} first={first} />
 		</>
 	);
 }

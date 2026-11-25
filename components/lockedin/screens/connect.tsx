@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	CONNECT_COPY,
 	CONNECT_RULES,
+	SETUP_COPY,
 	KEY_PROVIDERS,
 	PROVIDER_LABEL,
 	SLOT_META,
@@ -39,7 +40,7 @@ function statusInTime(): Promise<AiFullStatus> {
 	});
 }
 
-export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: { onReadyChange?: (ready: boolean) => void; /** Every status this screen loads, so a neighbour (Me → Voice) doesn't ask again. */ onStatus?: (status: AiFullStatus) => void; variant?: "onboarding" | "settings" }) {
+export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: { onReadyChange?: (ready: boolean) => void; /** Every status this screen loads, so a neighbour (Me → Voice) doesn't ask again. */ onStatus?: (status: AiFullStatus) => void; /** "setup" is the first run (V-45): one button, models chosen for the student. */ variant?: "onboarding" | "settings" | "setup" }) {
 	const [status, setStatus] = useState<AiFullStatus | null>(null);
 	const [draft, setDraft] = useState<SlotChoices>({});
 	const [busy, setBusy] = useState<string | null>(null);
@@ -49,6 +50,8 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 	const [showKey, setShowKey] = useState(false);
 	const [missing, setMissing] = useState<string[]>([]);
 	const polling = useRef<number | null>(null);
+	/** The first run chooses the models once, by itself. */
+	const autoChosen = useRef(false);
 
 	const apply = useCallback((s: AiFullStatus) => {
 		setStatus(s);
@@ -130,6 +133,15 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 		setMissing([]);
 	});
 
+	// The first run (V-45): no pickers. Once an account is connected, the models are chosen for the student.
+	const needsModels = variant === "setup" && !!status && status.provider !== null && !status.modelsReady;
+	useEffect(() => {
+		if (!needsModels || autoChosen.current) return;
+		autoChosen.current = true;
+		void chooseForMe();
+		// chooseForMe reads the latest status itself; this runs once per sign-in.
+	}, [needsModels]);
+
 	const disconnect = (provider: string) => run("disconnect", async () => apply(await lockedIn.ai.disconnect(provider)));
 	const setBackground = (enabled: boolean) => run("consent", async () => apply((await lockedIn.ai.chatgpt("consent", enabled)).status));
 
@@ -146,6 +158,54 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 	];
 	const dirty = JSON.stringify(draft) !== JSON.stringify(status.slots);
 	const allPicked = SLOTS.every((s) => draft[s]);
+
+	// The first run: one button. The pickers below appear only if the account doesn't offer the models we would pick.
+	if (variant === "setup" && missing.length === 0) {
+		const needsConsent = status.chatgpt.connected && !status.chatgpt.allowBackgroundUse;
+		return (
+			<div className="li-stack" style={{ gap: 14 }}>
+				{connections.map((c) => (
+					<div key={c.id} className="li-row li-note" style={{ gap: 10 }}>
+						<span style={{ color: "var(--li-accent-text)" }}>✓</span>
+						<span style={{ flexGrow: 1 }}>Connected: {c.label}</span>
+						<button type="button" className="li-link li-small" onClick={() => disconnect(c.id)} disabled={!!busy}>Disconnect</button>
+					</div>
+				))}
+				{!connected ? (
+					<button type="button" className="li-btn primary big" style={{ alignSelf: "flex-start" }} onClick={signInWithChatGPT} disabled={!!busy || !status.chatgpt.available}>
+						{busy === "chatgpt" ? SETUP_COPY.signIn.waiting : SETUP_COPY.signIn.button}
+					</button>
+				) : null}
+				{busy === "chatgpt" ? <button type="button" className="li-link li-small" style={{ alignSelf: "flex-start" }} onClick={() => void lockedIn.ai.chatgpt("cancel")}>Cancel sign-in</button> : null}
+				{!status.chatgpt.available && !connected ? <span className="li-small li-muted">ChatGPT sign-in isn&apos;t available in this build yet. Use another AI account.</span> : null}
+				{busy === "auto" ? <span className="li-small li-muted" aria-live="polite">{SETUP_COPY.signIn.choosing}</span> : null}
+				{needsConsent ? (
+					<div className="li-row li-note" style={{ gap: 12 }}>
+						<span style={{ flexGrow: 1 }}>{SETUP_COPY.signIn.background}</span>
+						<button type="button" className="li-btn primary" onClick={() => setBackground(true)} disabled={!!busy}>{SETUP_COPY.signIn.allow}</button>
+					</div>
+				) : null}
+				{!connected && !showKey && busy !== "chatgpt" ? <button type="button" className="li-link li-small" style={{ alignSelf: "flex-start" }} onClick={() => setShowKey(true)}>{SETUP_COPY.signIn.other}</button> : null}
+				{!connected && showKey ? (
+					<div className="li-row" style={{ gap: 8, alignItems: "flex-end" }}>
+						<label className="li-stack" style={{ gap: 4 }}>
+							<span className="li-small">Provider</span>
+							<select className="li-input" value={keyProvider} onChange={(e) => setKeyProvider(e.target.value as KeyProvider)}>
+								{KEY_PROVIDERS.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p]}</option>)}
+							</select>
+						</label>
+						<label className="li-stack" style={{ gap: 4, flex: "1 1 240px" }}>
+							<span className="li-small">API key</span>
+							<input className="li-input" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your key" />
+						</label>
+						<button type="button" className="li-btn primary" onClick={connectKey} disabled={!key.trim() || !!busy}>{busy === "key" ? "Checking…" : "Save"}</button>
+						<button type="button" className="li-btn" onClick={() => setShowKey(false)}>Cancel</button>
+					</div>
+				) : null}
+				{msg ? <div className="li-note" role="alert">{msg}</div> : null}
+			</div>
+		);
+	}
 
 	return (
 		<div className="li-stack" style={{ gap: 20 }}>

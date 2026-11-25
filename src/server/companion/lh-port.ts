@@ -14,6 +14,8 @@ import { parseSideAskInput } from "../../core/side-chat.ts";
 import { readSettings } from "../../store/settings.ts";
 import { handleChatInput } from "../chat-handler.ts";
 import { deleteIdleChatRecord } from "../chats.ts";
+import { prepareAndSteerChat } from "../jobs.ts";
+import { newMessageId } from "../../core/native-messages.ts";
 import { sessionCost } from "../pricing.ts";
 import { sideChats } from "../side-chat.ts";
 import { stores } from "../stores.ts";
@@ -123,6 +125,17 @@ export function createLearnHarnessPort(opts: LearnHarnessPortOptions = {}): LhPo
 		},
 		deleteChat(chatId) {
 			deleteIdleChatRecord(chatId);
+		},
+		tree: (chatId) => stores.chatStore.getChat(chatId)?.tree ?? null,
+		// The engine keeps a finished picture out of the chat while a question is open; the job record already has it.
+		made: (chatId) =>
+			stores.jobStore
+				.listJobs(chatId)
+				.filter((j) => j.status !== "running")
+				.map((j) => ({ toolCallId: j.toolCallId, kind: j.kind, ...(j.status === "done" && j.result !== undefined && j.delivery?.kind !== "abort" ? { result: j.result } : { failed: true }) })),
+		// The engine's own steer route (app/api/chats/[id]/steer): a message handed to the turn that is running.
+		async steer(chatId, text) {
+			return (await prepareAndSteerChat(chatId, { type: "steer", id: `steer_${newMessageId()}`, text })) === "accepted";
 		},
 	};
 }

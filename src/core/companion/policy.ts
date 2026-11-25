@@ -8,7 +8,7 @@
  * stay under 90 characters (Android and iOS truncate around there; R-4).
  */
 
-import type { Profile, SessionBudget, SessionKind } from "./types.ts";
+import type { LearnScope, Profile, SessionBudget, SessionKind } from "./types.ts";
 
 export const NUDGE_MAX_CHARS = 90;
 
@@ -19,6 +19,8 @@ export const SESSION_BUDGETS: Record<SessionKind, SessionBudget> = {
 	"missed-lecture": { questions: 6, minutes: 15, parts: 3 }, // N-3: three 5-minute pieces, 2 questions each
 	retest: { questions: 3, minutes: 4 }, // N-2 wording
 	"try-now": { questions: 3, minutes: 3 }, // J1: taste before setup
+	practise: { questions: 5, minutes: 3 }, // V-40: a quick round across a module (PRACTISE_RULES)
+	learn: { questions: 0, minutes: 50 }, // V-47: no question count; as long as a study block (LEARN_RULES)
 };
 
 /** "Keep going" adds this many questions (§6.7). */
@@ -79,8 +81,11 @@ export const SCHEDULE_RULES = {
 
 /** The phone hand-off (F-112, spec Appendix A). */
 export const HANDOFF_COPY = {
-	toast: (more: number) => `Question 1 answered on your phone ✓ ${more} more ready.`,
+	/** The laptop says how question 1 went on the phone (lo-fi task 1; AFF-H). */
+	toast: (more: number, correct = true) => (correct ? `Question 1 answered on your phone ✓ ${more} more ready.` : `Question 1: not quite. It comes back in your next Practise. ${more} more ready.`),
 	title: "From your phone",
+	/** Today's card for a session that is waiting: which question it opens on. */
+	ready: (question: number) => (question > 1 ? `Ready now · picks up at question ${question}` : "Ready now · question 1 is waiting"),
 	/** The phone's "N more on your laptop": the post-lecture budget minus the phone's question. */
 	more: () => SESSION_BUDGETS["post-lecture"].questions - 1,
 	relayHolds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
@@ -218,7 +223,192 @@ export const CONFIDENCE_TAPS = [
 	{ label: "Certain", value: 100 },
 ] as const;
 
+/**
+ * Gaps by idea (V-39, V-43). An idea leaves the list after `rightAnswers`
+ * right answers on different questions, on different days, each at
+ * `sureConfidence` or above ("Fairly sure" or "Certain"). `newQuestions` is how
+ * many the AI writes for "Practise this idea".
+ */
+export const GAP_RULES = { rightAnswers: 2, sureConfidence: 70, newQuestions: 5, minUsable: 3 } as const;
+
+/** Gaps by idea, in words. Nothing is dated or called overdue (R-6): a gap is something ready to grow (V-49). */
+export const GAP_COPY = {
+	title: "Ideas to revisit",
+	empty: "Nothing to revisit. Anything you get wrong, or right but unsure, shows up here by idea.",
+	ideas: (n: number) => `${n} ${n === 1 ? "idea" : "ideas"}`,
+	missed: (n: number) => `${n} missed`,
+	/** How far an idea is towards leaving the list (V-43). */
+	progress: (right: number, needed: number) => (right === 0 ? `Leaves this list after ${needed} right answers, on different days, when you're fairly sure or certain.` : `${right} of ${needed} right answers towards leaving this list. One more, on another day.`),
+	practise: "Practise this idea",
+	/** While the AI writes questions around the gap (AFF-H: say what is happening during a wait). */
+	writing: (n: number) => `Writing ${n} new questions on this…`,
+	/** Every question from a study pack is written by the AI from the student's slides, and says so (X-9). */
+	writtenByAi: (slide: number | null) => (slide ? `Written by AI from slide ${slide}` : "Written by AI from your slides"),
+	youChose: "You chose",
+	dontKnow: "You said you didn't know",
+	unsure: "Right, but you weren't sure",
+	answer: "Answer",
+	wholeUnit: (unit: string) => `${unit} (in general)`,
+	noQuestions: "No more questions on this idea for now.",
+} as const;
+
+/**
+ * Practise (V-40): a round's size, and how much of it may go to repair.
+ * `gapShare` keeps a round mixed: at most this share goes to ideas with a gap
+ * or fading while other ideas are available.
+ */
+export const PRACTISE_RULES = { questions: 5, minutes: 3, more: 3, gapShare: 0.6 } as const;
+
+/** Practise, in words (V-50: on screen the mode is "Practise"). */
+export const PRACTISE_COPY = {
+	mode: "Practise",
+	learnMode: "Learn",
+	button: "Practise this module",
+	thisButton: "Practise this",
+	noQuestions: "No questions for this module yet. Add its slides or notes and they'll be written for you.",
+	noMore: "That's every question this module has for now.",
+} as const;
+
 /** A session you left is offered again on Today for this long (R-5). */
+/**
+ * Learn (V-47, V-54): the tutor teaching, loose on top of the probe, learn,
+ * predict, check loop. The opening questions are sized to what the student
+ * asked for (the plan's section 3: a week up to 4, a lecture up to 2, one
+ * section 1); a sitting is as long as a study block and never ends by itself.
+ */
+export const LEARN_RULES = {
+	probe: { week: 4, lecture: 2, section: 1 } as Record<LearnScope, number>,
+	/** The plan is sized to the time: about one idea per this many minutes, and never fewer or more than these. */
+	minutesPerIdea: 10,
+	minIdeas: 2,
+	maxIdeas: 8,
+	/** A sitting started outside a block lasts the student's usual block length; this when they have none set. */
+	defaultMinutes: 50,
+	/** Slides sent in the opening message, in estimated tokens. The tutor reads the rest from the file as the plan reaches it. */
+	slideTokenBudget: 8_000,
+	/** A typed goal: how many matching topics the start sheet offers. */
+	suggestions: 3,
+	/** A typed goal is at most this long. */
+	goalMax: 300,
+	/** What the student types to the tutor is at most this long. */
+	sayMax: 2_000,
+	/** Nothing running and the tutor's turn still not started after this long: the student can carry on themselves. */
+	stalledMs: 20_000,
+} as const;
+
+/** What LockedIn sends the tutor on the student's behalf. The tutor's instructions (companion/seed/prompts) name these exact lines. */
+export const LEARN_SAYS = {
+	skipProbe: "Skip, just teach me.",
+	planOk: "Looks good.",
+	carryOn: "Carry on.",
+} as const;
+
+export const LEARN_COPY = {
+	button: "Learn this",
+	moduleButton: "Learn",
+	ideaButton: "Learn this idea",
+	/** The label on a question that is never marked (LIT-26, LIT-30; AE2-9: opening questions read as a test). */
+	guess: "Have a guess · nothing is marked",
+	check: "Check",
+	yourTurn: "In your own words",
+	skipProbe: "Skip, just teach me",
+	planOk: "Looks good",
+	carryOn: "Carry on",
+	finish: "Finish",
+	say: "Ask or say something…",
+	saySpeak: "Ask or say something… (or press Speak)",
+	sent: "Sent. Your tutor picks it up at its next pause.",
+	you: "You",
+	planTitle: "The plan for this session",
+	planTab: "Plan",
+	slideTab: "Slide",
+	earlier: (n: number) => `Earlier in this session (${n})`,
+	/** The line under the title: where you are and what is next (INT-02-c). */
+	position: (index: number, total: number, title: string, next?: string) => `Idea ${index} of ${total} · ${title}${next ? ` → next: ${next}` : ""}`,
+	before: (total: number) => `${total} ${total === 1 ? "idea" : "ideas"} on the plan`,
+	finding: "Finding where to start",
+	minutesLeft: (n: number) => `${n} min`,
+	timeUp: (minutes: number) => `That's your ${minutes} minutes. Stop here or keep going.`,
+	goal: (minutes: number) => `About ${minutes} minutes · stop any time, it is saved with its plan`,
+	reading: (module: string) => `Reading your ${module} slides…`,
+	writing: "Your tutor is writing…",
+	making: { visual: "Drawing this for you, about a minute. Carry on.", demo: "Building something you can try, about a minute. Carry on.", research: "Looking this up. Carry on." },
+	failed: { visual: "The picture didn't work this time.", demo: "The demo didn't work this time.", research: "The look-up didn't come back." },
+	madeBy: "Made by your AI tutor",
+	sources: "Sources",
+	guessed: "Your guess",
+	guessAnswer: "The answer",
+	covered: (ideas: readonly string[]) => (ideas.length ? `You covered: ${ideas.join(", ")}.` : "You made a start."),
+	doneTitle: (title: string) => `Done: ${title}.`,
+	savedAt: (at: { index: number; total: number; title: string } | undefined) => (at && at.index > 0 ? `Saved at ${at.title}, idea ${at.index} of ${at.total}. Pick up any time. Nothing is marked missed.` : "Saved where you stopped. Pick up any time. Nothing is marked missed."),
+	pickUp: "Pick up where you stopped",
+	/** A study block's two buttons (step 5): the suggested mode with its reason, and the other one, smaller. */
+	blockWhy: { unfinished: "pick up where you stopped", "not-yet": "you haven't yet", learned: "you've learned it", "no-ai": "your AI isn't connected" },
+	blockMode: (study: "learn" | "practise", why: "unfinished" | "not-yet" | "learned" | "no-ai") => `${study === "learn" ? "Learn this" : "Practise this"} · ${LEARN_COPY.blockWhy[why]}`,
+	instead: (study: "learn" | "practise") => (study === "learn" ? "Learn instead" : "Practise instead"),
+	notConnected: "Learn needs your AI connected. Practise works without it.",
+	connect: "Connect",
+	/** The module's start sheet (AFF-K: one small step; INT-02-b: no menu of choices). */
+	sheetTitle: (module: string) => `Learn · ${module}`,
+	start: (title: string) => `Start: ${title}`,
+	nextInCourse: (minutes: number) => `next in your course · about ${minutes} min`,
+	stoppedIn: (lecture: string, at: { index: number; total: number } | null) => (at && at.index > 0 ? `${lecture} · idea ${at.index} of ${at.total}` : lecture),
+	orSay: "or say what you want to cover",
+	sayPlaceholder: "e.g. mixed strategies, I've seen it but can't do the maths",
+	thisWeek: (n: number) => `This week (${n} ${n === 1 ? "lecture" : "lectures"})`,
+	allLectures: "All lectures",
+	noMatch: (module: string) => `Nothing in your ${module} material matches that yet. Pick a lecture:`,
+	nothingToLearn: "No slides or notes for this module yet. Add them in the Library and Learn opens up.",
+	nothingThisWeek: "No lectures with slides for this week yet.",
+	weekTitle: (week: number, lectures: number) => `Week ${week} · ${lectures} lectures`,
+} as const;
+
+/**
+ * What LockedIn knows about you (V-52, V-53). The first-time card is one
+ * card, once per module (AE2-P14: a short questionnaire felt like sixty
+ * questions). The notes are short enough to hand the tutor every session.
+ */
+export const NOTE_RULES = {
+	howWords: 120,
+	whereWords: 250,
+	moreMax: 300,
+	/** "Where you are" is rewritten on the cheap model, so the tutor's own turn stays fast. */
+	slot: "cheap",
+} as const;
+
+/** The first-time card's rows. Each choice is said to the tutor in the words on the right. */
+export const HOW_ROWS = [
+	{ key: "start", label: "Start with", options: [{ value: "examples", label: "Examples", says: "Start each idea with a worked example." }, { value: "questions", label: "Questions", says: "Start each idea with a question for me to try." }, { value: "explanations", label: "Explanations", says: "Explain each idea first, then ask." }] },
+	{ key: "steps", label: "Steps", options: [{ value: "small", label: "Small steps", says: "Small steps." }, { value: "big", label: "Bigger jumps", says: "Bigger jumps: don't spell out what I can see." }] },
+	{ key: "check", label: "Check me", options: [{ value: "often", label: "Often", says: "Check me often." }, { value: "end", label: "Only at the end of an idea", says: "Check me only at the end of an idea." }] },
+] as const;
+
+export const NOTE_COPY = {
+	askTitle: (module: string) => `How do you like to learn ${module}?`,
+	askOnce: "Asked once. You can change it later.",
+	more: "Anything else? Type or say it…",
+	same: "Same as my other modules",
+	skip: "Skip",
+	start: "Start",
+	link: "What LockedIn knows",
+	title: (module: string) => `What LockedIn knows about you in ${module}`,
+	how: "How you learn it",
+	where: "Where you are",
+	last: "Last session",
+	noHow: "Nothing yet. Your tutor uses its usual way: a guess, the explanation, then a check.",
+	noWhere: "Nothing yet. It is written after your first Learn session in this module.",
+	noLast: "No Learn session in this module yet.",
+	stoppedAt: (index: number, total: number, title: string, lecture: string) => (index > 0 ? `${lecture}: stopped at idea ${index} of ${total}, ${title}.` : `${lecture}: stopped before the first idea.`),
+	finishedAt: (lecture: string) => `${lecture}: finished.`,
+	updated: (when: string) => `updated ${when}`,
+	byYou: "edited by you",
+	edit: "Edit",
+	save: "Save",
+	cancel: "Cancel",
+	readBy: "Your tutor reads these at the start of every session. \"Delete all my data\" in Me removes them.",
+	tooLong: (words: number) => `Keep it under ${words} words.`,
+} as const;
+
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;
 
 export const BLOCK_RULES = {
@@ -296,6 +486,129 @@ export const DEFAULT_PLAN: NonNullable<Profile["plan"]> = {
 	focusScreen: false,
 };
 
+/**
+ * A module's share of the week (V-63): when the planner shares blocks out,
+ * modules take turns. A module takes `turns` units each time its turn comes,
+ * and its turn comes every `every` rounds (Less sits out the first round).
+ */
+export const SHARE_RULES = {
+	more: { turns: 2, every: 1 },
+	normal: { turns: 1, every: 1 },
+	less: { turns: 1, every: 2 },
+} as const;
+export const SHARE_COPY = { label: "Share of your week", less: "Less", normal: "Normal", more: "More" } as const;
+
+/** The first run (v2.0 step 7, V-45): five steps, every one but sign-in can wait. */
+export const SETUP_RULES = {
+	steps: 5,
+	/** "Study time each week" starts here and moves in these steps (V-63). */
+	defaultTargetMinutes: 5 * 60,
+	targetStepMinutes: 30,
+	maxModules: 20,
+	moduleNameMax: 80,
+	unitTitleMax: 120,
+	/** How often the slides step asks whether the chapters are prepared. */
+	pollMs: 4000,
+} as const;
+
+export const SETUP_COPY = {
+	stepOf: (step: number, of: number) => `Step ${step} of ${of}`,
+	later: "Later",
+	next: "Next",
+	back: "Back",
+	signIn: {
+		title: "Sign in with ChatGPT",
+		lead: "LockedIn teaches with your own ChatGPT account. Nothing else is needed to start.",
+		button: "Sign in with ChatGPT",
+		waiting: "Finish signing in on the ChatGPT page, then come back here.",
+		other: "Use another AI account",
+		choosing: "Choosing your models…",
+		connected: "Connected ✓",
+		/** ChatGPT's own switch: without it no session can start, so setup asks for it in one tap and never sets it by itself. */
+		background: "LockedIn prepares your slides and questions while you do other things. ChatGPT needs your OK for that.",
+		allow: "Allow",
+	},
+	timetable: {
+		title: "Your timetable",
+		lead: "Paste your timetable link and your modules appear. LockedIn nudges you after a lecture, never during one.",
+		label: "Timetable link",
+		placeholder: "https://… or webcal://…",
+		reading: "Reading your timetable…",
+		found: (events: number) => `Found in ${events} calendar events. Untick anything that isn't a module.`,
+		none: "No modules found in that calendar. Add yours below.",
+		failed: "Couldn't read that calendar. Check the link.",
+		file: "Use a calendar file instead",
+		useLink: "Use a link instead",
+		connected: "Your timetable is connected.",
+		add: "Add a module",
+		addPlaceholder: "Module name",
+		addButton: "Add",
+		yours: "Your modules",
+	},
+	slides: {
+		title: "Your slides and notes",
+		lead: "Drop them in. LockedIn prepares them while you finish setting up.",
+		drop: "Drop files here, or click to choose",
+		formats: "PDF, Markdown or text",
+		reading: "Reading…",
+		found: (units: number) => `${units} ${units === 1 ? "chapter" : "chapters"} found`,
+		preparing: "preparing",
+		ready: "ready",
+		skipped: (n: number) => `${n} had too little text to study from and ${n === 1 ? "was" : "were"} left out.`,
+		change: "Change",
+		done: "Done",
+		remove: "Remove",
+		noModules: "Add a module to put your slides in.",
+		failed: "Couldn't read those files.",
+	},
+	week: {
+		title: "Your week",
+		energy: "When do you have energy?",
+		energies: { morning: "Morning", afternoon: "Afternoon", evening: "Evening" },
+		target: "Study time each week",
+		hours: (minutes: number) => {
+			const h = Math.floor(minutes / 60);
+			const m = minutes % 60;
+			if (!m) return `${h} ${h === 1 ? "hour" : "hours"}`;
+			return h ? `${h} h ${m} min` : `${m} min`;
+		},
+		fewer: "Less study time",
+		more: "More study time",
+		blocks: "Your blocks",
+		freeStudy: "Free study",
+		looksGood: "Looks good",
+		nextWeek: "This week is nearly over, so these are for next week.",
+	},
+	phone: {
+		title: "Your phone",
+		lead: "Get one question on your phone after each lecture.",
+		finish: "Finish",
+	},
+	end: {
+		title: "You're set up.",
+		learn: (title: string) => `Learn: ${title}`,
+		learnLead: "Your first session, on your own slides.",
+		noSlides: "Add your slides and LockedIn will teach from them.",
+		addSlides: "Add your slides",
+		today: "Go to Today",
+	},
+	/** What is read, and what never is (R-7, Q-10): closed until asked for. */
+	reads: {
+		label: "What LockedIn reads",
+		lines: [
+			"Event times and titles, to find your modules, lectures and free time.",
+			"Your slides and notes, to teach from them and write your questions.",
+			"Never your location, contacts or anything else on your laptop.",
+			"Nothing leaves this laptop except what the tutor needs, sent to the AI you connect.",
+		],
+	},
+	already: "You're already set up.",
+	moduleExists: (name: string) => `You already have a module called ${name}.`,
+	moduleName: "A module needs a name (up to 80 characters).",
+	tooManyModules: "That's the most modules LockedIn can hold.",
+	nothingToStudy: "Those files had too little text to study from.",
+} as const;
+
 /** "Plan my week with me" (F-109, J8): about 6 turns, short turns, on a fast slot. */
 export const SETUP_CHAT_RULES = { maxTurns: 6, maxWords: 60, slot: "cheap" } as const;
 
@@ -319,6 +632,13 @@ export const PLAN_COPY = {
 	checkin: (started: number, minutes: number) =>
 		`Last week: ${started} ${started === 1 ? "block" : "blocks"} started, ${PLAN_COPY.hours(minutes).replace(/ h (\d+)$/, " h $1 min")}. How did it feel?`,
 	feelings: { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" } as const,
+	/** Why a block is where it is (V-45, AFF-G), read after its time: "Tue 14:00 · because you have energy in the afternoon". */
+	placed: {
+		anchor: "same time as last week",
+		energy: (when: "morning" | "afternoon" | "evening") => `because you have energy in the ${when}`,
+		afterLecture: (module: string) => `right after your ${module} lecture`,
+		gap: "a free gap in your day",
+	},
 	targetProposal: (minutes: number) => `Try ${PLAN_COPY.hours(minutes)} next week?`,
 	keepTarget: (minutes: number) => `Keep ${PLAN_COPY.hours(minutes)}`,
 	yes: "Yes",
@@ -507,6 +827,24 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** Where you are in the set: the question you are on, not how many are behind you (lo-fi task 1). */
+	position: (n: number, total: number) => `Question ${n} of ${total}`,
+	/** The done screen (R-6; design log 23 Nov): no score. It names what comes back, and the next block. */
+	doneTitle: (n: number, title: string) => `Done: ${n} ${n === 1 ? "question" : "questions"} on ${title}.`,
+	comingBack: (ideas: readonly string[]) => (ideas.length ? `Coming back in your next Practise: ${ideas.join(", ")}.` : "Nothing to come back to from this one."),
+	noScore: "No streak, no score to keep up.",
+	nextBlock: (when: string) => `Next: ${when} block, already in your week.`,
+	/** The end of a set (INT-03-c, S-69): a break is offered here and never mid-question. */
+	setFinished: "Set finished. Good place to stop for a bit.",
+	setFinishedShort: "Set finished",
+	breakRule: "Breaks only come at the end of a set, never mid-question.",
+	takeBreak: (minutes: number) => `Take a ${minutes}-min break`,
+	moreQuestions: (n: number) => `${n} more questions`,
+	finish: "Finish for today",
+	onBreak: (until: string) => `On a break until ${until}.`,
+	breakNote: "One buzz when it's over, and nothing is lost if you take longer.",
+	breakOverButton: "Break's over",
+	breakEnded: "Break's over. Ready when you are.",
 	/** Leaving a session (R-5): where it was saved, on Today's card. */
 	savedAt: (question: number) => `Saved at question ${question}. Pick up any time. Nothing is marked missed.`,
 	left: (questions: number, minutes: number) => `${questions} ${questions === 1 ? "question" : "questions"} left, about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`,

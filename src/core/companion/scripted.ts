@@ -138,6 +138,8 @@ function workedExampleFor(set: ScriptedSet, q: ScriptedQuestion): string | undef
 	return slides.length > 0 ? `Have a look at Slide ${slides.join(", ")} first, then try the question.` : undefined;
 }
 
+const withSlides = <T extends object>(question: T, slides: number[]): T & { slides?: number[] } => (slides.length ? { ...question, slides } : question);
+
 export function scriptedView(set: ScriptedSet, state: ScriptedState, session: CompanionSession, lecture: Pick<Lecture, "id" | "title" | "module">): SessionView {
 	const answered = counted(state);
 	const last = [...state.answers].reverse().find((a) => a.graded && !a.shown);
@@ -176,7 +178,8 @@ export function scriptedView(set: ScriptedSet, state: ScriptedState, session: Co
 	return {
 		...base,
 		...(prose ? { prose } : {}),
-		question: toSessionQuestion(qd),
+		// The question's own slide (lo-fi: "the slide this question comes from"): the bank's, else the one its lead-in cites.
+		question: { ...withSlides(toSessionQuestion(qd), q.slides?.length ? q.slides : parseSlideRefs(q.leadIn ?? "")), ...(q.lectureId ? { lectureId: q.lectureId } : {}), ...(q.ai ? { ai: true } : {}) },
 		canHint: !!q.hint,
 		slideRefs: [...new Set([...parseSlideRefs(prose), ...(feedback?.slideRefs ?? [])])].sort((a, b) => a - b),
 	};
@@ -200,7 +203,7 @@ export function scriptedAnswer(
 	const qd = scriptedQuestionData(session.id, q);
 	const answer = buildAnswer(qd, answerRequestFor(qd, a), "quiz");
 	answer.answeredAt = now.toISOString();
-	const record = answerRecordFrom(answer, q.id, q.nodeId);
+	const record = { ...answerRecordFrom(answer, q.id, q.nodeId), ...(q.lectureId ? { lectureId: q.lectureId } : {}) };
 	return { state: { ...state, answers: [...state.answers, record], position: state.position + 1 }, record };
 }
 

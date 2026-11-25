@@ -28,14 +28,18 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { BLOCK_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
+import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
+import { SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { blockWhy, clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
+import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
 import { earnedMilestones, needsAttention, type AttentionLine } from "../../core/companion/milestones.ts";
 import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts";
@@ -68,9 +72,24 @@ import {
 	type NudgeRecord,
 	type NudgeType,
 	type Profile,
+	type SessionKind,
 	type SessionSpec,
+	type StudyMode,
+	type ModuleNotes,
+	type ModuleNotesView,
+	type LearnItem,
+	type LearnScope,
 	type SessionView,
 	type StudyBlock,
+	ENERGY_TIMES,
+	WEEK_SHARES,
+	type EnergyTime,
+	type ModuleInfo,
+	type Routine,
+	type SetupEnd,
+	type SetupView,
+	type SetupWeek,
+	type WeekShare,
 } from "../../core/companion/types.ts";
 import { CONFIDENCE_STOPS } from "../../core/question-core.ts";
 import type { Clock } from "./clock.ts";
@@ -465,6 +484,278 @@ export class CompanionService {
 			(s) => s.spec.kind === card.spec.kind && s.spec.lectureId === card.spec.lectureId && !s.openedAt && s.answered === 0 && (s.state === "preparing" || s.state === "ready"),
 		);
 		return { ...card, ...(waiting ? { sessionId: waiting.id } : this.createSession(card.spec)) };
+	}
+
+
+	// ─── the first run (v2.0 step 7; V-45, V-63 to V-66) ────────────────────
+
+	/** Setup is still going: the timetable step made the profile and the end hasn't been reached. */
+	private inSetup(profile: Profile | null | undefined): boolean {
+		return !!profile?.setup && !profile.setup.doneAt;
+	}
+
+	/** Modules as typed or ticked: { name, code? }. A missing code is made from the name; names and codes already there are left out. */
+	private newModules(raw: unknown, existing: readonly { code: string; name: string }[]): { code: string; name: string }[] {
+		if (!Array.isArray(raw)) throw badRequest("modules must be a list");
+		const taken = new Set(existing.map((m) => m.code));
+		const names = new Set(existing.map((m) => m.name.toLowerCase()));
+		const out: { code: string; name: string }[] = [];
+		for (const item of raw) {
+			const m = (item ?? {}) as { code?: unknown; name?: unknown };
+			const name = typeof m.name === "string" ? m.name.trim() : "";
+			if (!name || name.length > SETUP_RULES.moduleNameMax) throw badRequest(SETUP_COPY.moduleName);
+			const given = typeof m.code === "string" && m.code.trim() ? m.code.trim().toUpperCase() : null;
+			if (given ? taken.has(given) : names.has(name.toLowerCase())) continue;
+			const code = given ?? codeFromName(name, taken);
+			if (!MODULE_CODE_RE.test(code)) throw badRequest(`invalid module code ${code}`);
+			taken.add(code);
+			names.add(name.toLowerCase());
+			out.push({ code, name });
+		}
+		if (existing.length + out.length > SETUP_RULES.maxModules) throw badRequest(SETUP_COPY.tooManyModules);
+		return out;
+	}
+
+	/** Where setup is: the step to open on, and what each step has so far. */
+	setup(): SetupView {
+		const profile = this.store.profile();
+		const phone = { available: this.phone !== null, paired: this.phone?.paired() ?? false };
+		if (!profile) return { started: false, done: false, step: this.aiReady ? 2 : 1, phone, calendar: false, modules: [], week: null, end: null };
+		const modules = profile.modules.map((m) => {
+			const list = this.learnUnits(m.code).filter((u) => !isTimed(u));
+			return {
+				code: m.code,
+				name: m.name,
+				units: list.length,
+				preparing: list.filter((u) => this.packs?.isRunning(u.id) || ["queued", "generating"].includes(this.packs?.status(u.id)?.state ?? "")).length,
+				ready: list.filter((u) => this.packs?.status(u.id)?.state === "ready").length,
+				list: list.map((u) => ({ id: u.id, title: u.title, week: u.week })),
+			};
+		});
+		return {
+			started: true,
+			done: !this.inSetup(profile),
+			step: profile.setup?.step ?? SETUP_RULES.steps,
+			phone,
+			calendar: profile.timetableSource === "ics",
+			modules,
+			week: profile.setup?.week ? this.setupWeekView(profile.setup.week, null) : null,
+			end: this.setupEnd(),
+		};
+	}
+
+	/**
+	 * Setup step 2. Body: { calendar: { kind: "link", url } | { kind: "file", text } | { kind: "none" },
+	 * modules: [{ name, code? }], timeZone? }. Makes the profile the first
+	 * time, with no modules if the student chose "Later"; going back and
+	 * forward adds what is new and keeps what was there.
+	 */
+	async setupTimetable(body: unknown): Promise<SetupView> {
+		const b = (body ?? {}) as { modules?: unknown; calendar?: { kind?: unknown; url?: unknown; text?: unknown }; timeZone?: unknown };
+		const existing = this.store.profile();
+		if (existing && !this.inSetup(existing)) throw new CompanionError("already_set_up", 409, SETUP_COPY.already);
+		const kind = b.calendar?.kind;
+		if (kind !== "link" && kind !== "file" && kind !== "none") throw badRequest("calendar.kind must be link, file or none");
+		const timeZone = validTimeZone(b.timeZone);
+		const added = this.newModules(b.modules ?? [], existing?.modules ?? []);
+		// Fetch before saving anything, so a bad link leaves no half-made profile.
+		const link = kind === "link" ? await this.fetchCalendarLink(b.calendar?.url) : null;
+		const fileText = kind === "file" ? (typeof b.calendar?.text === "string" ? b.calendar.text : null) : null;
+		if (kind === "file" && fileText === null) throw badRequest("calendar.text is required for a file");
+
+		const now = this.now();
+		const ai = this.ai ? await this.ai.status().catch(() => null) : null;
+		const base: Profile = existing ?? {
+			createdAt: now.toISOString(),
+			modules: [],
+			timetableSource: "none",
+			prefs: { ...DEFAULT_PREFS },
+			appearance: { ...DEFAULT_APPEARANCE },
+			ai: { provider: ai?.provider ?? null, ...(ai?.provider ? { connectedAt: now.toISOString() } : {}) },
+		};
+		if (!existing) this.store.saveLectures([]);
+		this.store.saveProfile({ ...base, modules: [...base.modules, ...added], ...(timeZone ? { timeZone } : {}), setup: { ...base.setup, step: 3 } });
+		let events: number | null = null;
+		if (link) {
+			events = this.importIcs(link.text).added;
+			this.store.saveRuntime({ calendarUrl: link.url });
+		} else if (fileText !== null) {
+			events = this.importIcs(fileText).added;
+		}
+		for (const m of added) this.log("module_added", { module: m.code, via: "setup" });
+		this.log("setup_timetable", { calendar: kind, modules: this.requireProfile().modules.map((m) => m.code), events, ai: ai?.provider ?? null });
+		return this.setup();
+	}
+
+	/** The step the student has reached (2 to 5), so a closed tab reopens there. */
+	setupStep(body: unknown): SetupView {
+		const profile = this.requireProfile();
+		const step = (body as { step?: unknown } | null)?.step;
+		if (typeof step !== "number" || !Number.isInteger(step) || step < 2 || step > SETUP_RULES.steps) throw badRequest(`step must be 2 to ${SETUP_RULES.steps}`);
+		if (this.inSetup(profile)) this.store.saveProfile({ ...profile, setup: { ...profile.setup, step } });
+		return this.setup();
+	}
+
+	/** "+ Add a module" (V-64), in setup and in the Library: a name is enough. */
+	addModule(body: unknown): { code: string; name: string } {
+		const profile = this.requireProfile();
+		const raw = (body as { name?: unknown } | null)?.name;
+		const name = typeof raw === "string" ? raw.trim() : "";
+		if (!name || name.length > SETUP_RULES.moduleNameMax) throw badRequest(SETUP_COPY.moduleName);
+		const same = profile.modules.find((m) => m.name.toLowerCase() === name.toLowerCase());
+		if (same) throw badRequest(SETUP_COPY.moduleExists(same.name));
+		const [mod] = this.newModules([{ name }], profile.modules);
+		this.store.saveProfile({ ...profile, modules: [...profile.modules, mod!] });
+		this.log("module_added", { module: mod!.code, via: this.inSetup(profile) ? "setup" : "library" });
+		return mod!;
+	}
+
+	/** A module's share of the week (V-63). Body: { share: "less" | "normal" | "more" }. */
+	setModuleShare(code: string, body: unknown) {
+		const profile = this.requireProfile();
+		const mod = this.requireModule(code);
+		const share = (body as { share?: unknown } | null)?.share;
+		if (!(WEEK_SHARES as readonly unknown[]).includes(share)) throw badRequest(`share must be one of ${WEEK_SHARES.join(", ")}`);
+		const { share: was, ...rest } = mod;
+		const next: ModuleInfo = share === "normal" ? rest : { ...rest, share: share as "less" | "more" };
+		this.store.saveProfile({ ...profile, modules: profile.modules.map((m) => (m.code === code ? next : m)) });
+		this.log("module_share_changed", { module: code, from: was ?? "normal", to: share });
+		return { ...next, share: share as WeekShare };
+	}
+
+	/**
+	 * Setup's slides step (V-66): read the files, split them and save every
+	 * unit worth studying straight away. The checklist is not shown; titles
+	 * and weeks can be changed afterwards.
+	 */
+	async quickMaterials(code: string, files: UploadedFile[]): Promise<{ units: Lecture[]; skipped: number }> {
+		const p = await this.proposeMaterials(code, files);
+		const all = p.files.flatMap((f) => f.units.map((u) => ({ file: f.file, title: u.title, week: u.week, pages: u.pages, chars: u.chars })));
+		const units = all.filter((u) => u.chars >= MATERIALS_RULES.minUnitChars).map(({ chars: _chars, ...u }) => u);
+		if (units.length === 0) {
+			this.courseMaterials.discard(p.uploadId);
+			throw badRequest(SETUP_COPY.nothingToStudy);
+		}
+		return { units: this.saveMaterials(code, { uploadId: p.uploadId, units }).units, skipped: all.length - units.length };
+	}
+
+	/** A new title for a course unit made from the student's material. Body: { title }. */
+	renameUnit(lectureId: string, body: unknown): Lecture {
+		assertSafeId(lectureId, "lecture id");
+		const unit = this.store.lectures().find((l) => l.id === lectureId);
+		if (!unit) throw notFound("lecture");
+		if (isTimed(unit)) throw badRequest("a timetabled lecture's title comes from your calendar");
+		const raw = (body as { title?: unknown } | null)?.title;
+		const title = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+		if (!title || title.length > SETUP_RULES.unitTitleMax) throw badRequest(`a title of 1 to ${SETUP_RULES.unitTitleMax} characters`);
+		const updated = this.store.updateLecture(lectureId, (l) => ({ ...l, title }))!;
+		this.log("unit_renamed", { lectureId, module: unit.module });
+		return updated;
+	}
+
+	private setupWeekView(week: string, message: string | null): SetupWeek {
+		const profile = this.requireProfile();
+		const plan = this.plan(week);
+		return {
+			energy: [...(profile.routine?.energy ?? [])],
+			target: plan.target ?? SETUP_RULES.defaultTargetMinutes,
+			week: plan.week,
+			blocks: plan.blocks.filter((x) => x.status === "proposed" || x.status === "accepted").map((x) => ({ id: x.id, date: x.date, start: x.start, minutes: x.minutes, module: x.module, title: x.focus?.title ?? null, why: x.why })),
+			message,
+		};
+	}
+
+	/**
+	 * Setup's week step (V-45): "When do you have energy?" and one total for
+	 * the week (V-63). Body: { energy?: ["morning" | "afternoon" | "evening"],
+	 * weeklyTargetMinutes? }; what isn't sent stays as it was, and the total
+	 * starts at five hours. Each call suggests the week again, so the blocks
+	 * move as the student taps. With no room left this week it plans the next.
+	 */
+	setupWeek(body: unknown): SetupWeek {
+		const profile = this.requireProfile();
+		const b = (body ?? {}) as { energy?: unknown; weeklyTargetMinutes?: unknown };
+		const settings = this.planSettings();
+		let energy: EnergyTime[] = [...(profile.routine?.energy ?? [])];
+		if (b.energy !== undefined) {
+			const given = b.energy;
+			if (!Array.isArray(given) || !given.every((e) => (ENERGY_TIMES as readonly unknown[]).includes(e))) throw badRequest(`energy must be a list of ${ENERGY_TIMES.join(", ")}`);
+			energy = ENERGY_TIMES.filter((e) => given.includes(e));
+		}
+		let target = settings.weeklyTargetMinutes ?? SETUP_RULES.defaultTargetMinutes;
+		if (b.weeklyTargetMinutes !== undefined) {
+			const t = b.weeklyTargetMinutes;
+			if (typeof t !== "number" || !Number.isInteger(t) || t < 30 || t > 40 * 60) throw badRequest("weeklyTargetMinutes must be 30 minutes to 40 hours");
+			target = t;
+		}
+		const now = this.now();
+		const routine: Routine = { commitments: [], places: [], preferredBlockMinutes: settings.blockMinutes, ...profile.routine, energy, weeklyTargetMinutes: target, confirmedAt: now.toISOString() };
+		this.store.saveProfile({ ...profile, routine, plan: { ...settings, weeklyTargetMinutes: target } });
+		if (target !== settings.weeklyTargetMinutes) this.log("target_changed", { from: settings.weeklyTargetMinutes, to: target, via: "setup" });
+
+		const suggested = (p: { blocks: { status: string }[] }) => p.blocks.some((x) => x.status === "proposed" || x.status === "accepted" || x.status === "started");
+		let plan = this.proposePlan({});
+		if (!suggested(plan)) plan = this.proposePlan({ week: dateKey(addDays(this.mondayOf(now), 7)) });
+		const latest = this.requireProfile();
+		if (latest.setup) this.store.saveProfile({ ...latest, setup: { ...latest.setup, week: plan.week } });
+		const view = this.setupWeekView(plan.week, plan.message);
+		this.log("setup_week", { energy, target, week: plan.week, blocks: view.blocks.length });
+		return view;
+	}
+
+	/**
+	 * "Later" on setup's week step: the total and the suggested blocks go, as
+	 * if the step had not been opened. A target is only ever set by the
+	 * student (V-5). Blocks already kept with "Looks good" are theirs and stay.
+	 */
+	skipSetupWeek(): SetupView {
+		const profile = this.requireProfile();
+		const week = profile.setup?.week;
+		if (!this.inSetup(profile) || !week) return this.setup();
+		const end = dateKey(addDays(new Date(`${week}T12:00:00`), 6));
+		const blocks = this.store.blocks();
+		const inWeek = (x: StudyBlock) => x.date >= week && x.date <= end;
+		const { week: _week, ...setup } = profile.setup!;
+		if (blocks.some((x) => inWeek(x) && (x.status === "accepted" || x.status === "started"))) {
+			this.store.saveProfile({ ...profile, setup });
+			return this.setup();
+		}
+		this.store.saveBlocks(blocks.filter((x) => !(inWeek(x) && x.status === "proposed" && x.source === "planner")));
+		const { routine: _routine, ...rest } = profile;
+		this.store.saveProfile({ ...rest, plan: { ...this.planSettings(), weeklyTargetMinutes: null }, setup });
+		this.log("setup_week", { skipped: true });
+		return this.setup();
+	}
+
+	/** Where setup ends: the first unit in keep-up order, from the student's own slides. */
+	private setupEnd(): SetupEnd | null {
+		const profile = this.store.profile();
+		if (!profile) return null;
+		const units = lecturesWithStatus(this.store.state()).filter((l) => l.hasMaterials && l.kind !== "event");
+		const first = pacedUnits({ modules: profile.modules, units, now: this.now(), blocks: 1 })[0]?.lectureId ?? profile.modules.flatMap((m) => this.learnUnits(m.code))[0]?.id;
+		const unit = first ? this.lectureById(first) : undefined;
+		return unit ? { lectureId: unit.id, module: unit.module, title: unit.title } : null;
+	}
+
+	/** The end of setup, reached once. Later steps left for "Later" stay where they always were: Me, the Library, Week. */
+	setupDone(): SetupView {
+		const profile = this.requireProfile();
+		if (this.inSetup(profile)) {
+			this.store.saveProfile({ ...profile, setup: { ...profile.setup!, doneAt: this.now().toISOString() } });
+			const s = this.setup();
+			this.log("onboarding_done", {
+				flow: "v2.0",
+				calendar: s.calendar,
+				modules: profile.modules.map((m) => m.code),
+				units: s.modules.reduce((n, m) => n + m.units, 0),
+				target: profile.plan?.weeklyTargetMinutes ?? null,
+				energy: profile.routine?.energy ?? [],
+				blocks: this.store.blocks().filter((x) => x.status === "accepted").length,
+				phone: s.phone.paired,
+				ai: profile.ai?.provider ?? null,
+			});
+		}
+		return this.setup();
 	}
 
 	// ─── course material and the module calendar (F-104, V-18) ─────────────
@@ -920,7 +1211,7 @@ export class CompanionService {
 				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
 				const first = this.firstStepOf(b);
 				// What the timetable shows on a block (V-44): its first step, and whether it can be started now.
-				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()) };
+				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b), why: blockWhy(b, profile.modules) };
 			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
@@ -1025,6 +1316,7 @@ export class CompanionService {
 			if (problem) throw new CompanionError("block_overlaps", 409, PLACEMENT_COPY[problem], { problem });
 		}
 		if (moved && next.status === "proposed") next.status = "accepted"; // moving a proposal is choosing it
+		if (moved) delete next.placed; // where it is now is the student's choice, not the planner's reason
 		const source = p.source === "phone" ? "phone" : undefined;
 		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? next : b)));
 		const data = { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, module: next.module ?? null, ...(source ? { source } : {}) };
@@ -1043,14 +1335,6 @@ export class CompanionService {
 		return q ? { questionId: q.id, stem: q.stem, slide: q.slides[0] ?? null } : null;
 	}
 
-	/** The session a block opens: its unit (else the latest lecture), starting on its first step. */
-	private blockSpec(block: StudyBlock): SessionSpec | null {
-		const focus = blockFocus({ lectures: this.store.lectures() }, block, this.now());
-		if (!focus) return null;
-		const first = this.firstStepOf(block);
-		return { ...specFor("block", focus, this.store.profile()?.prefs), ...(first ? { firstQuestionId: first.questionId } : {}) };
-	}
-
 	/** Mark a block started, once. `via` says how: the Start button, or its notification. */
 	private markBlockStarted(blockId: string, via: "start" | "nudge"): StudyBlock | null {
 		const blocks = this.store.blocks();
@@ -1066,13 +1350,52 @@ export class CompanionService {
 	 * Start a study block from the laptop (V-44): marks it started and opens
 	 * its session. A block that is already started just opens a session again.
 	 */
-	startBlock(blockId: string): { block: StudyBlock; sessionId: string | null } {
+	startBlock(blockId: string, raw?: unknown): { block: StudyBlock; sessionId: string | null } {
 		const block = this.store.blocks().find((b) => b.id === blockId && b.status !== "removed");
 		if (!block) throw notFound("block");
 		if (block.status !== "started" && !canStartBlock(block, this.now())) throw new CompanionError("block_not_today", 409, PLAN_COPY.notToday);
+		const study = (raw as { study?: unknown } | null | undefined)?.study;
+		if (study !== undefined && study !== "learn" && study !== "practise") throw badRequest("study must be learn or practise");
 		const started = this.markBlockStarted(blockId, "start") ?? block;
-		const spec = this.blockSpec(started);
-		return { block: started, sessionId: spec ? this.createSession(spec).sessionId : null };
+		return { block: started, sessionId: this.openBlock(started, study) };
+	}
+
+	/**
+	 * What a block opens (step 5): Learn while its lecture is part-way through
+	 * or not learned yet, Practise once it has been. The other mode is offered
+	 * beside it (AFF-N: the mode is the student's choice each visit).
+	 */
+	private blockMode(block: StudyBlock) {
+		const focus = blockFocus({ lectures: this.store.lectures() }, block, this.now());
+		if (!focus) return null;
+		const canLearn = (this.store.demo().engineOverride ?? this.defaultEngine()) === "learnharness" && !!this.lectureById(focus)?.hasMaterials;
+		const suggestion = suggestForBlock({ lectureId: focus, sessions: this.store.sessions(), now: this.now(), canLearn, canPractise: this.safeHasScripted(focus) });
+		return { focus, ...suggestion };
+	}
+
+	/** The block's two buttons, as Week and Today show them. */
+	private blockButtons(block: StudyBlock): { study: StudyMode; label: string; other: { study: StudyMode; label: string } | null } | null {
+		const mode = this.blockMode(block);
+		if (!mode) return null;
+		return { study: mode.study, label: LEARN_COPY.blockMode(mode.study, mode.why), other: mode.other ? { study: mode.other, label: LEARN_COPY.instead(mode.other) } : null };
+	}
+
+	/** Open a block's session in the suggested mode, or the one the student chose. Null when the block has nothing to study yet. */
+	private openBlock(block: StudyBlock, chosen?: StudyMode, nudgeKey?: string): string | null {
+		const mode = this.blockMode(block);
+		if (!mode) return null;
+		const study = chosen ?? mode.study;
+		const first = this.firstStepOf(block);
+		if (study === "learn") {
+			// Part-way through this lecture: the block picks it up, with this block's time.
+			if (mode.resume && this.store.session(mode.resume)) {
+				this.store.updateSession(mode.resume, (s) => (s.spec.learn ? { ...s, spec: { ...s.spec, learn: { ...s.spec.learn, minutes: block.minutes } } } : s));
+				return mode.resume;
+			}
+			return this.startLearn({ lectureId: mode.focus }, { minutes: block.minutes, kind: "block", ...(first ? { firstQuestionId: first.questionId } : {}), ...(nudgeKey ? { nudgeKey } : {}) }).sessionId;
+		}
+		const spec: SessionSpec = { ...specFor("block", mode.focus, this.store.profile()?.prefs), ...(first ? { firstQuestionId: first.questionId } : {}), study: "practise" };
+		return this.createSession(spec, nudgeKey ? { nudgeKey } : {}).sessionId;
 	}
 
 	/** Accept proposals: the listed ids, or every proposal in that week. */
@@ -1254,14 +1577,15 @@ export class CompanionService {
 	startHandoff(h: { lectureId: string; questionId?: string; choice?: number; correct?: boolean; at: string; phoneEventId: string }) {
 		const key = `handoff:${h.phoneEventId}`;
 		if (this.store.nudges().some((n) => n.key === key)) return null;
-		const spec = specFor("post-lecture", h.lectureId, this.store.profile()?.prefs);
+		// The phone's question is the first question of a Practise round; the laptop carries on with the rest (V-40).
+		const spec: SessionSpec = { ...specFor("post-lecture", h.lectureId, this.store.profile()?.prefs), study: "practise" };
 		const q = h.questionId ? this.packs?.bank(h.lectureId)?.find((x) => x.id === h.questionId) : undefined;
 		if (h.questionId && h.choice !== undefined && h.correct !== undefined) {
 			spec.seedAnswer = { questionId: h.questionId, choice: h.choice, correct: h.correct, at: h.at, ...(q ? { stem: q.stem, choiceLabel: q.options[h.choice] ?? "" } : {}) };
 		}
 		const { sessionId } = this.createSession(spec);
 		const more = spec.seedAnswer ? spec.budget.questions - 1 : spec.budget.questions;
-		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: HANDOFF_COPY.toast(more), lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
+		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: HANDOFF_COPY.toast(more, spec.seedAnswer?.correct ?? true), lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
 		return { sessionId };
 	}
 
@@ -1311,12 +1635,13 @@ export class CompanionService {
 	// ─── nudges (§7.6) ──────────────────────────────────────────────────────
 
 	/** The nudge on screen: the newest fired today with no outcome yet, within its TTL. */
-	banner(): (NudgeRecord & { ready: boolean }) | null {
+	banner(): (NudgeRecord & { ready: boolean; startsAt: number }) | null {
 		const now = this.now();
 		const n = [...this.store.nudges()].reverse().find((x) => !x.outcome && sameDay(x.firedAt, now));
 		if (!n || addMinutes(new Date(n.firedAt), NUDGE_RULES.bannerTtlMinutes) < now) return null;
 		const session = n.sessionId ? this.store.session(n.sessionId) : null;
-		return { ...n, ready: isSessionReady(session ?? undefined) };
+		// A hand-off from the phone picks up at question 2: question 1 was answered there (R-8).
+		return { ...n, ready: isSessionReady(session ?? undefined), startsAt: session?.spec.seedAnswer ? 2 : 1 };
 	}
 
 	/**
@@ -1325,7 +1650,7 @@ export class CompanionService {
 	 * (scripted ones are ready in microseconds; LearnHarness takes seconds and
 	 * is simply picked up by a later tick).
 	 */
-	async tick(settleMs = 250): Promise<{ nudge: (NudgeRecord & { ready: boolean }) | null; prepared: string[] }> {
+	async tick(settleMs = 250): Promise<{ nudge: (NudgeRecord & { ready: boolean; startsAt: number }) | null; prepared: string[] }> {
 		const prepared: string[] = [];
 		if (!this.store.profile()) return { nudge: null, prepared };
 		const now = this.now();
@@ -1383,7 +1708,10 @@ export class CompanionService {
 		const block = c.type === "block" ? this.blockOfNudge(c.key) : null;
 		const firstStep = block ? this.firstStepOf(block) : null;
 		if (firstStep) c = { ...c, spec: { ...c.spec, firstQuestionId: firstStep.questionId }, text: NUDGE_TEXT.block(block!.minutes, PLAN_COPY.firstStep(firstStep.slide)) };
-		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
+		// The question after a lecture opens a Practise round (V-40).
+		if (c.type === "N-1") c = { ...c, spec: { ...c.spec, study: "practise" } };
+		// A block's notification opens what the block suggests: Learn, picking up where it stopped, or Practise (step 5).
+		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? (block ? this.openBlock(block, undefined, c.key) : null) ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
 		const lecture = c.type === "N-1" ? this.store.lectures().find((l) => c.key === `N-1:${l.id}` || c.key.startsWith(`forced:N-1:${l.id}:`)) ?? this.lectureById(c.lectureId ?? "") : undefined;
 		const used = new Set(this.store.nudges().map((n) => n.questionId).filter((q): q is string => !!q));
 		const question = c.type === "N-1" && c.lectureId ? this.questionFor(c.lectureId, used) : undefined;
@@ -1494,6 +1822,11 @@ export class CompanionService {
 			if (r.mode !== "question-first" && r.mode !== "show-first") throw badRequest("mode must be question-first or show-first");
 			spec.mode = r.mode;
 		}
+		// Learn or Practise, when the screen says which (V-40). Unsaid, the session's kind and the AI connection decide.
+		if (r.study !== undefined) {
+			if (r.study !== "learn" && r.study !== "practise") throw badRequest("study must be learn or practise");
+			spec.study = r.study;
+		}
 		const questions = r.questions ?? r.budget?.questions;
 		if (questions !== undefined) {
 			if (!Number.isInteger(questions) || (questions as number) < 1 || (questions as number) > 20) throw badRequest("questions must be 1–20");
@@ -1509,7 +1842,7 @@ export class CompanionService {
 		return engine;
 	}
 
-	createSession(spec: SessionSpec, opts: { nudgeKey?: string; engine?: EngineName } = {}): { sessionId: string } {
+	createSession(spec: SessionSpec, opts: { nudgeKey?: string; engine?: EngineName; askHow?: boolean } = {}): { sessionId: string } {
 		// The first taste is prepared during onboarding, before the profile exists (J1′).
 		if (!(spec.kind === "try-now" && spec.lectureId === FIRST_TASTE_LECTURE)) this.requireProfile();
 		const lecture = this.lectureById(spec.lectureId);
@@ -1519,7 +1852,17 @@ export class CompanionService {
 			if (misses.length === 0) throw badRequest("nothing to retest for this lecture");
 			spec = { ...spec, missIds: misses.map((m) => m.id) };
 		}
-		const engine = opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine();
+		// A retest and the welcome-back taste are Practise (step 5): quick questions from the bank.
+		if ((spec.kind === "retest" || spec.kind === "try-now") && !spec.learn && spec.study === undefined) spec = { ...spec, study: "practise" };
+		// Practise runs on the question bank and needs no AI (V-40). A unit with no bank yet can only be taught, so it stays Learn.
+		if (spec.study === "practise" && !spec.practise && !this.content.scriptedSet(spec.lectureId)) spec = { ...spec, study: "learn" };
+		const engine = spec.study === "practise" ? "scripted" : (opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine());
+		// Two modes only (V-40; step 5). The tutor teaching is Learn; anything on the question bank is Practise.
+		if (engine === "learnharness" && !spec.learn) spec = this.asLearn(spec);
+		else if (engine === "scripted" && spec.study !== "practise") {
+			if (spec.kind === "learn" || spec.learn) throw new CompanionError("not_connected", 409, LEARN_COPY.notConnected);
+			spec = { ...spec, study: "practise" };
+		}
 		const session: CompanionSession = {
 			id: this.id("s"),
 			engine,
@@ -1530,11 +1873,19 @@ export class CompanionService {
 			createdAt: this.now().toISOString(),
 			state: "preparing",
 		};
-		this.store.saveSession(session);
-		this.log("session_prepare_started", { sessionId: session.id, engine, kind: spec.kind, lectureId: spec.lectureId, prewarm: !!opts.nudgeKey });
-		const run = this.prepare(session.id).finally(() => this.preparing.delete(session.id));
-		this.preparing.set(session.id, run);
+		// The module's first Learn session (V-52): "How do you like to learn this?" comes first. The tutor starts once it is answered or skipped.
+		const waiting = !!opts.askHow && !!spec.learn && owesHowCard(this.store.notes(), lecture.module);
+		this.store.saveSession(waiting ? { ...session, awaitingHow: true } : session);
+		if (!waiting) this.beginPrepare(session.id, !!opts.nudgeKey);
 		return { sessionId: session.id };
+	}
+
+	private beginPrepare(sessionId: string, prewarm = false): void {
+		const session = this.store.session(sessionId);
+		if (!session || this.preparing.has(sessionId)) return;
+		this.log("session_prepare_started", { sessionId, engine: session.engine, kind: session.spec.kind, study: session.spec.study ?? "learn", lectureId: session.spec.lectureId, prewarm });
+		const run = this.prepare(sessionId).finally(() => this.preparing.delete(sessionId));
+		this.preparing.set(sessionId, run);
 	}
 
 	/** Resolves when preparation settles (ready or error). For tests and the tracer. */
@@ -1555,7 +1906,7 @@ export class CompanionService {
 			const misses = this.store.misses().filter((m) => missIds.has(m.id));
 			const moduleName = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name;
 			const firstQuestion = session.spec.firstQuestionId ? this.packs?.bank(lecture.id)?.find((q) => q.id === session.spec.firstQuestionId) : undefined;
-			const { text } = buildOpeningMessage({
+			const { text } = session.spec.learn ? this.learnOpening(session.spec, lecture, firstQuestion) : buildOpeningMessage({
 				spec: session.spec,
 				lecture,
 				...(moduleName ? { moduleName } : {}),
@@ -1573,7 +1924,11 @@ export class CompanionService {
 			const code = err instanceof CompanionError ? err.code : "prepare_failed";
 			const message = err instanceof Error ? err.message : String(err);
 			if (this.deps.autoFallback && attempt === 0 && session.engine === "learnharness" && this.safeHasScripted(session.spec.lectureId)) {
-				this.store.updateSession(sessionId, (s) => ({ ...s, engine: "scripted", fellBackFrom: "learnharness", state: "preparing" }));
+				// The tutor could not start: the same unit on its question bank, which is Practise.
+				this.store.updateSession(sessionId, (s) => {
+					const spec = this.asPractise(s.spec);
+					return { ...s, spec, budget: spec.budget.questions, engine: "scripted", fellBackFrom: "learnharness", state: "preparing" };
+				});
 				this.log("engine_fallback", { sessionId, from: "learnharness", to: "scripted", code, message });
 				return this.prepare(sessionId, 1);
 			}
@@ -1625,21 +1980,38 @@ export class CompanionService {
 			// still being admitted (show the wait) or starting failed (say so).
 			this.markOpened(session.id, now);
 			const base = {
+				...this.studyOf(session, lecture, session.budget),
 				id: session.id, engine: session.engine, kind: session.spec.kind, mode: session.spec.mode,
 				lecture: { id: lecture.id, title: lecture.title, module: lecture.module },
 				goal: goalFor(session.spec, lecture, session.budget), answered: 0, budget: session.budget, canHint: false, slideRefs: [],
 			};
-			return session.state === "error"
-				? { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) }
-				: { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) };
+			if (session.state === "error") return { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) };
+			if (session.awaitingHow) {
+				const notes = this.store.notes();
+				// Still owed: the card. Answered meanwhile (another tab, another session of this module): start the tutor.
+				if (owesHowCard(notes, lecture.module)) {
+					const name = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name ?? lecture.module;
+					return { ...base, status: "ask", ask: { module: lecture.module, name, canCopy: howFromOthers(notes, lecture.module) !== null } };
+				}
+				this.store.updateSession(session.id, ({ awaitingHow: _waiting, ...s }) => s);
+				this.beginPrepare(session.id);
+			}
+			return { ...base, status: "preparing", activity: session.spec.learn ? LEARN_COPY.reading(lecture.module) : SESSION_COPY.reading(lecture.module) };
 		}
+		// Learn: opening it (again) starts this sitting's clock, so mark it before the view reads the clock.
+		if (session.spec.learn) this.markOpened(session.id, now);
 		// A hand-off's phone answer (F-112) is counted by each engine itself.
-		const { teacherNudged, ...mapped } = await engine.view(session, lecture);
+		const { teacherNudged, ...mapped } = await engine.view(session.spec.learn ? (this.store.session(session.id) ?? session) : session, lecture, now);
 		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
 		this.markOpened(session.id, now);
 		this.store.updateSession(session.id, (s) => {
 			let next: CompanionSession = { ...s, answered: v.answered };
+			// Where the plan stands, for the pick-up card (and the plan note of V-53).
+			const plan = v.learn?.plan;
+			if (plan && (s.learnAt?.index !== plan.index || s.learnAt.total !== plan.total || s.learnAt.title !== (plan.current ?? ""))) {
+				next = { ...next, learnAt: { index: plan.index, total: plan.total, title: plan.current ?? "", covered: plan.nodes.filter((n) => n.state !== "todo").map((n) => n.title), plan: plan.nodes.map((n) => ({ title: n.title, state: n.state })) } };
+			}
 			if (v.question && !(s.shownQuestionIds ?? []).includes(v.question.id)) {
 				next = { ...next, shownQuestionIds: [...(s.shownQuestionIds ?? []), v.question.id], questionShownAt: now.toISOString() };
 				this.log("question_shown", {
@@ -1653,7 +2025,205 @@ export class CompanionService {
 			}
 			return next;
 		});
-		return v;
+		return { ...v, ...this.studyOf(session, lecture, v.budget), ...this.weekOf(session, v), ...(v.status === "done" ? this.doneExtras(session, now) : {}) };
+	}
+
+	/** Every right answer in the history, for the gap rule (V-43): laptop answers, and the phone's. */
+	private rightAnswers(): RightAnswer[] {
+		const nodeOf = new Map<string, string | undefined>();
+		const node = (lectureId: string, questionId: string) => {
+			const k = `${lectureId}|${questionId}`;
+			if (!nodeOf.has(k)) nodeOf.set(k, this.packs?.bank(lectureId)?.find((q) => q.id === questionId)?.node);
+			return nodeOf.get(k);
+		};
+		const out: RightAnswer[] = [];
+		for (const e of this.store.events()) {
+			const d = e.data as { lectureId?: unknown; questionId?: unknown; nodeId?: unknown; correct?: unknown; graded?: unknown; dontKnow?: unknown; confidence?: unknown; source?: unknown };
+			const laptop = e.type === "answer" && d.graded !== false;
+			const phone = e.type === "answered" && d.source === "phone";
+			if ((!laptop && !phone) || d.correct !== true || d.dontKnow === true) continue;
+			if (typeof d.lectureId !== "string" || typeof d.questionId !== "string") continue;
+			const nodeId = (typeof d.nodeId === "string" && d.nodeId) || node(d.lectureId, d.questionId) || GENERAL_IDEA;
+			out.push({ ideaKey: `${d.lectureId}#${nodeId}`, questionId: d.questionId, at: new Date(e.t), confidence: typeof d.confidence === "number" ? d.confidence : null });
+		}
+		return out;
+	}
+
+	/** Close the gaps that have earned it (V-43), after any answer. */
+	private settleGaps(): void {
+		const misses = this.store.misses();
+		if (!misses.some((m) => m.status === "open")) return;
+		const next = closeGaps(misses, this.rightAnswers(), this.now());
+		if (next === misses) return;
+		const closed = next.filter((m, i) => m.status === "solid" && misses[i]!.status === "open");
+		this.store.saveMisses(next);
+		for (const key of new Set(closed.map(ideaKeyOfMiss))) this.log("gap_closed", { idea: key, questions: closed.filter((m) => ideaKeyOfMiss(m) === key).length });
+	}
+
+	/**
+	 * Gaps by idea (V-39): module, then idea, then the questions missed on it,
+	 * with how far each idea is towards leaving the list (V-43). Only ideas
+	 * with a gap are listed. Confident errors come first within a module.
+	 */
+	gaps() {
+		const profile = this.requireProfile();
+		const lectures = new Map(this.store.allLectures().map((l) => [l.id, l]));
+		const titles = new Map(this.packIdeas().map((i) => [`${i.lectureId}#${i.nodeId}`, i.title]));
+		const ideas = gapsByIdea(this.store.misses(), this.rightAnswers()).flatMap((g) => {
+			const unit = lectures.get(g.lectureId);
+			if (!unit) return [];
+			const bank = this.packs?.bank(g.lectureId) ?? [];
+			return [{
+				key: g.key,
+				lectureId: g.lectureId,
+				nodeId: g.nodeId,
+				module: unit.module,
+				unit: unit.title,
+				title: titles.get(g.key) ?? (g.nodeId === GENERAL_IDEA ? GAP_COPY.wholeUnit(unit.title) : g.nodeId.replace(/[-_]+/g, " ")),
+				missed: g.misses.length,
+				right: g.right,
+				needed: g.needed,
+				confidentError: g.confidentError,
+				// "Practise this idea" needs questions on it to draw from.
+				// Either the idea has questions to draw from, or it is on the unit's map and the AI is connected to write some.
+				canPractise: bank.some((q) => q.node === g.nodeId) || (g.nodeId === GENERAL_IDEA && bank.length > 0) || (this.aiReady && titles.has(g.key)),
+				questions: g.misses.map((m) => ({
+					id: m.id,
+					text: m.questionText,
+					chosen: m.chosen ?? [],
+					reason: m.reason,
+					correct: m.correctLabels,
+					explanation: m.explanation ?? null,
+					slide: parseSlideRefs(m.explanation)[0] ?? bank.find((q) => q.id === m.questionId)?.slides[0] ?? null,
+					at: m.createdAt,
+				})),
+			}];
+		});
+		const modules = profile.modules
+			.map((m) => ({ code: m.code, name: m.name, ideas: ideas.filter((i) => i.module === m.code) }))
+			.filter((m) => m.ideas.length > 0);
+		return { modules, ideas: ideas.length };
+	}
+
+	/** A week in one Learn session: the header names the week, and the slide panel follows the unit of the idea being taught. */
+	private weekOf(session: CompanionSession, v: SessionView): Partial<Pick<SessionView, "lecture" | "learn">> {
+		const ids = session.spec.learn?.lectureIds;
+		if (!ids || ids.length < 2 || !v.learn) return {};
+		const first = this.lectureById(ids[0]!);
+		const at = v.learn.plan?.currentId ? this.lectureById(learnNodeRef(v.learn.plan.currentId, ids, ids[0]).lectureId) : undefined;
+		return {
+			lecture: { ...v.lecture, title: LEARN_COPY.weekTitle(first?.week ?? 0, ids.length) },
+			learn: { ...v.learn, ...(at ? { unit: { id: at.id, title: at.title } } : {}) },
+		};
+	}
+
+	/** Learn or Practise, for the header (V-40, V-50). A round across a module is named after the module. */
+	private studyOf(session: CompanionSession, lecture: Pick<Lecture, "module">, budget: number): Pick<SessionView, "study" | "practiseOf"> & { goal?: string } {
+		const study = session.spec.study ?? "learn";
+		if (!session.spec.practise) return { study };
+		const name = this.store.profile()?.modules.find((m) => m.code === session.spec.practise!.module)?.name ?? lecture.module;
+		return { study, practiseOf: name, goal: goalFor(session.spec, { title: name }, budget) };
+	}
+
+	/**
+	 * Start Practise (V-40). For "Practise this idea" (V-39) the AI first writes
+	 * new questions around the gap, when it is connected; they lead the round.
+	 * Without the AI, or if it fails, the round uses the idea's unused questions.
+	 */
+	async practise(raw: unknown): Promise<{ sessionId: string; written: number }> {
+		const idea = (raw as { idea?: unknown } | null)?.idea;
+		let written: string[] = [];
+		if (typeof idea === "string" && idea.includes("#") && this.packs && (this.ai ? await this.ai.ready().catch(() => false) : false)) {
+			const [lectureId, nodeId] = [idea.slice(0, idea.indexOf("#")), idea.slice(idea.indexOf("#") + 1)];
+			const misses = this.store.misses().filter((m) => m.status === "open" && ideaKeyOfMiss(m) === idea);
+			try {
+				const fresh = await this.packs.writeForIdea(lectureId, nodeId, misses.map((m) => ({ stem: m.questionText, chosen: m.chosen ?? [], correct: m.correctLabels, reason: m.reason, ...(m.confidence !== undefined ? { confidence: m.confidence } : {}), ...(m.why ? { why: m.why } : {}) })), GAP_RULES.newQuestions);
+				written = fresh.map((q) => q.id);
+			} catch (err) {
+				// The round still runs, on the questions the idea already has.
+				this.log("gap_questions_failed", { idea, error: err instanceof Error ? err.message.slice(0, 200) : "unknown" });
+			}
+		}
+		return { ...this.startPractise(raw, written), written: written.length };
+	}
+
+	/**
+	 * Start a Practise round across a module (V-40): questions from the
+	 * module's banks, chosen by the mixing rule. No AI, no wait.
+	 */
+	startPractise(raw: unknown, lead: readonly string[] = []): { sessionId: string } {
+		const code = (raw as { module?: unknown } | null)?.module;
+		if (typeof code !== "string" || !this.requireProfile().modules.some((m) => m.code === code)) throw badRequest("module must be one of your modules");
+		// "Practise this idea" (V-39): the round stays on one idea of one unit.
+		const idea = (raw as { idea?: unknown }).idea;
+		if (idea !== undefined && (typeof idea !== "string" || !idea.includes("#"))) throw badRequest("idea must be an idea key, lectureId#nodeId");
+		// Questions just written for this gap lead the round; the rest are chosen by the rule.
+		const n = idea ? GAP_RULES.newQuestions : PRACTISE_RULES.questions;
+		const leading = idea ? lead.slice(0, n).map((questionId) => ({ lectureId: (idea as string).slice(0, (idea as string).indexOf("#")), questionId })) : [];
+		const picks = [...leading, ...this.practisePicks(code, n - leading.length, new Set(leading.map((p) => p.questionId)), idea as string | undefined)];
+		if (picks.length === 0) throw new CompanionError("no_questions", 422, idea ? GAP_COPY.noQuestions : PRACTISE_COPY.noQuestions);
+		const spec: SessionSpec = {
+			kind: "practise", lectureId: picks[0]!.lectureId, mode: "question-first", study: "practise",
+			budget: { questions: picks.length, minutes: PRACTISE_RULES.minutes },
+			practise: { module: code, picks, ...(idea ? { idea: idea as string } : {}) },
+		};
+		return this.createSession(spec);
+	}
+
+	/** The questions for a Practise round: what `pickPractise` chooses from the module's banks and the student's history. */
+	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>, idea?: string): { lectureId: string; questionId: string }[] {
+		const now = this.now();
+		const all: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
+		// One idea only: its own questions, or the whole unit's when the gap is on the unit in general.
+		const candidates = !idea ? all : all.filter((c) => (idea.endsWith(`#${GENERAL_IDEA}`) ? `${c.lectureId}#${GENERAL_IDEA}` === idea : ideaKeyOf(c) === idea));
+		if (candidates.length === 0) return [];
+		// How often, and when last, each question has been asked: on the laptop or the phone.
+		const asked = new Map<string, { times: number; last: number }>();
+		const events = this.store.events();
+		for (const e of events) {
+			if (e.type !== "answer" && e.type !== "answered") continue;
+			const id = e.data.questionId;
+			if (typeof id !== "string") continue;
+			const at = new Date(e.t).getTime();
+			const a = asked.get(id);
+			asked.set(id, { times: (a?.times ?? 0) + 1, last: Math.max(a?.last ?? at, at) });
+		}
+		// Where each idea stands: a gap, fading, fine, or not met yet.
+		const banks = new Map<string, Map<string, QuestionInfo>>();
+		const questionInfo = (questionId: string, lectureId: string) => {
+			if (!banks.has(lectureId)) banks.set(lectureId, new Map((this.packs?.bank(lectureId) ?? []).map((q) => [q.id, { difficulty: q.difficulty, nodeId: q.node }])));
+			return banks.get(lectureId)!.get(questionId);
+		};
+		const replay = replayScore({ events, blocks: this.store.blocks(), lectures: this.store.allLectures(), ideas: this.packIdeas(), questionInfo, now });
+		const fading = new Set(fadingAt(replay, now));
+		const standing = new Map<string, IdeaStanding>();
+		for (const i of replay.ideas.values()) standing.set(i.key, i.toRevisit ? "gap" : fading.has(i.key) ? "fading" : i.lastRight ? "ok" : "new");
+		for (const m of this.store.misses()) if (m.status === "open" && m.nodeId) standing.set(`${m.lectureId}#${m.nodeId}`, "gap");
+		return pickPractise({ candidates, asked, standing, n, exclude }).map((c) => ({ lectureId: c.lectureId, questionId: c.question.id }));
+	}
+
+	/**
+	 * What the done screen names instead of a score (R-6; design log 23 Nov):
+	 * the ideas this session will bring back, and the next study block.
+	 */
+	private doneExtras(session: CompanionSession, now: Date): Pick<SessionView, "comingBack" | "nextBlockAt"> {
+		const titles = new Map(this.packIdeas().map((i) => [`${i.lectureId}#${i.nodeId}`, i.title]));
+		const comingBack: string[] = [];
+		for (const m of this.store.misses()) {
+			if (m.sessionId !== session.id || m.status !== "open") continue;
+			const name = (m.nodeId ? titles.get(`${m.lectureId}#${m.nodeId}`) : undefined) ?? m.questionText;
+			if (!comingBack.includes(name)) comingBack.push(name);
+		}
+		return { comingBack, nextBlockAt: this.nextBlockOf(this.store.state(), now)?.start.toISOString() ?? null };
+	}
+
+	/** The next study block still to come, within the week ahead. */
+	private nextBlockOf(state: Pick<ReturnType<CompanionStore["state"]>, "blocks">, now: Date) {
+		for (let i = 0; i < 8; i++) {
+			const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
+			if (c) return c;
+		}
+		return null;
 	}
 
 	/**
@@ -1671,6 +2241,8 @@ export class CompanionService {
 				...s,
 				openedAt: s.openedAt ?? now.toISOString(),
 				lastActivityAt: now.toISOString(),
+				// Learn: the clock for this sitting starts when it is opened, and again when it is picked up.
+				...(s.spec.learn ? { sittingFrom: now.toISOString() } : {}),
 				state: s.state === "ready" || s.state === "stopped" ? "active" : s.state,
 			};
 		});
@@ -1687,7 +2259,11 @@ export class CompanionService {
 			if (!Array.isArray(r.indices) || !r.indices.every((i) => Number.isInteger(i) && i >= 1)) throw badRequest("indices must be 1-based option numbers");
 			out.indices = r.indices as number[];
 		}
-		if (!out.dontKnow && !(out.indices && out.indices.length > 0)) throw badRequest("choose an option or \"I don't know\"");
+		if (r.text !== undefined) {
+			if (typeof r.text !== "string" || r.text.length > LEARN_RULES.sayMax) throw badRequest(`text must be under ${LEARN_RULES.sayMax} characters`);
+			if (r.text.trim()) out.text = r.text.trim();
+		}
+		if (!out.dontKnow && !(out.indices && out.indices.length > 0) && !out.text) throw badRequest("choose an option or \"I don't know\"");
 		if (r.confidence !== undefined && !out.dontKnow) {
 			if (typeof r.confidence !== "number" || !CONFIDENCE_STOPS.includes(r.confidence)) throw badRequest(`confidence must be one of ${CONFIDENCE_STOPS.join(", ")}`);
 			out.confidence = r.confidence;
@@ -1713,19 +2289,26 @@ export class CompanionService {
 			lastActivityAt: now.toISOString(),
 			state: s.state === "stopped" || s.state === "ready" ? "active" : s.state,
 		}))!;
-		const miss = missFromAnswer(record, { sessionId: id, lectureId: session.spec.lectureId, now });
+		// A week in one Learn session: the idea says which unit it belongs to.
+		const ref = session.spec.learn?.lectureIds?.length && record.nodeId ? learnNodeRef(record.nodeId, session.spec.learn.lectureIds, session.spec.lectureId) : null;
+		if (ref) record.nodeId = ref.nodeId;
+		const lectureId = ref?.lectureId ?? record.lectureId ?? session.spec.lectureId;
+		const miss = missFromAnswer(record, { sessionId: id, lectureId, now });
 		let misses = this.store.misses();
 		if (miss) misses = mergeMisses(misses, [miss]);
 		if (session.spec.kind === "retest" && counts && session.spec.missIds) misses = applyRetestAnswer(misses, session.spec.missIds, updated.answered, record, now);
 		if (miss || session.spec.kind === "retest") this.store.saveMisses(misses);
 		this.log("answer", {
-			sessionId: id, lectureId: session.spec.lectureId, questionId: record.questionId, nodeId: record.nodeId ?? null,
-			slides: parseSlideRefs(record.explanation), n: updated.answered, engine: session.engine, kind: session.spec.kind,
-			graded: record.graded, correct: record.correct, dontKnow: record.dontKnow, confidence: record.confidence ?? null,
+			sessionId: id, lectureId, questionId: record.questionId, nodeId: record.nodeId ?? null,
+			slides: parseSlideRefs(record.explanation), n: updated.answered, engine: session.engine, kind: session.spec.kind, study: session.spec.study ?? "learn",
+			graded: record.graded, guess: !!record.guess, correct: record.correct, dontKnow: record.dontKnow, confidence: record.confidence ?? null,
 			why: !!record.why, whyLength: record.why?.length ?? 0, assisted: (session.hintedQuestionIds ?? []).includes(record.questionId),
 			msOnQuestion: session.questionShownAt ? now.getTime() - new Date(session.questionShownAt).getTime() : null,
 			miss: miss?.reason ?? null,
+			// What was chosen (V-39). The typed reason stays out of the log; it is kept with the miss.
+			chosen: record.chosen ?? [],
 		});
+		this.settleGaps();
 		return { correct: record.correct, graded: record.graded };
 	}
 
@@ -1752,11 +2335,21 @@ export class CompanionService {
 		const { session, engine } = this.requireSession(id);
 		const n = (raw as { questions?: unknown } | null)?.questions ?? KEEP_GOING_QUESTIONS;
 		if (!Number.isInteger(n) || (n as number) < 1 || (n as number) > 10) throw badRequest("questions must be 1–10");
-		const budget = session.budget + (n as number);
-		const raised = this.store.updateSession(id, (s) => ({ ...s, budget, state: s.state === "done" || s.state === "stopped" ? "active" : s.state }))!;
+		let extra: { lectureId: string; questionId: string }[] = [];
+		if (session.spec.practise) {
+			extra = this.practisePicks(session.spec.practise.module, n as number, new Set(session.spec.practise.picks.map((p) => p.questionId)), session.spec.practise.idea);
+			if (extra.length === 0) throw new CompanionError("no_more_questions", 409, PRACTISE_COPY.noMore);
+		}
+		const budget = session.budget + (session.spec.practise ? extra.length : (n as number));
+		const raised = this.store.updateSession(id, (s) => ({
+			...s,
+			budget,
+			...(s.spec.practise ? { spec: { ...s.spec, practise: { ...s.spec.practise, picks: [...s.spec.practise.picks, ...extra] } } } : {}),
+			state: s.state === "done" || s.state === "stopped" ? "active" : s.state,
+		}))!;
 		const { patch } = await engine.more(raised, n as number);
 		this.store.updateSession(id, (s) => ({ ...s, ...patch, lastActivityAt: this.now().toISOString() }));
-		this.log("keep_going", { sessionId: id, added: n, budget });
+		this.log("keep_going", { sessionId: id, added: session.spec.practise ? extra.length : n, budget });
 		return { budget };
 	}
 
@@ -1764,7 +2357,345 @@ export class CompanionService {
 		const { session } = this.requireSession(id);
 		if (session.state === "done" || session.state === "stopped") return;
 		this.store.updateSession(id, (s) => ({ ...s, state: "stopped", endedAt: this.now().toISOString() }));
-		this.log("session_stopped", { sessionId: id, answered: session.answered, budget: session.budget, engine: session.engine });
+		this.log("session_stopped", { sessionId: id, answered: session.answered, budget: session.budget, engine: session.engine, ...(session.learnAt ? { idea: session.learnAt.index, ideas: session.learnAt.total } : {}) });
+		this.noteWhere(id);
+	}
+
+	// ─── what LockedIn knows about you (v2.0 step 6; V-52, V-53) ────────────
+
+	/** The newest earlier Learn session in a module that got as far as a plan: the third note. */
+	private lastLearnIn(module: string): NonNullable<ModuleNotesView["last"]> | null {
+		for (const s of [...this.store.sessions()].reverse()) {
+			if (!s.spec.learn || !s.learnAt) continue;
+			const lecture = this.lectureById(s.spec.lectureId);
+			if (!lecture || lecture.module !== module) continue;
+			return { sessionId: s.id, lecture: lecture.title, at: s.endedAt ?? s.lastActivityAt ?? s.createdAt, index: s.learnAt.index, total: s.learnAt.total, title: s.learnAt.title, plan: s.learnAt.plan ?? [], finished: s.state === "done" };
+		}
+		return null;
+	}
+
+	/** The three notes for a module, as the Library shows them (V-53; R-7, AFF-H: show what the app knows). */
+	moduleNotes(code: string): ModuleNotesView {
+		const mod = this.requireModule(code);
+		const n = this.store.notes()[mod.code] ?? {};
+		return {
+			module: { code: mod.code, name: mod.name },
+			asked: n.asked === true,
+			how: n.how ? { text: n.how.text, at: n.how.at } : null,
+			where: n.where ?? null,
+			last: this.lastLearnIn(mod.code),
+		};
+	}
+
+	private patchNotes(module: string, patch: (n: ModuleNotes) => ModuleNotes): ModuleNotes {
+		const all = this.store.notes();
+		const next = patch(all[module] ?? {});
+		this.store.saveNotes({ ...all, [module]: next });
+		return next;
+	}
+
+	/** The student edits a note: `{ how?: string, where?: string }`. An empty string clears it. */
+	saveModuleNote(code: string, raw: unknown): ModuleNotesView {
+		const mod = this.requireModule(code);
+		const r = (raw ?? {}) as { how?: unknown; where?: unknown };
+		const at = this.now().toISOString();
+		const text = (v: unknown, max: number): string | undefined => {
+			if (v === undefined) return undefined;
+			if (typeof v !== "string") throw badRequest("a note is text");
+			const t = v.trim();
+			if (wordCount(t) > max) throw badRequest(NOTE_COPY.tooLong(max));
+			return t;
+		};
+		const how = text(r.how, NOTE_RULES.howWords);
+		const where = text(r.where, NOTE_RULES.whereWords);
+		if (how === undefined && where === undefined) throw badRequest("nothing to save");
+		this.patchNotes(mod.code, (n) => {
+			const { how: oldHow, where: oldWhere, ...rest } = n;
+			return {
+				...rest,
+				...(how === undefined ? (oldHow ? { how: oldHow } : {}) : how ? { how: { text: how, at } } : {}),
+				...(where === undefined ? (oldWhere ? { where: oldWhere } : {}) : where ? { where: { text: where, at, by: "you" as const } } : {}),
+			};
+		});
+		for (const note of [how !== undefined ? "how" : null, where !== undefined ? "where" : null]) if (note) this.log("note_edited", { module: mod.code, note });
+		return this.moduleNotes(mod.code);
+	}
+
+	/**
+	 * The first-time card (V-52), answered on a waiting Learn session: the
+	 * taps (`{ start?, steps?, check?, more? }`), `{ same: true }` to reuse
+	 * another module's answer, or `{ skip: true }`. Either way the module is
+	 * never asked again, and the tutor starts.
+	 */
+	answerHow(id: string, raw: unknown): { ok: true } {
+		const { session, lecture } = this.requireSession(id);
+		if (!session.spec.learn) throw conflict("not_learn", "only a Learn session asks this");
+		const r = (raw ?? {}) as { same?: unknown; skip?: unknown };
+		const at = this.now().toISOString();
+		const others = howFromOthers(this.store.notes(), lecture.module);
+		if (r.same === true && !others) throw badRequest("no other module has an answer to reuse");
+		const prefs = r.same === true || r.skip === true ? {} : cleanPrefs(raw);
+		const text = r.same === true ? others!.text : howNote(prefs);
+		this.patchNotes(lecture.module, (n) => ({ ...n, asked: true, ...(text ? { how: { text, ...(Object.keys(prefs).length ? { prefs } : {}), at } } : {}) }));
+		this.log("how_answered", { module: lecture.module, how: r.skip === true ? "skip" : r.same === true ? "same" : text ? "taps" : "skip", rows: ["start", "steps", "check"].filter((k) => k in prefs).length, typed: "more" in prefs });
+		if (session.awaitingHow) {
+			this.store.updateSession(id, ({ awaitingHow: _waiting, ...s }) => s);
+			this.beginPrepare(id);
+		}
+		return { ok: true };
+	}
+
+	private readonly noting = new Map<string, Promise<void>>();
+
+	/** Resolves when "where you are" has been rewritten (or not) after a session. For tests. */
+	whenNoted(sessionId: string): Promise<void> {
+		return this.noting.get(sessionId) ?? Promise.resolve();
+	}
+
+	/**
+	 * After a Learn session ends, the AI rewrites the module's "where you are"
+	 * note from what the session showed (V-53), on the cheap model and in the
+	 * background. A failure is logged and the old note stays.
+	 */
+	private noteWhere(sessionId: string): void {
+		const session = this.store.session(sessionId);
+		const generate = this.deps.generate;
+		if (!session?.spec.learn || !session.chatId || !generate || this.noting.has(sessionId)) return;
+		const lecture = this.lectureById(session.spec.lectureId);
+		const engine = this.deps.engines[session.engine];
+		if (!lecture || !engine?.steps) return;
+		let answered: string[];
+		try {
+			answered = engine.steps(session).flat().flatMap((i) => {
+				if (i.type !== "answered") return [];
+				const picked = i.written ?? (i.dontKnow ? "I don't know" : i.options.filter((o) => o.picked).map((o) => o.label).join("; "));
+				const right = i.options.filter((o) => o.answer).map((o) => o.label).join("; ");
+				return [`- ${i.guess ? "Have a guess" : i.options.length ? "Check" : "In their own words"}: ${i.stem.replace(/\s+/g, " ")} | answered: ${picked || "(nothing)"}${i.guess || i.correct === undefined ? "" : i.correct ? " | right" : " | not right"}${right && !i.correct ? ` | answer: ${right}` : ""}${i.why ? ` | their why: ${i.why}` : ""}`];
+			});
+		} catch {
+			return;
+		}
+		// Nothing was answered: the session shows nothing new about where they are.
+		if (answered.length === 0) return;
+		const code = lecture.module;
+		const started = Date.now();
+		const old = this.store.notes()[code]?.where;
+		const plan = session.learnAt?.plan?.length ? session.learnAt.plan.map((n) => `${n.title} (${n.state === "done" ? "done" : n.state === "current" ? "stopped here" : "not reached"})`).join("; ") : "none yet";
+		const user = [
+			`Module: ${code}`,
+			`Lecture: ${lecture.title}`,
+			`The note as it stands${old?.by === "you" ? " (the student edited it themselves)" : ""}:`,
+			old?.text || "(empty)",
+			"",
+			`This session's plan: ${plan}`,
+			`How it ended: ${session.state === "done" ? "the student finished it" : "the student stopped part-way"}`,
+			"",
+			"Questions and answers, in order:",
+			...answered,
+		].join("\n");
+		const run = (async () => {
+			try {
+				const system = fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ this.deps.promptsDir ?? "companion/prompts", "where-you-are.md"), "utf-8");
+				const r = await generate<{ note: string }>({
+					slot: NOTE_RULES.slot, system, user,
+					toolName: "save_note", toolDescription: "Save the rewritten note.",
+					schema: { type: "object", additionalProperties: false, required: ["note"], properties: { note: { type: "string" } } },
+					validate: (v) => {
+						const note = (v as { note?: unknown } | null)?.note;
+						if (typeof note !== "string" || !note.trim()) return "note must be text";
+						return wordCount(note) > NOTE_RULES.whereWords ? `the note has ${wordCount(note)} words; keep it under ${NOTE_RULES.whereWords}` : null;
+					},
+				});
+				const text = r.value.note.trim();
+				this.patchNotes(code, (n) => ({ ...n, where: { text, at: this.now().toISOString(), by: "ai" } }));
+				this.log("note_rewritten", { module: code, sessionId, words: wordCount(text), ms: Date.now() - started, model: r.model, cost: r.cost });
+			} catch (err) {
+				this.log("note_rewrite_failed", { module: code, sessionId, message: err instanceof Error ? err.message : String(err) });
+			}
+		})().finally(() => this.noting.delete(sessionId));
+		this.noting.set(sessionId, run);
+	}
+
+	// ─── Learn (v2.0 step 5; V-47, V-54) ────────────────────────────────────
+
+	/** How long a Learn sitting is when it isn't started from a block: the student's usual block length. */
+	private learnMinutes(): number {
+		return this.store.profile() ? this.planSettings().blockMinutes : LEARN_RULES.defaultMinutes;
+	}
+
+	/** Any session the tutor runs is Learn (V-40): give it Learn's shape. */
+	private asLearn(spec: SessionSpec, minutes = this.learnMinutes()): SessionSpec {
+		return { ...spec, study: "learn", budget: { questions: 0, minutes }, learn: { scope: spec.nodes?.length ? "section" : "lecture", minutes } };
+	}
+
+	/** The same unit on its question bank: what a Learn session becomes when the tutor can't run. */
+	private asPractise(spec: SessionSpec): SessionSpec {
+		const { learn: _learn, ...rest } = spec;
+		const kind = rest.kind === "learn" ? "post-lecture" : rest.kind;
+		return { ...rest, kind, study: "practise", budget: { ...SESSION_BUDGETS[kind] } };
+	}
+
+	private learnOpening(spec: SessionSpec, lecture: Lecture, firstQuestion?: { stem: string; slides: number[] }) {
+		const ids = spec.learn?.lectureIds?.length ? spec.learn.lectureIds : [lecture.id];
+		const units = ids.flatMap((id) => {
+			const l = this.lectureById(id);
+			return l ? [{ lecture: l, slidesMarkdown: this.content.slidesMarkdown(id) ?? "", slidesFile: this.content.slidesPath(id), conceptMap: this.content.conceptMapSource(id) }] : [];
+		});
+		const moduleName = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name;
+		// What LockedIn knows about the student in this module (V-53): the tutor reads all three notes.
+		const mine = this.store.notes()[lecture.module];
+		const last = this.lastLearnIn(lecture.module);
+		const notes = {
+			...(mine?.how?.text ? { how: mine.how.text } : {}),
+			...(mine?.where?.text ? { where: mine.where.text } : {}),
+			...(last ? { last: `${last.finished ? NOTE_COPY.finishedAt(last.lecture) : NOTE_COPY.stoppedAt(last.index, last.total, last.title, last.lecture)}${last.plan.length ? ` Its plan: ${last.plan.map((n) => `${n.title} (${n.state === "done" ? "done" : n.state === "current" ? "stopped here" : "not reached"})`).join("; ")}.` : ""}` } : {}),
+		};
+		return buildLearnOpening({ spec, lecture, ...(moduleName ? { moduleName } : {}), units, now: this.now(), notes, ...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}) });
+	}
+
+	/** A module's units that can be taught, in course order. */
+	private learnUnits(code: string): Lecture[] {
+		return this.store.lectures().filter((l) => l.module === code && l.hasMaterials && l.kind !== "event").sort((a, b) => (a.week || 99) - (b.week || 99) || a.order - b.order);
+	}
+
+	/** A Learn session that was stopped part-way, newest first (R-5: nothing is lost). Offered for RESUME_RULES.offerDays. */
+	private unfinishedLearn(match: (s: CompanionSession) => boolean): CompanionSession | null {
+		const now = this.now().getTime();
+		return [...this.store.sessions()].reverse().find((s) => !!s.spec.learn && !!s.chatId && (s.state === "active" || s.state === "stopped") && match(s)
+			&& now - new Date(s.endedAt ?? s.lastActivityAt ?? s.openedAt ?? s.createdAt).getTime() <= RESUME_RULES.offerDays * 86_400_000) ?? null;
+	}
+
+	/**
+	 * The module's start sheet (step 5; AFF-K, INT-02-b): one suggestion, the
+	 * topics a typed goal is matched against, and this week's lectures.
+	 */
+	learnSheet(code: string) {
+		const mod = this.requireModule(code);
+		const now = this.now();
+		const units = this.learnUnits(mod.code);
+		const ids = new Set(units.map((u) => u.id));
+		const sessions = this.store.sessions();
+		const learned = new Set(sessions.filter((s) => !!s.spec.learn && s.state === "done").flatMap((s) => s.spec.learn?.lectureIds ?? [s.spec.lectureId]));
+		const stopped = this.unfinishedLearn((s) => units.some((u) => learnCovers(s, u.id)));
+		const next = units.find((u) => !learned.has(u.id)) ?? units[0];
+		const stoppedUnit = stopped ? units.find((u) => u.id === stopped.spec.lectureId) : undefined;
+		const { week } = currentWeek(mod, now);
+		const thisWeek = week ? units.filter((u) => u.week === week) : [];
+		const topics: LearnTopic[] = units.map((u) => ({ lectureId: u.id, title: u.title, week: u.week }));
+		for (const idea of this.packIdeas()) {
+			const unit = units.find((u) => u.id === idea.lectureId);
+			if (unit) topics.push({ lectureId: idea.lectureId, nodeId: idea.nodeId, title: idea.title, week: unit.week });
+		}
+		return {
+			module: { code: mod.code, name: mod.name },
+			connected: this.defaultEngine() === "learnharness" || this.store.demo().engineOverride === "learnharness",
+			minutes: this.learnMinutes(),
+			suggestion: stopped && stoppedUnit
+				? { type: "resume" as const, sessionId: stopped.id, lectureId: stoppedUnit.id, title: stopped.learnAt?.title || stoppedUnit.title, at: stopped.learnAt ?? null }
+				: next ? { type: "next" as const, lectureId: next.id, title: next.title } : null,
+			week: week && thisWeek.length ? { week, lectureIds: thisWeek.map((u) => u.id) } : null,
+			lectures: units.map((u) => ({ id: u.id, title: u.title, week: u.week })),
+			topics,
+		};
+	}
+
+	/**
+	 * Start Learn (V-47). `{ lectureId }` teaches a lecture; `{ lectureId,
+	 * nodes }` one part of it; `{ module, week: true }` that module's
+	 * lectures in the current teaching week, in one session. `goal` is what
+	 * the student typed or said, handed to the tutor in their words.
+	 */
+	startLearn(raw: unknown, opts: { minutes?: number; kind?: SessionKind; firstQuestionId?: string; nudgeKey?: string } = {}): { sessionId: string } {
+		const r = (raw ?? {}) as { lectureId?: unknown; module?: unknown; week?: unknown; goal?: unknown; nodes?: unknown };
+		let goal: string | undefined;
+		if (r.goal !== undefined) {
+			if (typeof r.goal !== "string" || r.goal.length > LEARN_RULES.goalMax) throw badRequest(`goal must be text under ${LEARN_RULES.goalMax} characters`);
+			goal = r.goal.replace(/\s+/g, " ").trim() || undefined;
+		}
+		let lectureIds: string[];
+		let scope: LearnScope = "lecture";
+		let nodes: string[] | undefined;
+		if (r.week === true) {
+			if (typeof r.module !== "string") throw badRequest("module is required for this week");
+			const mod = this.requireModule(r.module);
+			const { week } = currentWeek(mod, this.now());
+			lectureIds = week ? this.learnUnits(mod.code).filter((u) => u.week === week).map((u) => u.id) : [];
+			if (lectureIds.length === 0) throw new CompanionError("nothing_this_week", 409, LEARN_COPY.nothingThisWeek);
+			if (lectureIds.length > 1) scope = "week";
+		} else {
+			if (typeof r.lectureId !== "string") throw badRequest("lectureId is required");
+			const lecture = this.lectureById(assertSafeId(r.lectureId, "lecture id"));
+			if (!lecture) throw notFound("lecture");
+			if (!lecture.hasMaterials) throw new CompanionError("no_material", 409, LEARN_COPY.nothingToLearn);
+			lectureIds = [lecture.id];
+			if (r.nodes !== undefined) {
+				if (!Array.isArray(r.nodes) || r.nodes.length > 10 || !r.nodes.every((n) => typeof n === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(n))) throw badRequest("nodes must be up to 10 concept-map node ids");
+				if (r.nodes.length) {
+					nodes = [...(r.nodes as string[])];
+					scope = "section";
+				}
+			}
+		}
+		const minutes = opts.minutes ?? this.learnMinutes();
+		const spec: SessionSpec = {
+			kind: opts.kind ?? "learn",
+			lectureId: lectureIds[0]!,
+			mode: "question-first",
+			budget: { questions: 0, minutes },
+			study: "learn",
+			learn: { scope, minutes, ...(goal ? { goal } : {}), ...(scope === "week" ? { lectureIds } : {}) },
+			...(nodes ? { nodes } : {}),
+			...(opts.firstQuestionId ? { firstQuestionId: opts.firstQuestionId } : {}),
+		};
+		return this.createSession(spec, { ...(opts.nudgeKey ? { nudgeKey: opts.nudgeKey } : {}), askHow: true });
+	}
+
+	/**
+	 * Say something to the tutor (V-54). With a question open it is answered
+	 * beside the question, which stays; while the tutor is writing it is
+	 * handed over at its next pause; otherwise it is the student's turn.
+	 * `say` sends one of LockedIn's own lines (Skip, Looks good, Carry on).
+	 */
+	async say(id: string, raw: unknown): Promise<{ queued: boolean; answer: string | null }> {
+		const { session, engine } = this.requireSession(id);
+		if (!session.spec.learn || !engine.say) throw conflict("not_learn", "only a Learn session takes a message");
+		if (session.state === "error") throw conflict("session_error", "this session failed; start a new one or retry");
+		const r = (raw ?? {}) as { text?: unknown; say?: unknown; questionId?: unknown };
+		const preset = typeof r.say === "string" && Object.hasOwn(LEARN_SAYS, r.say) ? (r.say as keyof typeof LEARN_SAYS) : null;
+		if (r.say !== undefined && !preset) throw badRequest(`say must be one of ${Object.keys(LEARN_SAYS).join(", ")}`);
+		const text = preset ? LEARN_SAYS[preset] : typeof r.text === "string" ? r.text.trim() : "";
+		if (!text) throw badRequest("say something first");
+		if (text.length > LEARN_RULES.sayMax) throw badRequest(`keep it under ${LEARN_RULES.sayMax} characters`);
+		const now = this.now();
+		const touch = (extra: Partial<CompanionSession> = {}) => this.store.updateSession(id, (s) => ({ ...s, ...extra, lastActivityAt: now.toISOString(), state: s.state === "stopped" || s.state === "ready" ? "active" : s.state }));
+		if (!preset && typeof r.questionId === "string" && r.questionId && engine.ask) {
+			const { answer } = await engine.ask(session, r.questionId, text);
+			if (answer) this.store.updateSession(id, (s) => ({ ...s, asides: [...(s.asides ?? []), { questionId: r.questionId as string, ask: text, answer, at: now.toISOString() }] }));
+			touch();
+			this.log("learn_said", { sessionId: id, how: answer ? "beside" : "message", chars: text.length });
+			return { queued: false, answer };
+		}
+		const { queued } = await engine.say(session, text);
+		touch();
+		this.log("learn_said", { sessionId: id, how: preset ?? (queued ? "queued" : "message"), chars: preset ? 0 : text.length });
+		return { queued, answer: null };
+	}
+
+	/** "Finish" (step 5): the student's own decision. A Learn session is never ended for them. */
+	finish(id: string): void {
+		const { session, engine } = this.requireSession(id);
+		if (session.state === "done") return;
+		const now = this.now();
+		this.store.updateSession(id, (s) => ({ ...s, state: "done", endedAt: now.toISOString() }));
+		this.log("session_done", { sessionId: id, answered: session.answered, budget: session.budget, endedEarly: false, engine: session.engine, cost: engine.cost(session), ...(session.learnAt ? { idea: session.learnAt.index, ideas: session.learnAt.total } : {}) });
+		this.noteWhere(id);
+	}
+
+	/** Every step of a Learn session so far ("Earlier"), oldest first. */
+	steps(id: string): { steps: LearnItem[][] } {
+		const { session, engine } = this.requireSession(id);
+		if (!session.spec.learn || !engine.steps || !session.chatId) return { steps: [] };
+		return { steps: engine.steps(session) };
 	}
 
 	async retry(id: string): Promise<void> {
@@ -1810,7 +2741,7 @@ export class CompanionService {
 		const { session } = this.requireSession(id);
 		if (session.state !== "error" && !session.error) throw conflict("session_not_failed", "this session is working: carry on with it");
 		if (!this.canPractise(session)) throw new CompanionError("no_scripted_set", 422, "there are no practice questions for this lecture yet");
-		const { seedAnswer: _seed, ...spec } = session.spec;
+		const { seedAnswer: _seed, ...spec } = this.asPractise(session.spec);
 		const next = this.createSession(spec, { engine: "scripted" });
 		this.store.updateSession(next.sessionId, (s) => ({ ...s, fellBackFrom: session.engine }));
 		this.log("engine_fallback", { sessionId: next.sessionId, from: session.engine, to: "scripted", code: session.error ?? null, chosen: true, failedSessionId: id });
@@ -1955,24 +2886,26 @@ export class CompanionService {
 		const resume = resumableSession(state.sessions, now);
 		const resumeLecture = resume ? this.lectureById(resume.spec.lectureId) : undefined;
 		const nextBlock = (() => {
-			for (let i = 0; i < 8; i++) {
-				const c = commitmentsOn({ lectures: [], blocks: state.blocks }, addDays(now, i)).find((b) => b.end > now);
+			{
+				const c = this.nextBlockOf(state, now);
 				if (c) {
 					const b = state.blocks.find((x) => x.id === c.id);
 					const first = b ? this.firstStepOf(b) : null;
 					// Today's block can be started from Today (V-44).
-					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null };
+					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null };
 				}
 			}
 			return null;
 		})();
 		return {
 			now: now.toISOString(),
-			onboarded: !!state.profile,
+			// A profile made by setup isn't set up until setup's end is reached (V-45).
+			onboarded: !!state.profile && !this.inSetup(state.profile),
 			tryNow: tryNow ? { lectureId: tryNow.id, title: tryNow.title, module: tryNow.module, spec: specFor("try-now", tryNow.id, state.profile?.prefs) } : null,
 			lectures: todays,
 			nextBlock,
-			readyToRevisit: state.misses.filter((m) => m.status === "open").length,
+			// Ideas with a gap (V-39), not missed questions: several questions on one idea are one thing to revisit.
+			readyToRevisit: gapsByIdea(state.misses, []).length,
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
 			phonePaired: this.phone?.paired() ?? false,
@@ -1984,9 +2917,13 @@ export class CompanionService {
 						sessionId: resume.id,
 						module: resumeLecture.module,
 						title: resumeLecture.title,
-						answered: resume.answered,
-						budget: resume.budget,
-						text: `${SESSION_COPY.savedAt(resume.answered + 1)} ${SESSION_COPY.left(resume.budget - resume.answered, (resume.budget - resume.answered) * RESUME_RULES.minutesPerQuestion)}.`,
+						study: (resume.spec.study ?? "learn") as StudyMode,
+						// A Learn session is placed by its plan, not by a question count.
+						answered: resume.spec.learn ? Math.max(0, (resume.learnAt?.index ?? 1) - 1) : resume.answered,
+						budget: resume.spec.learn ? Math.max(1, resume.learnAt?.total ?? 1) : resume.budget,
+						text: resume.spec.learn
+							? LEARN_COPY.savedAt(resume.learnAt)
+							: `${SESSION_COPY.savedAt(resume.answered + 1)} ${SESSION_COPY.left(resume.budget - resume.answered, (resume.budget - resume.answered) * RESUME_RULES.minutesPerQuestion)}.`,
 					}
 				: null,
 		};

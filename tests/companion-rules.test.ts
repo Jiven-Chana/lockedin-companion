@@ -50,21 +50,20 @@ describe("miss log", () => {
 		assert.equal(nextDueAfter(9, now).getDate(), 24);
 	});
 
-	it("a retest makes a miss solid on correct at ≥ 70%, otherwise reschedules it", () => {
+	it("a revisit no longer clears a miss by itself (V-43): it only moves when the miss is offered next", () => {
+		// An idea closes on two sure right answers on different days, wherever they are given (companion-gaps.test.ts).
 		const m = missFromAnswer(ans(), ctx)!;
-		const solid = applyRetestAnswer([m], [m.id], 1, ans({ correct: true, confidence: 70 }), now);
-		assert.equal(solid[0]!.status, "solid");
-		const unsure = applyRetestAnswer([m], [m.id], 1, ans({ correct: true, confidence: 50 }), now);
-		assert.equal(unsure[0]!.status, "open");
-		assert.equal(unsure[0]!.timesSeen, 1);
-		assert.equal(unsure[0]!.nextDue, nextDueAfter(1, now).toISOString());
+		for (const confidence of [70, 100, 50]) {
+			const out = applyRetestAnswer([m], [m.id], 1, ans({ correct: true, confidence }), now);
+			assert.deepEqual([out[0]!.status, out[0]!.timesSeen, out[0]!.nextDue], ["open", 1, nextDueAfter(1, now).toISOString()]);
+		}
 	});
 
 	it("retest answers map to misses in order", () => {
 		const a = { ...missFromAnswer(ans(), ctx)!, id: "a" };
 		const b = { ...missFromAnswer(ans(), ctx)!, id: "b" };
 		const out = applyRetestAnswer([a, b], ["a", "b"], 2, ans({ correct: true, confidence: 90 }), now);
-		assert.deepEqual(out.map((m) => m.status), ["open", "solid"]);
+		assert.deepEqual(out.map((m) => m.timesSeen), [0, 1], "the second answer is about the second miss");
 	});
 });
 

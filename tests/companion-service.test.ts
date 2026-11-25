@@ -145,7 +145,7 @@ describe("J3: Maya's missed lecture, and resume", () => {
 });
 
 describe("J4: the resurfaced miss", () => {
-	it("a miss comes back in a later retest with fresh wording and becomes solid", async () => {
+	it("a miss comes back in a later retest with fresh wording, and one right answer is half of closing it", async () => {
 		const { svc, clock, store } = setup();
 		svc.demoScenario({ name: "tayo" });
 		clock.set(at(17, 13, 5));
@@ -170,7 +170,8 @@ describe("J4: the resurfaced miss", () => {
 		assert.notEqual(rv.question?.id, "q1", "never the same wording: a sibling question");
 		const right = rv.question!.options.findIndex((o) => /specific person|focus/i.test(o.label)) + 1;
 		await svc.answer(retest!, { questionId: rv.question!.id, indices: [right], confidence: 90 });
-		assert.equal(store.misses()[0]?.status, "solid");
+		// One sure right answer is half of what closes a gap (V-43): the idea stays on the list until a second, on another day.
+		assert.equal(store.misses()[0]?.status, "open");
 	});
 });
 
@@ -254,7 +255,7 @@ describe("engines, fallback and errors", () => {
 	it("without fallback a failed prepare is an honest error state", async () => {
 		const { svc, events } = setup({ engines: { learnharness: broken }, defaultEngine: "learnharness" });
 		svc.onboard({});
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		await svc.whenReady(sessionId);
 		const v = await svc.view(sessionId);
 		assert.equal(v.status, "error");
@@ -265,7 +266,7 @@ describe("engines, fallback and errors", () => {
 	it("with COMPANION_AUTO_FALLBACK the session continues on the scripted engine, and says so", async () => {
 		const { svc, store, events } = setup({ engines: { learnharness: broken }, defaultEngine: "learnharness", autoFallback: true });
 		svc.onboard({});
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		await svc.whenReady(sessionId);
 		const v = await svc.view(sessionId);
 		assert.equal(v.engine, "scripted");
@@ -370,7 +371,7 @@ describe("engines, fallback and errors", () => {
 		const { svc, store } = setup();
 		svc.onboard({});
 		svc.demoEngine({ engine: "learnharness" });
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		assert.equal(store.session(sessionId)?.engine, "learnharness");
 	});
 });

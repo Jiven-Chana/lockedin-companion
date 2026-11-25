@@ -131,7 +131,8 @@ export function canStartBlock(block: Pick<StudyBlock, "date" | "status">, now: D
  * later session on the same lecture has been finished.
  */
 export function resumableSession(sessions: readonly CompanionSession[], now: Date): CompanionSession | null {
-	const left = sessions.filter((s) => (s.state === "active" || s.state === "stopped") && s.answered < s.budget);
+	// A Learn session has no question count: being stopped, or left open, is what makes it unfinished.
+	const left = sessions.filter((s) => (s.state === "active" || s.state === "stopped") && (s.spec.learn ? !!s.chatId : s.answered < s.budget));
 	const last = left.at(-1);
 	if (!last) return null;
 	const at = new Date(last.endedAt ?? last.lastActivityAt ?? last.openedAt ?? last.createdAt).getTime();

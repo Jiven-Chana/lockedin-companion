@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -35,16 +35,30 @@ export interface PlanData {
 	committedMinutes: number;
 	proposedMinutes: number;
 	/** `module`: the block's module (the student's choice, else its unit's), or null for free study (V-37). */
-	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean })[];
+	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean; mode: BlockMode | null })[];
 	lectures: Lecture[];
 	commitments: Routine["commitments"];
 	quietHours: { from: string; to: string };
 	modules: { code: string; name: string; hasMaterial: boolean }[];
 }
+/** A study block's two buttons (step 5): the suggested mode with its reason, and the other one. */
+export interface BlockMode { study: "learn" | "practise"; label: string; other: { study: "learn" | "practise"; label: string } | null }
+export interface LearnSheet {
+	module: { code: string; name: string };
+	connected: boolean;
+	minutes: number;
+	suggestion:
+		| { type: "resume"; sessionId: string; lectureId: string; title: string; at: { index: number; total: number; title: string } | null }
+		| { type: "next"; lectureId: string; title: string }
+		| null;
+	week: { week: number; lectureIds: string[] } | null;
+	lectures: { id: string; title: string; week: number }[];
+	topics: LearnTopic[];
+}
 export interface ChatTurnData { say: string; chips?: string[]; done?: boolean; draft?: Record<string, unknown>; fallback?: boolean }
 export interface CheckinData { started: number; minutes: number; text: string; target: number | null; nextWeek: string; roomMinutes: number; feelings: Record<string, string> }
 export interface PackData { meta: PackMeta | null; explainers: Explainer[]; questions: number; running: boolean }
-export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; week: number | null; reading: boolean; units: LectureWithStatus[] }
+export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; share?: "less" | "more"; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
 	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
@@ -52,7 +66,20 @@ export interface MaterialProposal {
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
 export interface FirstTaste { lectureId: string; title: string; module: string; sample: boolean; spec: SessionSpec }
 
-export type Banner = (NudgeRecord & { ready: boolean }) | null;
+/** Gaps by idea (V-39, V-43). */
+export interface GapsData {
+	ideas: number;
+	modules: {
+		code: string;
+		name: string;
+		ideas: {
+			key: string; lectureId: string; nodeId: string; module: string; unit: string; title: string;
+			missed: number; right: number; needed: number; confidentError: boolean; canPractise: boolean;
+			questions: { id: string; text: string; chosen: string[]; reason: "wrong" | "dont-know" | "low-confidence"; correct: string[]; explanation: string | null; slide: number | null; at: string }[];
+		}[];
+	}[];
+}
+export type Banner = (NudgeRecord & { ready: boolean; startsAt: number }) | null;
 export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "not-started"; revisit: number };
 
 export interface TodayData {
@@ -60,7 +87,7 @@ export interface TodayData {
 	onboarded: boolean;
 	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
 	lectures: LectureWithStatus[];
-	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null } | null;
+	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null; mode: BlockMode | null } | null;
 	readyToRevisit: number;
 	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
 	banner: Banner;
@@ -159,9 +186,26 @@ export const lockedIn = {
 	refreshCalendar: () => api<{ added: number }>("/timetable/refresh", { method: "POST" }),
 	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
 	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string; href?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
+	/** Start a Practise round across a module (V-40): bank questions, no AI. */
+	startPractise: (module: string, idea?: string) => api<{ sessionId: string; written: number }>("/practise", { body: { module, ...(idea ? { idea } : {}) } }),
+	/** Gaps by idea (V-39): module, idea, the questions missed. */
+	gaps: () => api<GapsData>("/gaps"),
+	/** The module's Learn start sheet (step 5): one suggestion, this week, and the topics a typed goal is matched against. */
+	learnSheet: (module: string) => api<LearnSheet>(`/learn?module=${encodeURIComponent(module)}`),
+	/** Start Learn (V-47): a lecture, one part of it (`nodes`), or the module's lectures this week. */
+	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	/** Say something to the tutor (V-54). With `questionId` it is answered beside the open question. */
+	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
+	finish: (id: string) => api(`/sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
+	/** The first-time card (V-52): the taps, "the same as my other modules", or skip. The tutor then starts. */
+	answerHow: (id: string, body: HowPrefs | { same: true } | { skip: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/how`, { body }),
+	/** What LockedIn knows about you in a module (V-53), and editing a note. */
+	notes: (module: string) => api<ModuleNotesView>(`/modules/${encodeURIComponent(module)}/notes`),
+	saveNote: (module: string, body: { how?: string; where?: string }) => api<ModuleNotesView>(`/modules/${encodeURIComponent(module)}/notes`, { method: "PUT", body }),
+	steps: (id: string) => api<{ steps: LearnItem[][] }>(`/sessions/${encodeURIComponent(id)}/steps`).then((r) => r.steps),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
-	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
+	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string; text?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
 	hint: (id: string, questionId: string) => api<{ text: string }>(`/sessions/${encodeURIComponent(id)}/hint`, { body: { questionId } }),
 	showMe: (id: string, questionId: string) => api(`/sessions/${encodeURIComponent(id)}/show-me`, { body: { questionId } }),
 	more: (id: string) => api<{ budget: number }>(`/sessions/${encodeURIComponent(id)}/more`, { body: {} }),
@@ -182,7 +226,8 @@ export const lockedIn = {
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),
 	/** Start a study block (V-44): marks it started and opens its session, when there is material to open. */
-	startBlock: (id: string) => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { method: "POST" }),
+	/** Start a block in the mode it suggests, or the one chosen (step 5). */
+	startBlock: (id: string, study?: "learn" | "practise") => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { body: study ? { study } : {} }),
 	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number; module?: string | null }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
 	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
 	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),
@@ -203,6 +248,17 @@ export const lockedIn = {
 	saveMaterials: (code: string, body: { uploadId: string; units: { file: number; title: string; week: number; pages: [number, number] }[] }) => api<{ units: Lecture[] }>(`/modules/${encodeURIComponent(code)}/materials`, { method: "PUT", body }),
 	replaceMaterials: (lectureId: string, file: File) => { const f = new FormData(); f.append("file", file); return api<{ slideCount: number; needsCaption: number[] }>(`/materials/${encodeURIComponent(lectureId)}`, { raw: f }); },
 	removeMaterials: (lectureId: string) => api(`/materials/${encodeURIComponent(lectureId)}`, { method: "DELETE" }),
+	// v2.0 step 7: the first run (V-45), modules by hand (V-64), a module's share of the week (V-63)
+	setup: () => api<SetupView>("/setup"),
+	setupTimetable: (body: { calendar: { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules: { name: string; code?: string }[]; timeZone?: string }) => api<SetupView>("/setup/timetable", { body }),
+	setupStep: (step: number) => api<SetupView>("/setup/step", { body: { step } }),
+	setupWeek: (body: { energy?: EnergyTime[]; weeklyTargetMinutes?: number }) => api<SetupWeek>("/setup/week", { body }),
+	skipSetupWeek: () => api<SetupView>("/setup/week", { method: "DELETE" }),
+	setupDone: () => api<SetupView>("/setup/done", { method: "POST" }),
+	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
+	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
+	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
+	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
 	onboardV1: (body: { calendar: { kind: "sample" } | { kind: "none" } | { kind: "link"; url: string } | { kind: "file"; text: string }; modules?: { name: string; code?: string }[]; timeZone?: string }) =>

@@ -17,6 +17,7 @@ import type {
 	AnswerRecord,
 	CompanionSession,
 	EngineName,
+	LearnItem,
 	Lecture,
 	Miss,
 	SessionView,
@@ -35,12 +36,25 @@ export interface SessionEngine {
 	start(session: CompanionSession, ctx: PrepareContext): Promise<SessionPatch>;
 	/** Resolves when question 1 is on the screen. `onNudge` fires if the teacher had to be asked for it (V-22). */
 	waitUntilReady(session: CompanionSession, timeoutMs: number, onNudge?: () => void): Promise<void>;
-	view(session: CompanionSession, lecture: Lecture): Promise<SessionView>;
+	view(session: CompanionSession, lecture: Lecture, now?: Date): Promise<SessionView>;
 	answer(session: CompanionSession, a: AnswerInput, now: Date): Promise<{ record: AnswerRecord; patch?: SessionPatch }>;
 	/** "Show me first" on the given question. LearnHarness answers it as a
 	 *  request (record.shown); scripted shows the worked example (no record). */
 	showMe(session: CompanionSession, questionId: string, now: Date): Promise<{ record?: AnswerRecord; patch?: SessionPatch }>;
 	hint(session: CompanionSession, questionId: string): Promise<{ text: string; patch?: SessionPatch }>;
+	/**
+	 * Learn (V-54): the student types or says something to the tutor. `queued`
+	 * when the tutor was mid-reply and picks it up at its next pause.
+	 */
+	say?(session: CompanionSession, text: string): Promise<{ queued: boolean }>;
+	/**
+	 * Learn: something asked while a question is open. The tutor answers beside
+	 * the question, which stays open. Null when it could only be sent as an
+	 * ordinary message (the question is then set aside and asked again).
+	 */
+	ask?(session: CompanionSession, questionId: string, text: string): Promise<{ answer: string | null }>;
+	/** Every step of a Learn session so far, oldest first ("Earlier"). */
+	steps?(session: CompanionSession): LearnItem[][];
 	/** "Keep going": the service raises the budget; the engine makes more questions happen. */
 	more(session: CompanionSession, questions: number): Promise<{ patch?: SessionPatch }>;
 	/** Recover a failed or interrupted turn (risk table: offer Retry). */

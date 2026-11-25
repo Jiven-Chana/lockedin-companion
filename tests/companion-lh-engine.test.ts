@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_PREFS, HINT_REQUEST, SHOW_ME_THINKING, TEACHER_RULES, keepGoingText, specFor, type CompanionSession } from "../src/core/companion/index.ts";
 import type { ChatInput } from "../src/core/input-events.ts";
+import type { PlanTree } from "../src/core/contracts.ts";
 import { newAnswerResult, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
 import type { QuestionAnswerData } from "../src/core/question-core.ts";
 import { CompanionError, EngineError } from "../src/server/companion/errors.ts";
@@ -59,6 +60,21 @@ class FakePort implements LhPort {
 	}
 	deleteChat(id: string) {
 		this.chats.delete(id);
+	}
+	trees = new Map<string, PlanTree>();
+	tree(id: string) {
+		return this.trees.get(id) ?? null;
+	}
+	made() {
+		return [];
+	}
+	steered: { chatId: string; text: string }[] = [];
+	/** Whether a running turn takes a steer. */
+	takesSteer = true;
+	async steer(chatId: string, t: string) {
+		if (!this.isRunning.has(chatId) || !this.takesSteer) return false;
+		this.steered.push({ chatId, text: t });
+		return true;
 	}
 	push(chatId: string, ...m: LhMessage[]) {
 		this.chats.get(chatId)!.push(...m);
