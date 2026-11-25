@@ -268,6 +268,46 @@ export function proposeWeek(input: PlanInput): PlanResult {
 	return { proposals, plannedMinutes, roomMinutes: room, fits: input.targetMinutes <= room };
 }
 
+// ─── moving a block from the phone (v2.1 part B) ────────────────────────────
+
+/** A time a block can move to. `next` is the earliest free time of all ("Pick for me: next free gap"). */
+export interface MoveTime {
+	kind: "today" | "evening" | "tomorrow" | "next";
+	date: string;
+	start: string;
+}
+
+/**
+ * Where a block can go when the student says "Not now" (lo-fi task 2):
+ * later today, this evening, tomorrow morning, and the next free gap. Only
+ * times the planner itself would use: never on a lecture, a commitment,
+ * another block or in quiet hours, and never in the past. A kind with no
+ * free time is left out; nothing at all means the week has no room.
+ */
+export function moveTimes(input: { block: Pick<StudyBlock, "id" | "minutes">; now: Date; lectures: readonly Lecture[]; routine?: Pick<Routine, "commitments" | "energy">; quietHours: Profile["prefs"]["quietHours"]; blocks: readonly StudyBlock[] }): MoveTime[] {
+	const len = clampBlockMinutes(input.block.minutes);
+	const plan: PlanInput = {
+		week: input.now, now: input.now, lectures: input.lectures, ...(input.routine ? { routine: { commitments: input.routine.commitments, energy: [] } } : {}), quietHours: input.quietHours,
+		targetMinutes: 0, blockMinutes: len, existing: input.blocks.filter((b) => b.id !== input.block.id), lastWeek: [], focus: [], newId: () => "",
+	};
+	const today = atTime(input.now, "00:00");
+	const free: Date[] = [];
+	for (let i = 0; i < PLAN_RULES.moveDays; i++) for (const s of slotsOn(addDays(today, i), plan, len, new Set())) free.push(s.start);
+	free.sort((a, b) => a.getTime() - b.getTime());
+	const todayKey = dateKey(input.now);
+	const tomorrowKey = dateKey(addDays(today, 1));
+	const evening = parseHM(PLAN_RULES.moveEveningFrom);
+	const laterFrom = addMinutes(input.now, PLAN_RULES.moveLaterMinutes);
+	const pick = (kind: MoveTime["kind"], d: Date | undefined): MoveTime[] => (d ? [{ kind, date: dateKey(d), start: formatHM(d) }] : []);
+	const tomorrow = free.filter((d) => dateKey(d) === tomorrowKey);
+	return [
+		...pick("today", free.find((d) => dateKey(d) === todayKey && d >= laterFrom && minutesOfDay(d) < evening)),
+		...pick("evening", free.find((d) => dateKey(d) === todayKey && minutesOfDay(d) >= evening)),
+		...pick("tomorrow", tomorrow.find((d) => minutesOfDay(d) < parseHM(PLAN_RULES.moveMorningUntil)) ?? tomorrow[0]),
+		...pick("next", free[0]),
+	];
+}
+
 // ─── moving a block by hand (v1.1, V-37) ────────────────────────────────────
 
 export type PlacementProblem = "lecture" | "commitment" | "block" | "quiet" | "past-midnight";

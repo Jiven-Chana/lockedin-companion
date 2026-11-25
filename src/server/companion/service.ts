@@ -30,7 +30,7 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { PHONE_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { PHONE_BLOCK_COPY, PHONE_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -38,7 +38,8 @@ import { StudyPacks } from "./study-pack.ts";
 import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { blockWhy, clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { blockWhy, clampBlockMinutes, moveTimes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import type { PhoneBlockLines } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
@@ -1335,6 +1336,51 @@ export class CompanionService {
 		if (!block.lectureId || !block.firstTaskQuestionId) return null;
 		const q = this.packs?.bank(block.lectureId)?.find((x) => x.id === block.firstTaskQuestionId);
 		return q ? { questionId: q.id, stem: q.stem, slide: q.slides[0] ?? null } : null;
+	}
+
+	/**
+	 * What the phone shows for a block (v2.1 part B; lo-fi task 2): its goal,
+	 * its first step, why it is where it is, and where "Not now" can move it.
+	 */
+	phoneBlock(block: StudyBlock): PhoneBlockLines & { unit: string | null; slide: number | null } {
+		const profile = this.requireProfile();
+		const mode = this.blockMode(block);
+		const unit = mode ? (this.lectureById(mode.focus)?.title ?? null) : null;
+		const slide = this.firstStepOf(block)?.slide ?? null;
+		const learn = mode?.study === "learn";
+		const budget = SESSION_BUDGETS.block;
+		return {
+			unit,
+			slide,
+			goal: learn && unit ? PHONE_BLOCK_COPY.goalLearn(unit, block.minutes) : PHONE_BLOCK_COPY.goalPractise(budget.questions, budget.minutes),
+			firstStep: !unit ? null : learn ? PHONE_BLOCK_COPY.firstStepLearn(unit) : PHONE_BLOCK_COPY.firstStep(slide),
+			onLaptop: !unit ? null : learn ? PHONE_BLOCK_COPY.onLaptopLearn(unit) : PHONE_BLOCK_COPY.onLaptop(unit, slide),
+			why: blockWhy(block, profile.modules),
+			moves: moveTimes({ block, now: this.now(), lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks().filter((b) => b.status !== "removed") })
+				.map((m) => ({ ...m, label: PLAN_COPY.moveLabel(m.kind, m.start) })),
+		};
+	}
+
+	/** "Take the first step" on the phone: the block is started, as its Start button would (V-44). */
+	phoneStartedBlock(blockId: string) {
+		this.markBlockStarted(blockId, "nudge");
+	}
+
+	/**
+	 * "Open on my laptop" from a block on the phone (lo-fi task 2): its session
+	 * is opened here and a card says so. Once per phone event.
+	 */
+	openBlockFromPhone(blockId: string, phoneEventId: string): { sessionId: string } | null {
+		const key = `handoff:${phoneEventId}`;
+		if (this.store.nudges().some((n) => n.key === key)) return null;
+		const block = this.store.blocks().find((b) => b.id === blockId && b.status !== "removed");
+		if (!block) return null;
+		const started = this.markBlockStarted(blockId, "nudge") ?? block;
+		const sessionId = this.openBlock(started);
+		if (!sessionId) return null;
+		const lines = this.phoneBlock(started);
+		this.store.appendNudge({ id: this.id("n"), type: "block", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text: PHONE_BLOCK_COPY.open(lines.unit ?? "Your block", lines.slide, lines.goal), ...(started.lectureId ? { lectureId: started.lectureId } : {}), sessionId, why: "you asked on your phone" });
+		return { sessionId };
 	}
 
 	/** Mark a block started, once. `via` says how: the Start button, or its notification. */

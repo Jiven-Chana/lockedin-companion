@@ -25,6 +25,27 @@ const COPY = {
 	savedLine: (k) => (k === 1 ? "The other question waits for your next free gap. Nothing is overdue." : `The other ${k} questions wait for your next free gap. Nothing is overdue.`),
 	savedCard: (k) => (k === 1 ? "1 question saved" : `${k} questions saved`),
 	carryOn: "Carry on",
+	// The study block (v2.1 part B): the lo-fi's wording (task 2, without focus). The goal and the steps come from the laptop.
+	block: {
+		title: "Study block",
+		goal: "Goal:",
+		firstStep: "First step:",
+		take: "Take the first step",
+		notNow: "Not now",
+		left: (m) => `${m} min left`,
+		phoneDown: "Put your phone face down.",
+		openLaptop: "Open on my laptop",
+		end: "End block",
+		ended: "Block ended.",
+		endedLine: "Nothing is lost: the session waits on your laptop.",
+		when: "When suits you better?",
+		whenLine: "The rest of the block moves there. Nothing is marked missed.",
+		pickForMe: "Pick for me: next free gap",
+		moved: (to) => `Moved to ${to}.`,
+		movedLine: "LockedIn will nudge you then, and not before.",
+		noGap: "No free gap is left this week.",
+		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
+	},
 	onLaptop: "It's waiting on your laptop.",
 	onLaptopNote: "Open LockedIn on your laptop: your answers are already there.",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
@@ -414,6 +435,73 @@ function handoffOld(n, answer) {
 	);
 }
 
+// ─── the study block (v2.1 part B; lo-fi task 2, version B, without focus) ──
+const hm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const blockStart = (b) => new Date(`${b.date}T${b.start}:00`);
+const shortDay = (date) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" });
+const box = (...kids) => h("div", { class: "note" }, ...kids);
+const line = (label, text) => h("p", {}, h("b", {}, label), " ", text);
+
+/** The block's start: its goal and first step, then "Take the first step" or "Not now". */
+function blockScreen(b) {
+	const start = blockStart(b);
+	show(
+		h("main", {},
+			bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
+			box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+			h("div", { class: "row" },
+				h("button", { class: "btn primary", onclick: () => { void event("focus_start", null, { blockId: b.id }); blockRunning(b); } }, COPY.block.take),
+				h("button", { class: "btn", onclick: () => blockLater(b) }, COPY.block.notNow),
+			),
+		),
+	);
+}
+
+/** The block running: how long is left, the step that happens on the laptop, and the phone put down. */
+function blockRunning(b) {
+	const end = blockStart(b).getTime() + b.minutes * 60_000;
+	const left = Math.max(0, Math.min(b.minutes, Math.round((end - Date.now()) / 60_000)));
+	show(
+		h("main", {},
+			bar(COPY.block.title),
+			h("h1", {}, COPY.block.left(left)),
+			b.onLaptop ? box(line(COPY.block.firstStep, b.onLaptop)) : null,
+			h("p", { class: "muted" }, COPY.block.phoneDown),
+			h("div", { class: "row" },
+				h("button", { class: "btn primary", onclick: async () => {
+					await event("handover", null, { blockId: b.id });
+					show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("button", { class: "btn", onclick: () => render() }, "OK")));
+				} }, COPY.block.openLaptop),
+				h("button", { class: "btn", onclick: async () => {
+					await event("focus_end", null, { blockId: b.id });
+					show(h("main", {}, bar(COPY.block.title, "ended"), box(h("b", {}, COPY.block.ended), " ", COPY.block.endedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
+				} }, COPY.block.end),
+			),
+		),
+	);
+}
+
+/** "Not now": the times the laptop found free. The relay moves the block's notification, laptop open or not. */
+function blockLater(b) {
+	const moves = b.moves || [];
+	if (!moves.length) return show(h("main", {}, bar(COPY.block.title, "move it"), h("p", {}, COPY.block.noGap), h("button", { class: "btn", onclick: () => render() }, "OK")));
+	const move = async (m) => {
+		await event("plan_move", null, { blockId: b.id, date: m.date, start: m.start, fireAt: new Date(`${m.date}T${m.start}:00`).toISOString(), title: COPY.block.nudgeTitle(shortDay(m.date), m.start) });
+		// The schedule this phone holds shows the move at once.
+		const s = await kv("schedule");
+		if (s?.blocks) await kv("schedule", { ...s, blocks: s.blocks.map((x) => (x.id === b.id ? { ...x, date: m.date, start: m.start, moved: true } : x)) });
+		show(h("main", {}, bar(COPY.block.title, "moved"), box(h("b", {}, COPY.block.moved(m.label)), " ", COPY.block.movedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
+	};
+	show(
+		h("main", {},
+			bar(COPY.block.title, "move it"),
+			h("h1", {}, COPY.block.when), " ",
+			h("p", { class: "muted" }, COPY.block.whenLine),
+			h("div", { class: "options" }, moves.map((m) => h("button", { class: m.kind === "next" ? "btn ghost" : "btn option", onclick: () => move(m) }, m.kind === "next" ? COPY.block.pickForMe : m.label))),
+		),
+	);
+}
+
 // ─── this week, the Sunday check-in, settings-lite ─────────────────────────
 function checkinCard(n) {
 	const c = n.checkin;
@@ -518,7 +606,13 @@ async function render() {
 		history.replaceState(null, "", "/p");
 		const s = await schedule(false);
 		const n = (s.nudges || []).find((x) => x.id === id) || ((await schedule()).nudges || []).find((x) => x.id === id);
-		if (n) return n.kind === "N-5" ? home() : questionScreen(n);
+		if (n) {
+			// A block's notification opens the block (v2.1), when the laptop sent what the block screen shows.
+			const fresh = n.blockId ? await schedule() : null;
+			const b = n.blockId ? (fresh?.blocks || []).find((x) => x.id === n.blockId) : null;
+			if (b?.goal) return blockScreen(b);
+			return n.kind === "N-5" ? home() : questionScreen(n);
+		}
 	}
 	return home();
 }

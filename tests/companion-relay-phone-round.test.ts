@@ -23,7 +23,7 @@ const nudge = (over: Record<string, unknown> = {}) => ({
 	question: q(1), round: [q(2), q(3), q(4), q(5)], more: 4, fireAt: "2026-11-24T13:05:00.000Z", sentAt: "2026-11-24T13:05:10.000Z", expiresAt: "2099-01-01T00:00:00.000Z", ...over,
 });
 
-async function open(opts: { nudges?: unknown[]; open?: string; local?: Record<string, unknown> } = {}) {
+async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; open?: string; local?: Record<string, unknown> } = {}) {
 	const { document, Event: DomEvent } = parseHTML(fs.readFileSync(path.join(WEB, "index.html"), "utf-8"));
 	const local = new Map<string, string>(Object.entries({ pushOn: true, ...(opts.local ?? {}) }).map(([k, v]) => [k, JSON.stringify(v)]));
 	const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -38,7 +38,7 @@ async function open(opts: { nudges?: unknown[]; open?: string; local?: Record<st
 		caches: { open: async () => ({ match: async (k: string) => (kv.has(k) ? new Response(kv.get(k)!) : undefined), put: async (k: string, r: Response) => void kv.set(k, await r.text()), delete: async (k: string) => kv.delete(k) }) },
 		fetch: async (url: string, init: { method?: string; body?: string } = {}) => {
 			if (url.endsWith("/events") && init.method === "POST") events.push(...JSON.parse(init.body!));
-			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: [] } : {}), { status: 200 });
+			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: opts.blocks ?? [] } : {}), { status: 200 });
 		},
 		Notification: { permission: "granted", requestPermission: async () => "granted" },
 		crypto, Response, URLSearchParams, Date, JSON, console, setTimeout, atob, alert: () => {}, confirm: () => true,
@@ -257,5 +257,88 @@ describe("the notification itself (lo-fi: \"Why now\" on the lock screen)", () =
 			{ name: "no reason", n: nudge({ why: undefined }), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?" } },
 		];
 		for (const c of cases) assert.deepEqual(await push([c.n]), [c.want], c.name);
+	});
+});
+
+describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, without focus)", () => {
+	// A block that started ten minutes ago today, on this phone's clock.
+	const started = new Date(Date.now() - 10 * 60_000);
+	const pad = (n: number) => String(n).padStart(2, "0");
+	const date = `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())}`;
+	const start = `${pad(started.getHours())}:${pad(started.getMinutes())}`;
+	const tomorrow = new Date(started.getTime() + 86_400_000);
+	const tomorrowKey = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`;
+	const block = (over: Record<string, unknown> = {}) => ({
+		id: "blk1", date, start, minutes: 50, status: "accepted", focus: { title: "Lecture 7", module: "HCI" },
+		goal: "5 questions, about 10 min", firstStep: "open slide 12, answer one question", onLaptop: "open Lecture 7 at slide 12 on your laptop and answer one question.", why: null,
+		moves: [{ kind: "today", date, start: "16:00", label: "Today 16:00" }, { kind: "evening", date, start: "18:00", label: "This evening 18:00" }, { kind: "tomorrow", date: tomorrowKey, start: "08:00", label: "Tomorrow 08:00" }, { kind: "next", date, start: "15:00", label: "next free gap" }],
+		...over,
+	});
+	const blockNudge = { id: `block:blk1:${date}`, kind: "block", blockId: "blk1", title: "Thu 14:00 · your study block", body: "Lecture 7. First step: slide 12, one question.", opens: "session", fireAt: started.toISOString(), sentAt: started.toISOString(), expiresAt: "2099-01-01T00:00:00.000Z" };
+	const opened = (b = block()) => open({ nudges: [blockNudge], blocks: [b], open: blockNudge.id });
+
+	it("the notification opens the block: its goal, its first step, and two ways on", async () => {
+		const p = await opened();
+		assert.match(p.text(), /^Study block /);
+		assert.match(p.text(), new RegExp(`${start}-\\d\\d:\\d\\d`));
+		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
+		assert.match(p.text(), /First step: open slide 12, answer one question/);
+		assert.deepEqual(p.buttons(), ["Take the first step", "Not now"]);
+		assert.equal(p.app.querySelector("button.primary")?.textContent, "Take the first step");
+	});
+
+	it("\"Take the first step\" starts it: the time left, the step on the laptop, and the phone put down", async () => {
+		const p = await opened();
+		await p.tap("Take the first step");
+		assert.match(p.text(), /(39|40) min left/);
+		assert.match(p.text(), /First step: open Lecture 7 at slide 12 on your laptop and answer one question\./);
+		assert.match(p.text(), /Put your phone face down\./);
+		assert.deepEqual(p.buttons(), ["Open on my laptop", "End block"]);
+		assert.deepEqual(of(p.events, "focus_start")[0]?.payload, { blockId: "blk1" });
+		await p.tap("Open on my laptop");
+		assert.deepEqual(of(p.events, "handover")[0]?.payload, { blockId: "blk1" });
+		assert.match(p.text(), /It's waiting on your laptop\./);
+	});
+
+	it("\"End block\" says nothing is lost", async () => {
+		const p = await opened();
+		await p.tap("Take the first step");
+		await p.tap("End block");
+		assert.match(p.text(), /Block ended\. Nothing is lost: the session waits on your laptop\./);
+		assert.deepEqual(of(p.events, "focus_end")[0]?.payload, { blockId: "blk1" });
+	});
+
+	it("\"Not now\" offers the times the laptop found, and moving says when the next nudge comes", async () => {
+		const p = await opened();
+		await p.tap("Not now");
+		assert.match(p.text(), /When suits you better\? The rest of the block moves there\. Nothing is marked missed\./);
+		assert.deepEqual(p.buttons(), ["Today 16:00", "This evening 18:00", "Tomorrow 08:00", "Pick for me: next free gap"]);
+		await p.tap("Tomorrow 08:00");
+		assert.match(p.text(), /Moved to Tomorrow 08:00\. LockedIn will nudge you then, and not before\./);
+		const [m] = of(p.events, "plan_move");
+		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start], ["blk1", tomorrowKey, "08:00"]);
+		assert.equal(m?.payload.fireAt, new Date(`${tomorrowKey}T08:00:00`).toISOString(), "the relay is told the moment, on this phone's clock");
+		assert.match(String(m?.payload.title), /^\w{3} 08:00 · your study block$/);
+	});
+
+	it("\"Pick for me\" takes the next free gap", async () => {
+		const p = await opened();
+		await p.tap("Not now");
+		await p.tap("Pick for me: next free gap");
+		assert.match(p.text(), /Moved to next free gap\./);
+		assert.deepEqual([of(p.events, "plan_move")[0]?.payload.date, of(p.events, "plan_move")[0]?.payload.start], [date, "15:00"]);
+	});
+
+	it("with nowhere to move it, \"Not now\" says so and changes nothing", async () => {
+		const p = await opened(block({ moves: [] }));
+		await p.tap("Not now");
+		assert.match(p.text(), /No free gap is left this week\./);
+		assert.equal(of(p.events, "plan_move").length, 0);
+	});
+
+	it("a block from a laptop before v2.1 (no goal or first step) still opens, on the laptop as before", async () => {
+		const p = await opened({ id: "blk1", date, start, minutes: 50, status: "accepted", focus: { title: "Lecture 7", module: "HCI" } } as never);
+		assert.match(p.text(), /Lecture 7\. First step: slide 12, one question\./);
+		assert.ok(p.buttons().includes("Done for now"));
 	});
 });

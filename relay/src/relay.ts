@@ -219,6 +219,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					const at = typeof e.at === "string" && !Number.isNaN(Date.parse(e.at)) ? new Date(e.at).toISOString() : now.toISOString();
 					// Idempotent by id: a retried post from an offline phone changes nothing.
 					stmts.push(env.DB.prepare("INSERT OR IGNORE INTO events (pair_id, id, at, type, payload, received_at) VALUES (?, ?, ?, ?, ?, ?)").bind(pairId, e.id, at, e.type, payload, now.toISOString()));
+					// A block moved on the phone (v2.1 part B): its notification goes to the new time now, laptop open or not.
+					if (e.type === "plan_move") stmts.push(...(await moveBlock(env, pairId, (e.payload ?? {}) as Record<string, unknown>, now)));
 					// "Later" on the phone fires the snooze time the laptop planned and counted (§5.2 item 2).
 					if (e.type === "snoozed" && typeof e.nudgeId === "string") {
 						const n = await env.DB.prepare("SELECT payload FROM nudges WHERE pair_id = ? AND id = ?").bind(pairId, e.nudgeId).first<{ payload: string }>();
@@ -267,6 +269,39 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 }
 
 /** Every minute (Cron Trigger): wake phones for due nudges, then clean up (§5.3 retention). */
+/**
+ * "LockedIn will nudge you then, and not before" (lo-fi task 2): a block the
+ * phone moved is moved here too, in the week the phone reads and in its
+ * notification. One not yet sent is re-timed; one already sent is announced
+ * once more at the new time. The laptop's next upload replaces all of this
+ * with its own plan, which by then has the same move in it.
+ */
+async function moveBlock(env: RelayEnv, pairId: string, p: Record<string, unknown>, now: Date) {
+	const { blockId, date, start, fireAt, title } = p;
+	if (typeof blockId !== "string" || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || typeof start !== "string" || !/^\d{2}:\d{2}$/.test(start)) return [];
+	if (typeof fireAt !== "string" || Number.isNaN(Date.parse(fireAt))) return [];
+	const pair = await env.DB.prepare("SELECT blocks FROM pairs WHERE id = ?").bind(pairId).first<{ blocks: string }>();
+	const blocks = JSON.parse(pair?.blocks ?? "[]") as Record<string, unknown>[];
+	if (!blocks.some((b) => b.id === blockId)) return [];
+	const at = new Date(fireAt);
+	const stmts = [env.DB.prepare("UPDATE pairs SET blocks = ? WHERE id = ?").bind(JSON.stringify(blocks.map((b) => (b.id === blockId ? { ...b, date, start, moved: true } : b))), pairId)];
+	const rows = (await env.DB.prepare("SELECT id, payload, sent_at FROM nudges WHERE pair_id = ?").bind(pairId).all<{ id: string; payload: string; sent_at: string | null }>()).results;
+	const mine = rows.map((r) => ({ ...r, n: JSON.parse(r.payload) as ScheduledNudgeIn & { blockId?: string } })).filter((r) => r.n.blockId === blockId);
+	if (mine.length === 0) return stmts;
+	const retimed = (n: ScheduledNudgeIn, id: string) => ({ ...n, id, fireAt: at.toISOString(), expiresAt: new Date(at.getTime() + 2 * 3_600_000).toISOString(), ...(typeof title === "string" ? { title: title.slice(0, 120) } : {}) });
+	const waiting = mine.filter((r) => r.sent_at === null);
+	for (const r of waiting) {
+		const n = retimed(r.n, r.id);
+		stmts.push(env.DB.prepare("UPDATE nudges SET fire_at = ?, expires_at = ?, payload = ? WHERE pair_id = ? AND id = ?").bind(n.fireAt, n.expiresAt, JSON.stringify(n), pairId, r.id));
+	}
+	if (waiting.length === 0 && at > now) {
+		const first = mine[0]!;
+		const n = retimed(first.n, `${first.id.replace(/:moved$/, "")}:moved`);
+		stmts.push(env.DB.prepare("INSERT OR IGNORE INTO nudges (pair_id, id, fire_at, expires_at, payload) VALUES (?, ?, ?, ?, ?)").bind(pairId, n.id, n.fireAt, n.expiresAt, JSON.stringify(n)));
+	}
+	return stmts;
+}
+
 export async function cron(env: RelayEnv, now = new Date(), fetchImpl: typeof fetch = fetch): Promise<{ sent: number; gone: number }> {
 	const iso = now.toISOString();
 	const due = (await env.DB.prepare("SELECT pair_id, id FROM nudges WHERE sent_at IS NULL AND fire_at <= ? AND expires_at > ?").bind(iso, iso).all<{ pair_id: string; id: string }>()).results;

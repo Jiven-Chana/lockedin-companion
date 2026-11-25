@@ -17,12 +17,26 @@ export interface PhoneEvent {
 	payload: Record<string, unknown> & { nudgeId?: string };
 }
 
+/** What the phone shows for a block (v2.1 part B), worked out on the laptop: the phone needs no laptop when the block starts. */
+export interface PhoneBlockLines {
+	/** "5 questions, about 10 min" */
+	goal: string;
+	/** "open slide 12, answer one question" */
+	firstStep: string | null;
+	/** "open Lecture 7 at slide 12 on your laptop and answer one question." */
+	onLaptop: string | null;
+	/** "because you have energy in the afternoon", or null for a block the student placed. */
+	why: string | null;
+	/** Where "Not now" can move it: later today, this evening, tomorrow, and the next free gap. */
+	moves: { kind: "today" | "evening" | "tomorrow" | "next"; date: string; start: string; label: string }[];
+}
+
 /** The upload body (relay PUT /schedule). */
 export interface RelaySchedule {
 	version: number;
 	timeZone: string;
 	nudges: (ScheduledNudge & Record<string, unknown>)[];
-	blocks: (Pick<StudyBlock, "id" | "date" | "start" | "minutes" | "status"> & { focus?: { title: string; module: string } | null })[];
+	blocks: (Pick<StudyBlock, "id" | "date" | "start" | "minutes" | "status"> & { focus?: { title: string; module: string } | null } & Partial<PhoneBlockLines>)[];
 }
 
 /** Versions only go up: the next one is now in ms, or one more than the last if the clock went back. */

@@ -479,6 +479,12 @@ export const PLAN_RULES = {
 	maxGapWeeksBack: 6,
 	/** "Keep up" covers the current week and this many before it. */
 	keepUpWeeksBack: 1,
+	/** Moving a block from the phone (v2.1): "later today" is at least this long from now, the evening starts at this time, and "tomorrow" means before this time when it can. */
+	moveLaterMinutes: 90,
+	moveEveningFrom: "18:00",
+	moveMorningUntil: "12:00",
+	/** "Next free gap" looks this many days ahead. */
+	moveDays: 7,
 } as const;
 
 export const DEFAULT_PLAN: NonNullable<Profile["plan"]> = {
@@ -611,6 +617,18 @@ export const SETUP_COPY = {
 	nothingToStudy: "Those files had too little text to study from.",
 } as const;
 
+/** The study block on the phone (v2.1 part B; lo-fi task 2). The phone shows these lines as they are sent. */
+export const PHONE_BLOCK_COPY = {
+	goalPractise: (questions: number, minutes: number) => `${questions} questions, about ${minutes} min`,
+	goalLearn: (unit: string, minutes: number) => `Learn ${unit}, ${minutes} min`,
+	firstStep: (slide: number | null) => (slide ? `open slide ${slide}, answer one question` : "answer one question"),
+	firstStepLearn: (unit: string) => `open ${unit} on your laptop`,
+	onLaptop: (unit: string, slide: number | null) => (slide ? `open ${unit} at slide ${slide} on your laptop and answer one question.` : `open ${unit} on your laptop and answer one question.`),
+	onLaptopLearn: (unit: string) => `open ${unit} on your laptop.`,
+	/** On the laptop, once "Open on my laptop" is tapped. */
+	open: (unit: string, slide: number | null, goal: string) => `Your study block is open. ${unit}${slide ? ` from slide ${slide}` : ""}. ${goal}.`,
+} as const;
+
 /** "Plan my week with me" (F-109, J8): about 6 turns, short turns, on a fast slot. */
 export const SETUP_CHAT_RULES = { maxTurns: 6, maxWords: 60, slot: "cheap" } as const;
 
@@ -634,6 +652,8 @@ export const PLAN_COPY = {
 	checkin: (started: number, minutes: number) =>
 		`Last week: ${started} ${started === 1 ? "block" : "blocks"} started, ${PLAN_COPY.hours(minutes).replace(/ h (\d+)$/, " h $1 min")}. How did it feel?`,
 	feelings: { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" } as const,
+	/** Moving a block from the phone (v2.1; lo-fi task 2): "Today 16:00", "This evening 19:00", "Tomorrow 10:00", "Pick for me: next free gap". */
+	moveLabel: (kind: "today" | "evening" | "tomorrow" | "next", start: string) => (kind === "today" ? `Today ${start}` : kind === "evening" ? `This evening ${start}` : kind === "tomorrow" ? `Tomorrow ${start}` : "next free gap"),
 	/** Why a block is where it is (V-45, AFF-G), read after its time: "Tue 14:00 · because you have energy in the afternoon". */
 	placed: {
 		anchor: "same time as last week",
@@ -783,6 +803,9 @@ export const NUDGE_TEXT = {
 	// v0.1 F-114 (spec Appendix A, T20 v2 N-1, N-5)
 	/** N-1 v2: the title; the body is the bank question's stem (≤ 90). `n1` above is the fallback when no question is ready. */
 	n1Title: (module: string) => `${module} just finished. One question:`,
+	/** A block's notification on the phone (v2.1; lo-fi task 2): "Thu 14:00 · your study block" / "Lecture 7. First step: slide 12, one question." */
+	blockTitle: (day: string, start: string) => `${day} ${start} · your study block`,
+	blockBody: (unit: string | null, firstStep: string | null, minutes: number) => (unit && firstStep ? `${unit}. ${firstStep}.` : unit ? `${unit}. ${minutes} minutes, at your own pace.` : `${minutes} minutes, at your own pace.`),
 	n5: (lectures: number, gaps: number) => `Next week: ${lectures} ${lectures === 1 ? "lecture" : "lectures"}, ${gaps} free ${gaps === 1 ? "gap" : "gaps"}. Set your study blocks?`,
 	n5Title: "Your week",
 } as const;

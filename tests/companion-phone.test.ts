@@ -195,6 +195,72 @@ describe("plan edits and the check-in from the phone", () => {
 	});
 });
 
+describe("the study block on the phone (v2.1 part B; lo-fi task 2)", () => {
+	type B = { id: string; date: string; start: string; minutes: number; status: string; goal?: string; firstStep?: string | null; onLaptop?: string | null; why?: string | null; moves?: { kind: string; date: string; start: string; label: string }[] };
+	type N = { id: string; kind: string; title: string; body: string; blockId?: string; fireAt: string };
+	/** Tuesday 17 Nov, 12:58. One accepted block today at 14:00 on a unit with a study pack. */
+	async function withBlock(opts: { newRelay?: boolean } = {}) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 6);
+		const block: StudyBlock = { id: "blk-thu", date: "2026-11-17", start: "14:00", minutes: 50, status: "accepted", source: "student", lectureId: "gt-nash", module: "GT", firstTaskQuestionId: "gt-nash-q1" };
+		s.store.saveBlocks([block]);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		if (opts.newRelay === false) s.store.saveRuntime({ relayNudgeChars: undefined });
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { blocks: B[]; nudges: N[] };
+		return { ...s, block, read };
+	}
+
+	it("the block's notification is the lo-fi's: its day and time, the unit and the first step", async () => {
+		const { svc } = await withBlock();
+		const n = svc.requirePhone().buildSchedule().nudges.find((x) => x.kind === "block")!;
+		assert.deepEqual([n.title, n.body, n.blockId], ["Tue 14:00 · your study block", "Nash equilibrium. First step: slide 1, one question.", "blk-thu"]);
+	});
+
+	it("each block arrives with its goal, its first step, why it is there and where it can move to", async () => {
+		const { svc, read } = await withBlock();
+		await svc.requirePhone().sync({ force: true });
+		const b = (await read()).blocks.find((x) => x.id === "blk-thu")!;
+		assert.equal(b.goal, "5 questions, about 10 min");
+		assert.equal(b.firstStep, "open slide 1, answer one question");
+		assert.equal(b.onLaptop, "open Nash equilibrium at slide 1 on your laptop and answer one question.");
+		// 12:58 on a day with the HCI lecture until 13:00: the times are the planner's own (a quarter past, after the lecture's ten minutes).
+		assert.deepEqual(b.moves?.map((m) => m.label), ["Today 15:15", "This evening 18:15", "Tomorrow 08:00", "next free gap"]);
+		assert.ok(b.moves!.every((m) => /^\d{4}-\d{2}-\d{2}$/.test(m.date) && /^\d{2}:\d{2}$/.test(m.start)));
+	});
+
+	it("a relay from before v2.1 gets the blocks as they were, so its size limit is never hit", async () => {
+		const { svc } = await withBlock({ newRelay: false });
+		const b = svc.requirePhone().buildSchedule().blocks.find((x) => x.id === "blk-thu")! as B;
+		assert.deepEqual(Object.keys(b).sort(), ["date", "focus", "id", "minutes", "start", "status"]);
+	});
+
+	it("\"Take the first step\" on the phone starts the block; \"Open on my laptop\" opens its session there with the lo-fi's line", async () => {
+		const { svc, store, events } = await withBlock();
+		const link = svc.requirePhone();
+		const at = new Date(2026, 10, 17, 14, 1).toISOString();
+		svc.demoClock({ set: new Date(2026, 10, 17, 14, 0).toISOString() });
+		link.replay([{ id: "evt-block-0001", at, type: "focus_start", payload: { blockId: "blk-thu" } }]);
+		assert.equal(store.blocks()[0]!.status, "started");
+		assert.ok(events().includes("block_started"));
+		link.replay([{ id: "evt-block-0002", at, type: "handover", payload: { blockId: "blk-thu" } }]);
+		const toast = store.nudges().find((n) => n.key === "handoff:evt-block-0002")!;
+		assert.equal(toast.text, "Your study block is open. Nash equilibrium from slide 1. 5 questions, about 10 min.");
+		assert.ok(toast.sessionId && store.session(toast.sessionId), "its session is ready on the laptop");
+		// The same event again changes nothing.
+		link.replay([{ id: "evt-block-0002", at, type: "handover", payload: { blockId: "blk-thu" } }]);
+		assert.equal(store.nudges().filter((n) => n.key.startsWith("handoff:")).length, 1);
+	});
+
+	it("a move made on the phone moves the block on the laptop, and its notification with it", async () => {
+		const { svc, store } = await withBlock();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-block-0003", at: new Date(Date.now() + 60_000).toISOString(), type: "plan_move", payload: { blockId: "blk-thu", date: "2026-11-18", start: "08:00" } }]);
+		assert.deepEqual([store.blocks()[0]!.date, store.blocks()[0]!.start], ["2026-11-18", "08:00"]);
+		const n = link.buildSchedule().nudges.find((x) => x.kind === "block")!;
+		assert.equal(n.title, "Wed 08:00 · your study block");
+	});
+});
+
 describe("the relay is down", () => {
 	it("the laptop keeps working and logs it", async () => {
 		const { svc, events } = await setup({ relayDown: true });
