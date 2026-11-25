@@ -7,7 +7,10 @@ Rewrite the whole note. Rules:
   "Secure:" ideas a Check showed they hold.
   "Shaky:" ideas they got wrong, guessed, or were unsure of, with the specific confusion in a few words ("subtracts slack on a ≤ constraint").
   "Next:" where to pick up.
+  Leave out a part that has nothing in it.
 - Use only what the session shows and what the note already said. A "have a guess" answer is weak evidence either way: never call an idea secure or shaky from guesses alone.
 - Keep anything in the old note that this session did not contradict, especially lines the student wrote themselves. Drop what the session shows is no longer true.
 - Write to the student as "you". Never judge them, never score them, never mention marks.
 - If the session shows nothing new, return the old note unchanged.
+
+Call `save_note` once with the whole note as `note`. Do not answer in any other way.

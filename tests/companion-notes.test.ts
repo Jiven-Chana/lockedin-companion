@@ -13,6 +13,7 @@ describe("the first-time card's taps become one readable note (V-52)", () => {
 		["one row tapped: the others are left to the tutor", { steps: "big" }, "Bigger jumps: don't spell out what I can see."],
 		["the student's own line comes last, as a sentence", { start: "explanations", more: "I hate analogies" }, "Explain each idea first, then ask. I hate analogies."],
 		["only the typed line", { more: "Use football examples." }, "Use football examples."],
+		["a typed line is tidied into a sentence", { steps: "small", more: "use the TV example where you can" }, "Small steps. Use the TV example where you can."],
 		["nothing chosen: no note", {}, ""],
 	];
 	for (const [name, prefs, expected] of cases) it(name, () => assert.equal(howNote(prefs), expected));

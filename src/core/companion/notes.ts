@@ -36,7 +36,11 @@ export function howNote(prefs: HowPrefs): string {
 		const picked = row.options.find((o) => o.value === prefs[row.key]);
 		if (picked) parts.push(picked.says);
 	}
-	if (prefs.more) parts.push(/[.!?]$/.test(prefs.more) ? prefs.more : `${prefs.more}.`);
+	// The student's own line reads as a sentence of the note: a capital to start, a full stop to end.
+	if (prefs.more) {
+		const own = prefs.more.charAt(0).toUpperCase() + prefs.more.slice(1);
+		parts.push(/[.!?]$/.test(own) ? own : `${own}.`);
+	}
 	return capWords(parts.join(" "), NOTE_RULES.howWords);
 }
 
