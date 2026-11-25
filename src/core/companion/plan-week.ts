@@ -308,6 +308,28 @@ export function moveTimes(input: { block: Pick<StudyBlock, "id" | "minutes">; no
 	];
 }
 
+/**
+ * One free time a day for the days ahead, the one the planner would choose
+ * that day (the student's energy first, then the earliest): what "Move to a
+ * free gap" and "Add a block" offer on the phone (v2.1 part C). Every block
+ * that isn't removed is in the way, suggested ones too.
+ */
+export function freeTimes(input: { now: Date; lectures: readonly Lecture[]; routine?: Pick<Routine, "commitments" | "energy">; quietHours: Profile["prefs"]["quietHours"]; blocks: readonly StudyBlock[]; minutes: number; days?: number }): { date: string; start: string }[] {
+	const len = clampBlockMinutes(input.minutes);
+	const busy = input.blocks.filter((b) => b.status !== "removed").map((b) => ({ ...b, status: "accepted" as const }));
+	const plan: PlanInput = {
+		week: input.now, now: input.now, lectures: input.lectures, ...(input.routine ? { routine: input.routine } : {}), quietHours: input.quietHours,
+		targetMinutes: 0, blockMinutes: len, existing: busy, lastWeek: [], focus: [], newId: () => "",
+	};
+	const today = atTime(input.now, "00:00");
+	const out: { date: string; start: string }[] = [];
+	for (let i = 0; i < (input.days ?? PLAN_RULES.moveDays); i++) {
+		const best = slotsOn(addDays(today, i), plan, len, new Set()).sort((a, b) => b.score - a.score || a.start.getTime() - b.start.getTime())[0];
+		if (best) out.push({ date: dateKey(best.start), start: formatHM(best.start) });
+	}
+	return out;
+}
+
 // ─── moving a block by hand (v1.1, V-37) ────────────────────────────────────
 
 export type PlacementProblem = "lecture" | "commitment" | "block" | "quiet" | "past-midnight";

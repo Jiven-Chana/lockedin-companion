@@ -46,6 +46,33 @@ const COPY = {
 		noGap: "No free gap is left this week.",
 		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
 	},
+	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3).
+	week: {
+		title: "Your week",
+		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Tap one to move or remove it." : `${n} suggested blocks in your free gaps. Tap one to move or remove it.`),
+		moved: "moved",
+		move: "Move",
+		remove: "Remove",
+		moveTo: "Move to a free gap:",
+		cancel: "Cancel",
+		removed: (day) => `Removed ${day} block ·`,
+		undo: "Undo",
+		add: "Add a block",
+		looksGood: "Looks good",
+		set: "Your week is set.",
+		setCount: (n) => (n === 0 ? "No study blocks this week." : n === 1 ? "One study block." : `${n} study blocks.`),
+		willNudge: "LockedIn will nudge you when each one starts.",
+		nudgesOff: "Nudges are off, so LockedIn won't buzz. Your blocks are still here.",
+		changeAnyTime: "You can change them any time.",
+	},
+	settings: {
+		title: "Settings",
+		nudges: "Nudges per day",
+		nudgeLine: ["LockedIn won't buzz. Your blocks stay in your week.", "One a day, and it's the first question.", "Up to two a day. Never repeated."],
+		uses: "What LockedIn uses",
+		usesLines: ["Timetable: yes", "Lecture slides: yes", "Location: never."],
+		done: "Done",
+	},
 	onLaptop: "It's waiting on your laptop.",
 	onLaptopNote: "Open LockedIn on your laptop: your answers are already there.",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
@@ -541,6 +568,158 @@ function blockRow(b) {
 	return row;
 }
 
+// ─── your week and Settings (v2.1 part C; lo-fi task 3) ────────────────────
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const when = (x) => `${x.date} ${x.start}`;
+const blockLabel = (b) => `Study ${b.start}${b.focus?.title ? ` · ${b.focus.title}` : ""}`;
+
+/** The week: lectures as plain lines, blocks as buttons that open to "Move" and "Remove", then "Add a block", "Settings" and "Looks good". */
+function weekSection(s) {
+	const from = todayKey();
+	const st = {
+		blocks: (s.blocks || []).filter((b) => b.status !== "removed" && b.date >= from).map((b) => ({ ...b })),
+		free: [...(s.week.free || [])],
+		lectures: (s.week.lectures || []).filter((l) => l.date >= from),
+		minutes: s.week.blockMinutes || 50,
+		nudges: s.week.nudgesPerDay ?? 1,
+		open: null, moving: false, undo: null,
+	};
+	const el = h("section", { class: "card" });
+	const moment = (x) => new Date(`${x.date}T${x.start}:00`).toISOString();
+	const title = (x) => COPY.block.nudgeTitle(shortDay(x.date), x.start);
+
+	const move = async (b, f) => {
+		await event("plan_move", null, { blockId: b.id, date: f.date, start: f.start, fireAt: moment(f), title: title(f) });
+		st.free = st.free.filter((x) => when(x) !== when(f));
+		Object.assign(b, { date: f.date, start: f.start, moved: true });
+		Object.assign(st, { open: null, moving: false, undo: null });
+		draw();
+	};
+	const remove = async (b) => {
+		await event("plan_remove", null, { blockId: b.id });
+		st.blocks = st.blocks.filter((x) => x.id !== b.id);
+		Object.assign(st, { open: null, moving: false, undo: b });
+		draw();
+	};
+	const undo = async () => {
+		const b = st.undo;
+		await event("plan_tick", null, { blockId: b.id, restore: true });
+		st.blocks.push(b);
+		st.undo = null;
+		draw();
+	};
+	const add = async () => {
+		const f = st.free[0];
+		if (!f) return;
+		const b = { id: `phone-${uuid().replace(/-/g, "").slice(0, 12)}`, date: f.date, start: f.start, minutes: st.minutes, status: "accepted", focus: null, moved: true };
+		await event("plan_add", null, { blockId: b.id, date: b.date, start: b.start, minutes: b.minutes, fireAt: moment(b), title: title(b) });
+		st.free = st.free.slice(1);
+		st.blocks.push(b);
+		Object.assign(st, { open: b.id, moving: false, undo: null });
+		draw();
+	};
+	const looksGood = async () => {
+		for (const b of st.blocks.filter((x) => x.status === "proposed")) {
+			await event("plan_tick", null, { blockId: b.id });
+			b.status = "accepted";
+		}
+		weekSet(st, s);
+	};
+
+	const row = (x) => {
+		if (!x.id) return h("li", { class: "wk static" }, h("b", {}, shortDay(x.date)), " ", `${x.title} ${x.start}`);
+		const isOpen = st.open === x.id;
+		return h("li", { class: "wk" },
+			h("button", { class: "btn wkrow", "aria-expanded": isOpen ? "true" : "false", onclick: () => { Object.assign(st, { open: isOpen ? null : x.id, moving: false }); draw(); } },
+				h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
+			x.why ? h("p", { class: "muted small" }, x.why) : null,
+			isOpen && !st.moving ? h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => { st.moving = true; draw(); } }, COPY.week.move), h("button", { class: "btn small", onclick: () => remove(x) }, COPY.week.remove)) : null,
+			isOpen && st.moving ? h("div", { class: "stack" }, h("p", { class: "muted small" }, COPY.week.moveTo), h("div", { class: "row" },
+				st.free.map((f) => h("button", { class: "btn small chip", onclick: () => move(x, f) }, `${shortDay(f.date)} ${f.start}`)),
+				h("button", { class: "btn small chip dashed", onclick: () => { st.moving = false; draw(); } }, COPY.week.cancel))) : null,
+		);
+	};
+	const draw = () => {
+		const rows = [...st.lectures, ...st.blocks].sort((a, b) => when(a).localeCompare(when(b)));
+		// replaceChildren writes "null" for a missing child, so the missing ones are taken out first.
+		el.replaceChildren(...[
+			h("h2", {}, COPY.week.title), " ",
+			h("p", { class: "muted small" }, COPY.week.count(st.blocks.length)),
+			rows.length ? h("ul", { class: "week" }, rows.map(row)) : null,
+			st.undo ? h("p", { class: "muted small" }, COPY.week.removed(shortDay(st.undo.date)), " ", h("button", { class: "btn small", onclick: undo }, COPY.week.undo)) : null,
+			h("div", { class: "row" },
+				h("button", { class: "btn", onclick: add, disabled: st.free.length === 0 }, COPY.week.add),
+				h("button", { class: "btn", onclick: () => settingsScreen(st, () => render()) }, COPY.settings.title),
+				h("button", { class: "btn primary", onclick: looksGood }, COPY.week.looksGood),
+			),
+		].filter((x) => x != null));
+	};
+	draw();
+	return el;
+}
+
+/** "Looks good": the week is set (lo-fi "tdone"). */
+function weekSet(st, s) {
+	const n = st.blocks.length;
+	const rows = [...st.blocks].sort((a, b) => when(a).localeCompare(when(b)));
+	show(
+		h("main", {},
+			bar(COPY.week.title, "set"),
+			box(h("b", {}, COPY.week.set), " ", COPY.week.setCount(n)),
+			rows.length ? h("ul", { class: "week" }, rows.map((b) => h("li", { class: "wk static" }, h("b", {}, shortDay(b.date)), " ", blockLabel(b).replace(/^Study /, "")))) : null,
+			h("p", { class: "muted" }, st.nudges > 0 ? COPY.week.willNudge : COPY.week.nudgesOff, " ", COPY.week.changeAnyTime),
+			h("div", { class: "row" },
+				h("button", { class: "btn", onclick: () => settingsScreen(st, () => weekSet(st, s)) }, COPY.settings.title),
+				h("button", { class: "btn primary", onclick: () => render() }, "OK"),
+			),
+		),
+	);
+}
+
+/** Settings (lo-fi "set"): nudges per day, what LockedIn uses, and this phone's own switches. */
+function settingsScreen(st, back) {
+	const set = async (n) => {
+		st.nudges = n;
+		await event("prefs", null, { nudgesPerDay: n });
+		settingsScreen(st, back);
+	};
+	show(
+		h("main", {},
+			bar(COPY.settings.title),
+			h("b", {}, COPY.settings.nudges),
+			h("div", { class: "seg", role: "group", "aria-label": COPY.settings.nudges }, [0, 1, 2].map((n) => h("button", { class: "btn small", "aria-pressed": st.nudges === n ? "true" : "false", onclick: () => set(n) }, String(n)))),
+			h("p", { class: "muted small" }, COPY.settings.nudgeLine[st.nudges]),
+			box(h("b", {}, COPY.settings.uses), " ", COPY.settings.usesLines.flatMap((l) => [h("span", { class: "line" }, l), " "])),
+			thisPhone(),
+			h("button", { class: "btn primary", onclick: back }, COPY.settings.done),
+		),
+	);
+}
+
+/** This phone's own switches: notifications, what the relay holds, unpair. */
+function thisPhone() {
+	return [
+		h("p", {}, local.get("pushOn", false) ? "Notifications are on." : h("button", { class: "btn", onclick: async () => { try { await enablePush(); local.set("pushOn", true); render(); } catch (e) { alert(e.message); } } }, "Turn on notifications")),
+		h("p", { class: "small" }, h("b", {}, "What the relay holds: "), COPY.holds),
+		h("button", { class: "btn ghost", onclick: async () => {
+			if (!confirm("Unpair this phone? Questions stop coming here.")) return;
+			try { await api("", { method: "DELETE" }); } catch {}
+			await kv("pair", null);
+			local.set("queue", []);
+			PAIR = null;
+			render();
+		} }, "Unpair this phone"),
+	];
+}
+
+/** The week as it was shown before v2.1: a list with Keep and ✕, and Settings folded away. */
+function oldWeek(blocks) {
+	return [
+		h("section", { class: "card" }, h("h2", {}, "This week"), blocks.length ? h("ul", { class: "blocks" }, blocks.map(blockRow)) : h("p", { class: "muted" }, "No study blocks yet. Plan your week on your laptop.")),
+		h("details", { class: "card" }, h("summary", {}, "Settings"), thisPhone()),
+	];
+}
+
 async function home() {
 	const s = await schedule();
 	if (s.unpaired) {
@@ -563,20 +742,8 @@ async function home() {
 			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
 			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
-			h("section", { class: "card" }, h("h2", {}, "This week"), blocks.length ? h("ul", { class: "blocks" }, blocks.map(blockRow)) : h("p", { class: "muted" }, "No study blocks yet. Plan your week on your laptop.")),
-			h("details", { class: "card" },
-				h("summary", {}, "Settings"),
-				h("p", {}, local.get("pushOn", false) ? "Notifications are on." : h("button", { class: "btn", onclick: async () => { try { await enablePush(); local.set("pushOn", true); render(); } catch (e) { alert(e.message); } } }, "Turn on notifications")),
-				h("p", { class: "small" }, h("b", {}, "What the relay holds: "), COPY.holds),
-				h("button", { class: "btn ghost", onclick: async () => {
-					if (!confirm("Unpair this phone? Questions stop coming here.")) return;
-					try { await api("", { method: "DELETE" }); } catch {}
-					await kv("pair", null);
-					local.set("queue", []);
-					PAIR = null;
-					render();
-				} }, "Unpair this phone"),
-			),
+			// Your week (v2.1 part C). A laptop or relay from before v2.1 sends no week: the blocks are listed as they were.
+			...(s.week ? [weekSection(s)] : oldWeek(blocks)),
 		),
 	);
 }

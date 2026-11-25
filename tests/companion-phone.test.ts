@@ -261,6 +261,75 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2)", () => {
 	});
 });
 
+describe("the week on the phone (v2.1 part C; lo-fi task 3)", () => {
+	type W = { lectures: { date: string; start: string; title: string }[]; free: { date: string; start: string }[]; nudgesPerDay: number; blockMinutes: number };
+	async function withWeek() {
+		const s = await setup({ packs: true });
+		s.store.saveBlocks([{ id: "blk-a", date: "2026-11-18", start: "14:00", minutes: 50, status: "accepted", source: "student" }, { id: "blk-b", date: "2026-11-19", start: "10:00", minutes: 50, status: "proposed", source: "planner" }]);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { week?: W };
+		const later = () => new Date(Date.now() + 60_000).toISOString();
+		return { ...s, read, later };
+	}
+
+	it("the phone is sent the week's lectures, a free time for each day ahead, and the nudges setting", async () => {
+		const { svc, read } = await withWeek();
+		await svc.requirePhone().sync({ force: true });
+		const w = (await read()).week!;
+		assert.equal(w.nudgesPerDay, 1);
+		assert.equal(w.blockMinutes, 50);
+		assert.ok(w.lectures.length > 0 && w.lectures.every((l) => /^\d{4}-\d{2}-\d{2}$/.test(l.date) && /^\d{2}:\d{2}$/.test(l.start) && l.title));
+		assert.ok(w.free.length > 0 && w.free.length <= 7);
+		assert.equal(new Set(w.free.map((f) => f.date)).size, w.free.length, "one a day");
+		assert.ok(!w.free.some((f) => (f.date === "2026-11-18" && f.start === "14:00") || (f.date === "2026-11-19" && f.start === "10:00")), "never on top of a block");
+	});
+
+	it("a relay from before v2.1 is not sent it", async () => {
+		const { svc, store } = await withWeek();
+		store.saveRuntime({ relayNudgeChars: undefined });
+		assert.equal(svc.requirePhone().buildSchedule().week, undefined);
+	});
+
+	it("\"Remove\" then \"Undo\" on the phone leaves the block as it was; a block the laptop removed stays removed", async () => {
+		const { svc, store, later } = await withWeek();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-week-0001", at: later(), type: "plan_remove", payload: { blockId: "blk-a" } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-a")?.status, "removed");
+		link.replay([{ id: "evt-week-0002", at: later(), type: "plan_tick", payload: { blockId: "blk-a", restore: true } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-a")?.status, "accepted");
+		svc.updateBlock("blk-b", { status: "removed" });
+		link.replay([{ id: "evt-week-0003", at: new Date(Date.now() - 60_000).toISOString(), type: "plan_tick", payload: { blockId: "blk-b", restore: true } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-b")?.status, "removed");
+	});
+
+	it("\"Add a block\" on the phone makes the block on the laptop, once, and only where one can go", async () => {
+		const { svc, store, events, later } = await withWeek();
+		const link = svc.requirePhone();
+		const add = (id: string, date: string, start: string) => ({ id: `evt-add-${id}`, at: later(), type: "plan_add", payload: { blockId: id, date, start, minutes: 50 } });
+		link.replay([add("phone-new00001", "2026-11-20", "15:00")]);
+		link.replay([add("phone-new00001", "2026-11-20", "15:00")]);
+		const made = store.blocks().filter((b) => b.id === "phone-new00001");
+		assert.deepEqual(made.map((b) => [b.date, b.start, b.minutes, b.status, b.source]), [["2026-11-20", "15:00", 50, "accepted", "phone"]]);
+		// On top of the block at Wed 14:00: not made, and the log says why.
+		link.replay([add("phone-new00002", "2026-11-18", "14:20")]);
+		assert.equal(store.blocks().some((b) => b.id === "phone-new00002"), false);
+		assert.ok(events().includes("relay_error"));
+		// An id or a time that isn't one.
+		link.replay([add("x y", "2026-11-21", "09:00"), add("phone-new00003", "soon", "09:00")]);
+		assert.equal(store.blocks().length, 3);
+	});
+
+	it("nudges per day set on the phone is the student's setting on the laptop too", async () => {
+		const { svc, store, later } = await withWeek();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-prefs-001", at: later(), type: "prefs", payload: { nudgesPerDay: 0 } }]);
+		assert.equal(store.profile()?.prefs.nudgesPerDay, 0);
+		assert.equal(link.buildSchedule().week?.nudgesPerDay, 0);
+		link.replay([{ id: "evt-prefs-002", at: later(), type: "prefs", payload: { nudgesPerDay: 9 } }]);
+		assert.equal(store.profile()?.prefs.nudgesPerDay, 0, "only 0, 1 or 2");
+	});
+});
+
 describe("the relay is down", () => {
 	it("the laptop keeps working and logs it", async () => {
 		const { svc, events } = await setup({ relayDown: true });

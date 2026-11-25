@@ -28,7 +28,8 @@ export const LIMITS = {
 	payloadChars: 12_000,
 	eventsPerPost: 50,
 	eventPayloadChars: 2_000,
-	blocksChars: 20_000,
+	/** The week: the blocks with what the phone shows for each, the lectures between them and the free times (v2.1; 20,000 before). */
+	blocksChars: 60_000,
 	/** New pairs per minute, across the relay (a cheap rate limit with no per-IP state). */
 	pairsPerMinute: 30,
 	eventsPage: 200,
@@ -44,7 +45,32 @@ export const LIMITS = {
 export const PHONE_EVENT_TYPES = [
 	"opened", "answered", "handover", "done_for_now", "snoozed", "dismissed",
 	"plan_tick", "plan_move", "plan_remove", "checkin", "target_confirm", "focus_start", "focus_end",
+	// v2.1 part C: a block added on the phone, and the nudges-per-day setting.
+	"plan_add", "prefs",
 ] as const;
+
+/** What the relay tells the laptop it accepts, with every answer to an upload. */
+const limits = () => ({ nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blocksChars });
+
+/** What a pair's `blocks` column holds: the blocks, and since v2.1 the rest of the week beside them. */
+interface Plan {
+	blocks: Record<string, unknown>[];
+	week?: Record<string, unknown>;
+}
+function readPlan(text: string | null | undefined): Plan {
+	let v: unknown;
+	try {
+		v = JSON.parse(text || "[]");
+	} catch {
+		v = [];
+	}
+	if (Array.isArray(v)) return { blocks: v as Record<string, unknown>[] };
+	const o = (v ?? {}) as { blocks?: unknown; week?: unknown };
+	return { blocks: Array.isArray(o.blocks) ? (o.blocks as Record<string, unknown>[]) : [], ...(o.week && typeof o.week === "object" ? { week: o.week as Record<string, unknown> } : {}) };
+}
+const writePlan = (p: Plan) => JSON.stringify(p.week ? p : p.blocks);
+/** A notification that must not fire while its block is removed: its real time stays in its payload, for "Undo". */
+const PARKED = "9999-12-31T00:00:00.000Z";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 const noContent = () => new Response(null, { status: 204 });
@@ -161,7 +187,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 
 			if (rest === "/schedule" && req.method === "PUT") {
 				if (!(await authorise(env, req, pairId, ["laptop"]))) return fail(401, "unauthorised");
-				const body = (await readJson(req, LIMITS.nudges * LIMITS.payloadChars + LIMITS.blocksChars)) as { version?: unknown; timeZone?: unknown; nudges?: unknown; blocks?: unknown };
+				const body = (await readJson(req, LIMITS.nudges * LIMITS.payloadChars + LIMITS.blocksChars)) as { version?: unknown; timeZone?: unknown; nudges?: unknown; blocks?: unknown; week?: unknown };
 				if (!Number.isInteger(body.version)) return fail(400, "version is required");
 				const nudges = Array.isArray(body.nudges) ? (body.nudges as ScheduledNudgeIn[]) : [];
 				if (nudges.length > LIMITS.nudges) return fail(400, "too many nudges");
@@ -169,11 +195,11 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					if (typeof n?.id !== "string" || !n.id || Number.isNaN(Date.parse(n.fireAt)) || Number.isNaN(Date.parse(n.expiresAt))) return fail(400, "each nudge needs id, fireAt and expiresAt");
 					if (JSON.stringify(n).length > LIMITS.payloadChars) return fail(400, "a nudge is too large");
 				}
-				const blocks = JSON.stringify(Array.isArray(body.blocks) ? body.blocks : []);
+				const blocks = writePlan({ blocks: Array.isArray(body.blocks) ? (body.blocks as Record<string, unknown>[]) : [], ...(body.week && typeof body.week === "object" ? { week: body.week as Record<string, unknown> } : {}) });
 				if (blocks.length > LIMITS.blocksChars) return fail(400, "too many blocks");
 				// Versions only go up (§5.2): a stale or repeated upload changes nothing.
 				const cur = await env.DB.prepare("SELECT schedule_version FROM pairs WHERE id = ?").bind(pairId).first<{ schedule_version: number }>();
-				if ((body.version as number) <= (cur?.schedule_version ?? 0)) return json({ accepted: false, version: cur?.schedule_version ?? 0, limits: { nudgeChars: LIMITS.payloadChars } });
+				if ((body.version as number) <= (cur?.schedule_version ?? 0)) return json({ accepted: false, version: cur?.schedule_version ?? 0, limits: limits() });
 				const sent = new Map(
 					(await env.DB.prepare("SELECT id, sent_at FROM nudges WHERE pair_id = ? AND sent_at IS NOT NULL").bind(pairId).all<{ id: string; sent_at: string }>()).results.map((r) => [r.id, r.sent_at]),
 				);
@@ -185,7 +211,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					),
 				];
 				await env.DB.batch(stmts);
-				return json({ accepted: true, version: body.version, limits: { nudgeChars: LIMITS.payloadChars } });
+				return json({ accepted: true, version: body.version, limits: limits() });
 			}
 
 			if (rest === "/schedule" && req.method === "GET") {
@@ -193,7 +219,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 				await env.DB.prepare("UPDATE pairs SET phone_seen_at = ? WHERE id = ?").bind(now.toISOString(), pairId).run();
 				const p = await env.DB.prepare("SELECT time_zone, blocks FROM pairs WHERE id = ?").bind(pairId).first<{ time_zone: string | null; blocks: string }>();
 				const rows = (await env.DB.prepare("SELECT payload, sent_at FROM nudges WHERE pair_id = ? AND expires_at > ? ORDER BY fire_at").bind(pairId, now.toISOString()).all<{ payload: string; sent_at: string | null }>()).results;
-				return json({ now: now.toISOString(), timeZone: p?.time_zone ?? null, blocks: JSON.parse(p?.blocks ?? "[]"), nudges: rows.map((r) => ({ ...JSON.parse(r.payload), sentAt: r.sent_at })) });
+				const plan = readPlan(p?.blocks);
+				return json({ now: now.toISOString(), timeZone: p?.time_zone ?? null, blocks: plan.blocks, ...(plan.week ? { week: plan.week } : {}), nudges: rows.map((r) => ({ ...JSON.parse(r.payload), sentAt: r.sent_at })) });
 			}
 
 			if (rest === "/subscriptions" && req.method === "POST") {
@@ -211,6 +238,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 				const list = (Array.isArray(body) ? body : [body]) as { id?: unknown; at?: unknown; type?: unknown; nudgeId?: unknown; payload?: unknown }[];
 				if (list.length > LIMITS.eventsPerPost) return fail(400, "too many events");
 				const stmts = [];
+				// The week as the phone changes it (v2.1): read once, changed in memory, written once.
+				let week: WeekEdits | null = null;
 				for (const e of list) {
 					if (typeof e.id !== "string" || !/^[\w-]{8,64}$/.test(e.id)) return fail(400, "each event needs an id");
 					if (typeof e.type !== "string" || !(PHONE_EVENT_TYPES as readonly string[]).includes(e.type)) return fail(400, `unknown event type ${String(e.type)}`);
@@ -219,8 +248,11 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					const at = typeof e.at === "string" && !Number.isNaN(Date.parse(e.at)) ? new Date(e.at).toISOString() : now.toISOString();
 					// Idempotent by id: a retried post from an offline phone changes nothing.
 					stmts.push(env.DB.prepare("INSERT OR IGNORE INTO events (pair_id, id, at, type, payload, received_at) VALUES (?, ?, ?, ?, ?, ?)").bind(pairId, e.id, at, e.type, payload, now.toISOString()));
-					// A block moved on the phone (v2.1 part B): its notification goes to the new time now, laptop open or not.
-					if (e.type === "plan_move") stmts.push(...(await moveBlock(env, pairId, (e.payload ?? {}) as Record<string, unknown>, now)));
+					// The week changed on the phone (v2.1 parts B and C): it holds here at once, laptop open or not.
+					if (WEEK_EVENTS.includes(e.type)) {
+						week ??= await loadWeek(env, pairId);
+						editWeek(week, env, pairId, e.type, (e.payload && typeof e.payload === "object" ? e.payload : {}) as Record<string, unknown>, now);
+					}
 					// "Later" on the phone fires the snooze time the laptop planned and counted (§5.2 item 2).
 					if (e.type === "snoozed" && typeof e.nudgeId === "string") {
 						const n = await env.DB.prepare("SELECT payload FROM nudges WHERE pair_id = ? AND id = ?").bind(pairId, e.nudgeId).first<{ payload: string }>();
@@ -232,6 +264,8 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 						}
 					}
 				}
+				if (week?.dirty) stmts.push(env.DB.prepare("UPDATE pairs SET blocks = ? WHERE id = ?").bind(writePlan(week.plan), pairId));
+				if (week) stmts.push(...week.stmts);
 				if (stmts.length) await env.DB.batch(stmts);
 				return noContent();
 			}
@@ -269,37 +303,100 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 }
 
 /** Every minute (Cron Trigger): wake phones for due nudges, then clean up (§5.3 retention). */
-/**
- * "LockedIn will nudge you then, and not before" (lo-fi task 2): a block the
- * phone moved is moved here too, in the week the phone reads and in its
- * notification. One not yet sent is re-timed; one already sent is announced
- * once more at the new time. The laptop's next upload replaces all of this
- * with its own plan, which by then has the same move in it.
- */
-async function moveBlock(env: RelayEnv, pairId: string, p: Record<string, unknown>, now: Date) {
-	const { blockId, date, start, fireAt, title } = p;
-	if (typeof blockId !== "string" || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || typeof start !== "string" || !/^\d{2}:\d{2}$/.test(start)) return [];
-	if (typeof fireAt !== "string" || Number.isNaN(Date.parse(fireAt))) return [];
+const WEEK_EVENTS: readonly string[] = ["plan_move", "plan_remove", "plan_tick", "plan_add", "prefs"];
+type BlockNudge = ScheduledNudgeIn & { blockId?: string };
+interface WeekEdits {
+	plan: Plan;
+	nudges: { id: string; n: BlockNudge; sent: boolean }[];
+	stmts: ReturnType<Db["prepare"]>[];
+	dirty: boolean;
+}
+
+async function loadWeek(env: RelayEnv, pairId: string): Promise<WeekEdits> {
 	const pair = await env.DB.prepare("SELECT blocks FROM pairs WHERE id = ?").bind(pairId).first<{ blocks: string }>();
-	const blocks = JSON.parse(pair?.blocks ?? "[]") as Record<string, unknown>[];
-	if (!blocks.some((b) => b.id === blockId)) return [];
-	const at = new Date(fireAt);
-	const stmts = [env.DB.prepare("UPDATE pairs SET blocks = ? WHERE id = ?").bind(JSON.stringify(blocks.map((b) => (b.id === blockId ? { ...b, date, start, moved: true } : b))), pairId)];
 	const rows = (await env.DB.prepare("SELECT id, payload, sent_at FROM nudges WHERE pair_id = ?").bind(pairId).all<{ id: string; payload: string; sent_at: string | null }>()).results;
-	const mine = rows.map((r) => ({ ...r, n: JSON.parse(r.payload) as ScheduledNudgeIn & { blockId?: string } })).filter((r) => r.n.blockId === blockId);
-	if (mine.length === 0) return stmts;
-	const retimed = (n: ScheduledNudgeIn, id: string) => ({ ...n, id, fireAt: at.toISOString(), expiresAt: new Date(at.getTime() + 2 * 3_600_000).toISOString(), ...(typeof title === "string" ? { title: title.slice(0, 120) } : {}) });
-	const waiting = mine.filter((r) => r.sent_at === null);
-	for (const r of waiting) {
-		const n = retimed(r.n, r.id);
-		stmts.push(env.DB.prepare("UPDATE nudges SET fire_at = ?, expires_at = ?, payload = ? WHERE pair_id = ? AND id = ?").bind(n.fireAt, n.expiresAt, JSON.stringify(n), pairId, r.id));
+	return { plan: readPlan(pair?.blocks), nudges: rows.map((r) => ({ id: r.id, n: JSON.parse(r.payload) as BlockNudge, sent: r.sent_at !== null })), stmts: [], dirty: false };
+}
+
+const isDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const isTime = (v: unknown): v is string => typeof v === "string" && /^\d{2}:\d{2}$/.test(v);
+const isMoment = (v: unknown): v is string => typeof v === "string" && !Number.isNaN(Date.parse(v));
+
+/**
+ * One change to the week made on the phone, applied to what the relay holds
+ * so it is true at once: "LockedIn will nudge you then, and not before"
+ * (lo-fi task 2) must not wait for the laptop to open. The laptop's next
+ * upload replaces all of it with its own plan, which by then has the same
+ * change in it. Anything malformed changes nothing.
+ */
+function editWeek(w: WeekEdits, env: RelayEnv, pairId: string, type: string, p: Record<string, unknown>, now: Date) {
+	if (type === "prefs") {
+		// Nudges per day: 0 stops every notification here and now (see cron).
+		if (p.nudgesPerDay === 0 || p.nudgesPerDay === 1 || p.nudgesPerDay === 2) {
+			w.plan.week = { ...(w.plan.week ?? {}), nudgesPerDay: p.nudgesPerDay };
+			w.dirty = true;
+		}
+		return;
 	}
-	if (waiting.length === 0 && at > now) {
-		const first = mine[0]!;
-		const n = retimed(first.n, `${first.id.replace(/:moved$/, "")}:moved`);
-		stmts.push(env.DB.prepare("INSERT OR IGNORE INTO nudges (pair_id, id, fire_at, expires_at, payload) VALUES (?, ?, ?, ?, ?)").bind(pairId, n.id, n.fireAt, n.expiresAt, JSON.stringify(n)));
+	const blockId = p.blockId;
+	if (typeof blockId !== "string") return;
+	const block = w.plan.blocks.find((b) => b.id === blockId);
+	const mine = w.nudges.filter((r) => r.n.blockId === blockId);
+	const setFire = (id: string, fireAt: string) => w.stmts.push(env.DB.prepare("UPDATE nudges SET fire_at = ? WHERE pair_id = ? AND id = ? AND sent_at IS NULL").bind(fireAt, pairId, id));
+	const update = (change: Record<string, unknown>) => {
+		w.plan.blocks = w.plan.blocks.map((b) => (b.id === blockId ? { ...b, ...change } : b));
+		w.dirty = true;
+	};
+	const takeFree = (date: string, start: string) => {
+		const free = w.plan.week?.free;
+		if (Array.isArray(free)) w.plan.week = { ...w.plan.week, free: free.filter((f) => !(f && (f as { date?: unknown }).date === date && (f as { start?: unknown }).start === start)) };
+	};
+
+	if (type === "plan_add") {
+		// "Add a block": a new block, with a notification of its own until the laptop plans it properly.
+		const { date, start, fireAt, title } = p;
+		if (block || !/^[\w-]{6,40}$/.test(blockId) || !isDate(date) || !isTime(start) || !isMoment(fireAt)) return;
+		const minutes = typeof p.minutes === "number" && Number.isInteger(p.minutes) && p.minutes >= 10 && p.minutes <= 180 ? p.minutes : 50;
+		w.plan.blocks = [...w.plan.blocks, { id: blockId, date, start, minutes, status: "accepted", focus: null, moved: true }];
+		takeFree(date, start);
+		w.dirty = true;
+		const at = new Date(fireAt);
+		if (at > now) {
+			const n = { id: `block:${blockId}:${date}`, kind: "block", blockId, title: typeof title === "string" ? title.slice(0, 120) : "LockedIn", body: `${minutes} minutes, at your own pace.`, opens: "session", fireAt: at.toISOString(), snoozeFireAt: at.toISOString(), expiresAt: new Date(at.getTime() + 2 * 3_600_000).toISOString() };
+			w.stmts.push(env.DB.prepare("INSERT OR IGNORE INTO nudges (pair_id, id, fire_at, expires_at, payload) VALUES (?, ?, ?, ?, ?)").bind(pairId, n.id, n.fireAt, n.expiresAt, JSON.stringify(n)));
+			w.nudges.push({ id: n.id, n: n as BlockNudge, sent: false });
+		}
+		return;
 	}
-	return stmts;
+	if (!block) return;
+
+	if (type === "plan_remove") {
+		update({ status: "removed" });
+		for (const r of mine) if (!r.sent) setFire(r.id, PARKED);
+	} else if (type === "plan_tick") {
+		// "Looks good" keeps a suggestion; with `restore` it is "Undo" after "Remove".
+		update({ status: "accepted" });
+		if (p.restore === true) for (const r of mine) if (!r.sent) setFire(r.id, new Date(r.n.fireAt).toISOString());
+	} else if (type === "plan_move") {
+		const { date, start, fireAt, title } = p;
+		if (!isDate(date) || !isTime(start) || !isMoment(fireAt)) return;
+		const at = new Date(fireAt);
+		update({ date, start, moved: true });
+		takeFree(date, start);
+		const retimed = (n: BlockNudge, id: string): BlockNudge => ({ ...n, id, fireAt: at.toISOString(), expiresAt: new Date(at.getTime() + 2 * 3_600_000).toISOString(), ...(typeof title === "string" ? { title: title.slice(0, 120) } : {}) });
+		const waiting = mine.filter((r) => !r.sent);
+		for (const r of waiting) {
+			r.n = retimed(r.n, r.id);
+			w.stmts.push(env.DB.prepare("UPDATE nudges SET fire_at = ?, expires_at = ?, payload = ? WHERE pair_id = ? AND id = ?").bind(r.n.fireAt, r.n.expiresAt, JSON.stringify(r.n), pairId, r.id));
+		}
+		// Its notification already came (the student is looking at it): it is announced once more at the new time.
+		if (waiting.length === 0 && mine.length > 0 && at > now) {
+			const first = mine[0]!;
+			const n = retimed(first.n, `${first.id.replace(/:moved$/, "")}:moved`);
+			w.stmts.push(env.DB.prepare("INSERT OR IGNORE INTO nudges (pair_id, id, fire_at, expires_at, payload) VALUES (?, ?, ?, ?, ?)").bind(pairId, n.id, n.fireAt, n.expiresAt, JSON.stringify(n)));
+			w.nudges.push({ id: n.id, n, sent: false });
+		}
+	}
 }
 
 export async function cron(env: RelayEnv, now = new Date(), fetchImpl: typeof fetch = fetch): Promise<{ sent: number; gone: number }> {
@@ -309,6 +406,9 @@ export async function cron(env: RelayEnv, now = new Date(), fetchImpl: typeof fe
 	let gone = 0;
 	const keys: VapidKeys | null = env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY ? { publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY, subject: env.VAPID_SUBJECT ?? "mailto:lockedin@example.invalid" } : null;
 	for (const pairId of new Set(due.map((d) => d.pair_id))) {
+		// Nudges per day set to 0 (v2.1 part C): nothing is sent. What is due stays unsent and simply runs out.
+		const pair = await env.DB.prepare("SELECT blocks FROM pairs WHERE id = ?").bind(pairId).first<{ blocks: string }>();
+		if (readPlan(pair?.blocks).week?.nudgesPerDay === 0) continue;
 		const subs = (await env.DB.prepare("SELECT endpoint FROM subscriptions WHERE pair_id = ?").bind(pairId).all<{ endpoint: string }>()).results;
 		// One wake per pair per minute, however many are due: the phone shows every due nudge it fetches.
 		if (keys)

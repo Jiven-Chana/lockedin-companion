@@ -31,12 +31,23 @@ export interface PhoneBlockLines {
 	moves: { kind: "today" | "evening" | "tomorrow" | "next"; date: string; start: string; label: string }[];
 }
 
+/** The week on the phone (v2.1 part C; lo-fi task 3): the lectures shown between the blocks, the free times a block can move to, and the nudges setting. */
+export interface PhoneWeek {
+	lectures: { date: string; start: string; title: string }[];
+	free: { date: string; start: string }[];
+	nudgesPerDay: 0 | 1 | 2;
+	/** A new block's length. */
+	blockMinutes: number;
+}
+
 /** The upload body (relay PUT /schedule). */
 export interface RelaySchedule {
 	version: number;
 	timeZone: string;
 	nudges: (ScheduledNudge & Record<string, unknown>)[];
 	blocks: (Pick<StudyBlock, "id" | "date" | "start" | "minutes" | "status"> & { focus?: { title: string; module: string } | null } & Partial<PhoneBlockLines>)[];
+	/** v2.1 part C: what the phone's week screen needs beside the blocks. Only sent to a relay that knows it. */
+	week?: PhoneWeek;
 }
 
 /** Versions only go up: the next one is now in ms, or one more than the last if the clock went back. */
@@ -67,7 +78,7 @@ export function eventsToReplay(events: readonly PhoneEvent[], replayed: Readonly
 	return out.map((e, i) => ({ e, i })).sort((a, b) => a.e.at.localeCompare(b.e.at) || a.i - b.i).map((x) => x.e);
 }
 
-export type PlanEdit = { blockId: string; at: string; change: { status?: StudyBlock["status"]; date?: string; start?: string } };
+export type PlanEdit = { blockId: string; at: string; change: { status?: StudyBlock["status"]; date?: string; start?: string }; /** "Undo" on the phone (v2.1 part C): brings back a block the phone removed. */ restore?: boolean };
 
 /**
  * Apply phone plan edits to the laptop's blocks: last write wins per block
@@ -79,7 +90,8 @@ export function applyPlanEdits(blocks: readonly StudyBlock[], edits: readonly Pl
 	const ignored: { blockId: string; reason: string }[] = [];
 	for (const e of [...edits].sort((a, b) => a.at.localeCompare(b.at))) {
 		const b = byId.get(e.blockId);
-		if (!b || b.status === "removed") {
+		// A removed block only comes back by "Undo", and not if the laptop was the one that removed it afterwards.
+		if (!b || (b.status === "removed" && !e.restore)) {
 			ignored.push({ blockId: e.blockId, reason: b ? "removed on the laptop" : "not on the laptop any more" });
 			continue;
 		}

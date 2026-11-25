@@ -652,6 +652,8 @@ export const PLAN_COPY = {
 	checkin: (started: number, minutes: number) =>
 		`Last week: ${started} ${started === 1 ? "block" : "blocks"} started, ${PLAN_COPY.hours(minutes).replace(/ h (\d+)$/, " h $1 min")}. How did it feel?`,
 	feelings: { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" } as const,
+	/** A lecture in the phone's week (v2.1 part C; lo-fi: "HCI lecture 11:00"). */
+	lectureRow: (module: string) => `${module} lecture`,
 	/** Moving a block from the phone (v2.1; lo-fi task 2): "Today 16:00", "This evening 19:00", "Tomorrow 10:00", "Pick for me: next free gap". */
 	moveLabel: (kind: "today" | "evening" | "tomorrow" | "next", start: string) => (kind === "today" ? `Today ${start}` : kind === "evening" ? `This evening ${start}` : kind === "tomorrow" ? `Tomorrow ${start}` : "next free gap"),
 	/** Why a block is where it is (V-45, AFF-G), read after its time: "Tue 14:00 · because you have energy in the afternoon". */

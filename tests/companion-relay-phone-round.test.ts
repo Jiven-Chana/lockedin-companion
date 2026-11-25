@@ -23,7 +23,7 @@ const nudge = (over: Record<string, unknown> = {}) => ({
 	question: q(1), round: [q(2), q(3), q(4), q(5)], more: 4, fireAt: "2026-11-24T13:05:00.000Z", sentAt: "2026-11-24T13:05:10.000Z", expiresAt: "2099-01-01T00:00:00.000Z", ...over,
 });
 
-async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; open?: string; local?: Record<string, unknown> } = {}) {
+async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unknown; open?: string; local?: Record<string, unknown> } = {}) {
 	const { document, Event: DomEvent } = parseHTML(fs.readFileSync(path.join(WEB, "index.html"), "utf-8"));
 	const local = new Map<string, string>(Object.entries({ pushOn: true, ...(opts.local ?? {}) }).map(([k, v]) => [k, JSON.stringify(v)]));
 	const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -38,7 +38,7 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; open?: strin
 		caches: { open: async () => ({ match: async (k: string) => (kv.has(k) ? new Response(kv.get(k)!) : undefined), put: async (k: string, r: Response) => void kv.set(k, await r.text()), delete: async (k: string) => kv.delete(k) }) },
 		fetch: async (url: string, init: { method?: string; body?: string } = {}) => {
 			if (url.endsWith("/events") && init.method === "POST") events.push(...JSON.parse(init.body!));
-			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: opts.blocks ?? [] } : {}), { status: 200 });
+			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: opts.blocks ?? [], ...(opts.week ? { week: opts.week } : {}) } : {}), { status: 200 });
 		},
 		Notification: { permission: "granted", requestPermission: async () => "granted" },
 		crypto, Response, URLSearchParams, Date, JSON, console, setTimeout, atob, alert: () => {}, confirm: () => true,
@@ -340,5 +340,114 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		const p = await opened({ id: "blk1", date, start, minutes: 50, status: "accepted", focus: { title: "Lecture 7", module: "HCI" } } as never);
 		assert.match(p.text(), /Lecture 7\. First step: slide 12, one question\./);
 		assert.ok(p.buttons().includes("Done for now"));
+	});
+});
+
+describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
+	// Dates from tomorrow on, on this phone's clock, so nothing here is in the past.
+	const pad = (n: number) => String(n).padStart(2, "0");
+	const day = (plus: number) => { const d = new Date(Date.now() + plus * 86_400_000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+	const short = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" });
+	const [d1, d2, d3] = [day(1), day(2), day(3)];
+	const blocks = () => [
+		{ id: "blk-a", date: d1, start: "14:00", minutes: 50, status: "accepted", focus: { title: "Nash equilibrium", module: "GT" }, goal: "5 questions, about 10 min", firstStep: null, onLaptop: null, why: "because you have energy in the afternoon", moves: [] },
+		{ id: "blk-b", date: d2, start: "10:00", minutes: 50, status: "proposed", focus: null, goal: "5 questions, about 10 min", firstStep: null, onLaptop: null, why: null, moves: [] },
+	];
+	const week = (over: Record<string, unknown> = {}) => ({ lectures: [{ date: d1, start: "11:00", title: "HCI lecture" }], free: [{ date: d2, start: "16:00" }, { date: d3, start: "09:00" }], nudgesPerDay: 1, blockMinutes: 50, ...over });
+	const home = (over: { blocks?: unknown[]; week?: unknown } = {}) => open({ nudges: [], blocks: over.blocks ?? blocks(), week: over.week ?? week() });
+
+	it("lists lectures and blocks in order, says how many blocks, and why a block is where it is", async () => {
+		const p = await home();
+		assert.match(p.text(), /Your week/);
+		assert.match(p.text(), /2 suggested blocks in your free gaps\. Tap one to move or remove it\./);
+		assert.match(p.text(), new RegExp(`${short(d1)} HCI lecture 11:00`));
+		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00 · Nash equilibrium`));
+		assert.match(p.text(), /because you have energy in the afternoon/);
+		assert.ok(p.text().indexOf("HCI lecture 11:00") < p.text().indexOf("Study 14:00"), "in time order");
+		for (const label of ["Add a block", "Settings", "Looks good"]) assert.ok(p.buttons().includes(label), label);
+		assert.doesNotMatch(p.text(), /null|undefined/, "nothing missing is written out");
+	});
+
+	it("counts in the lo-fi's words", async () => {
+		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Tap one to move or remove it\./);
+		assert.match((await home({ blocks: [] })).text(), /No study blocks this week\. That's fine too\./);
+	});
+
+	it("a block opens to \"Move\" and \"Remove\"; moving offers the free times and leaves a \"moved\" tag", async () => {
+		const p = await home();
+		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+		assert.ok(p.buttons().includes("Move") && p.buttons().includes("Remove"));
+		await p.tap("Move");
+		assert.match(p.text(), /Move to a free gap:/);
+		assert.ok(p.buttons().includes(`${short(d2)} 16:00`) && p.buttons().includes(`${short(d3)} 09:00`) && p.buttons().includes("Cancel"));
+		await p.tap(`${short(d3)} 09:00`);
+		const [m] = of(p.events, "plan_move");
+		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start, m?.payload.fireAt], ["blk-a", d3, "09:00", new Date(`${d3}T09:00:00`).toISOString()]);
+		assert.match(p.text(), new RegExp(`${short(d3)} Study 09:00 · Nash equilibrium moved`));
+		// The time it took is not offered again.
+		await p.tap(`${short(d2)} Study 10:00`);
+		await p.tap("Move");
+		assert.ok(!p.buttons().includes(`${short(d3)} 09:00`));
+		await p.tap("Cancel");
+		assert.equal(of(p.events, "plan_move").length, 1);
+	});
+
+	it("\"Remove\" can be undone, once", async () => {
+		const p = await home();
+		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+		await p.tap("Remove");
+		assert.deepEqual(of(p.events, "plan_remove")[0]?.payload, { blockId: "blk-a" });
+		assert.match(p.text(), new RegExp(`Removed ${short(d1)} block ·`));
+		assert.match(p.text(), /One suggested block/);
+		await p.tap("Undo");
+		assert.deepEqual(of(p.events, "plan_tick")[0]?.payload, { blockId: "blk-a", restore: true });
+		assert.match(p.text(), /2 suggested blocks/);
+		assert.ok(!p.buttons().includes("Undo"));
+	});
+
+	it("\"Add a block\" takes the first free time", async () => {
+		const p = await home();
+		await p.tap("Add a block");
+		const [a] = of(p.events, "plan_add");
+		assert.deepEqual([a?.payload.date, a?.payload.start, a?.payload.minutes, a?.payload.fireAt], [d2, "16:00", 50, new Date(`${d2}T16:00:00`).toISOString()]);
+		assert.match(String(a?.payload.blockId), /^phone-[0-9a-f]{12}$/);
+		assert.match(p.text(), new RegExp(`${short(d2)} Study 16:00 moved`));
+		assert.match(p.text(), /3 suggested blocks/);
+	});
+
+	it("\"Looks good\" keeps the suggestions and says the week is set", async () => {
+		const p = await home();
+		await p.tap("Looks good");
+		assert.deepEqual(of(p.events, "plan_tick").map((e) => e.payload), [{ blockId: "blk-b" }]);
+		assert.match(p.text(), /Your week is set\. 2 study blocks\./);
+		assert.match(p.text(), /LockedIn will nudge you when each one starts\. You can change them any time\./);
+		const off = await home({ week: week({ nudgesPerDay: 0 }) });
+		await off.tap("Looks good");
+		assert.match(off.text(), /Nudges are off, so LockedIn won't buzz\. Your blocks are still here\. You can change them any time\./);
+		const one = await home({ blocks: [blocks()[0]] });
+		await one.tap("Looks good");
+		assert.match(one.text(), /Your week is set\. One study block\./);
+	});
+
+	it("Settings is reached from the week: nudges per day, and what LockedIn uses", async () => {
+		const p = await home();
+		await p.tap("Settings");
+		assert.match(p.text(), /Nudges per day/);
+		assert.match(p.text(), /One a day, and it's the first question\./);
+		assert.match(p.text(), /What LockedIn uses Timetable: yes Lecture slides: yes Location: never\./);
+		await p.tap("0");
+		assert.deepEqual(of(p.events, "prefs")[0]?.payload, { nudgesPerDay: 0 });
+		assert.match(p.text(), /LockedIn won't buzz\. Your blocks stay in your week\./);
+		await p.tap("2");
+		assert.match(p.text(), /Up to two a day\. Never repeated\./);
+		assert.ok(p.buttons().includes("Unpair this phone"), "what Settings held before is still there");
+		await p.tap("Done");
+		assert.match(p.text(), /Your week/);
+	});
+
+	it("a laptop or relay from before v2.1 (no week) shows the blocks as it did", async () => {
+		const p = await open({ nudges: [], blocks: blocks() });
+		assert.match(p.text(), /This week/);
+		assert.ok(p.buttons().includes("✓ Keep"));
 	});
 });

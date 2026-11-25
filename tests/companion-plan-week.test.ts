@@ -10,6 +10,7 @@ import {
 	blockWhy,
 	CHECKIN_RULES,
 	DEFAULT_PREFS,
+	freeTimes,
 	lastWeekSummary,
 	moveTimes,
 	NUDGE_TEXT,
@@ -165,6 +166,26 @@ describe("moving a block from the phone (v2.1 part B; lo-fi: three times and \"P
 
 	it("each time has the lo-fi's label", () => {
 		assert.deepEqual(ask().map((x) => PLAN_COPY.moveLabel(x.kind, x.start)), ["Today 16:00", "This evening 18:00", "Tomorrow 08:00", "next free gap"]);
+	});
+});
+
+describe("free times for the week on the phone (v2.1 part C: \"Move to a free gap\", \"Add a block\")", () => {
+	const now = at(26, 14, 5); // Thursday
+	const ask = (over: Partial<Parameters<typeof freeTimes>[0]> = {}) => freeTimes({ now, lectures: [], quietHours: DEFAULT_PREFS.quietHours, blocks: [], minutes: 50, days: 3, ...over }).map((f) => `${f.date} ${f.start}`);
+
+	it("one a day, the planner's pick: the earliest, or inside the student's energy when they gave it", () => {
+		assert.deepEqual(ask(), ["2026-11-26 15:00", "2026-11-27 08:00", "2026-11-28 08:00"]);
+		assert.deepEqual(ask({ routine: { energy: ["evening"], commitments: [] } }), ["2026-11-26 17:00", "2026-11-27 17:00", "2026-11-28 17:00"]);
+	});
+
+	it("a block already there is in the way, even one that is only suggested; a removed one is not", () => {
+		const blocks = [block("2026-11-27", "08:00", "proposed"), block("2026-11-28", "08:00", "removed")];
+		assert.deepEqual(ask({ blocks }), ["2026-11-26 15:00", "2026-11-27 09:00", "2026-11-28 08:00"]);
+	});
+
+	it("a day with no room is left out", () => {
+		const routine = { energy: [], commitments: [{ label: "Away", weekdays: [5], start: "08:00", end: "22:00" }] };
+		assert.deepEqual(ask({ routine }), ["2026-11-26 15:00", "2026-11-28 08:00"]);
 	});
 });
 

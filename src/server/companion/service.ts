@@ -30,7 +30,7 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { PHONE_BLOCK_COPY, PHONE_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -38,8 +38,8 @@ import { StudyPacks } from "./study-pack.ts";
 import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { blockWhy, clampBlockMinutes, moveTimes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
-import type { PhoneBlockLines } from "../../core/companion/sync.ts";
+import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import type { PhoneBlockLines, PhoneWeek } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
@@ -1359,6 +1359,54 @@ export class CompanionService {
 			moves: moveTimes({ block, now: this.now(), lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks().filter((b) => b.status !== "removed") })
 				.map((m) => ({ ...m, label: PLAN_COPY.moveLabel(m.kind, m.start) })),
 		};
+	}
+
+	/**
+	 * The week on the phone (v2.1 part C; lo-fi task 3): the lectures shown
+	 * between the blocks, one free time for each day ahead ("Move to a free
+	 * gap", "Add a block") and the nudges setting.
+	 */
+	phoneWeek(): PhoneWeek {
+		const profile = this.requireProfile();
+		const now = this.now();
+		const from = dateKey(now);
+		const to = dateKey(addDays(now, PLAN_RULES.moveDays));
+		const hm = (iso: string) => {
+			const d = new Date(iso);
+			return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+		};
+		const settings = this.planSettings();
+		return {
+			lectures: this.store.lectures()
+				.filter((l) => l.start && dateKey(new Date(l.start)) >= from && dateKey(new Date(l.start)) <= to)
+				.sort((a, b) => a.start!.localeCompare(b.start!))
+				.map((l) => ({ date: dateKey(new Date(l.start!)), start: hm(l.start!), title: (l.kind ?? "lecture") === "lecture" ? PLAN_COPY.lectureRow(profile.modules.find((m) => m.code === l.module)?.name ?? l.module) : l.title })),
+			free: freeTimes({ now, lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks(), minutes: settings.blockMinutes }),
+			nudgesPerDay: profile.prefs.nudgesPerDay,
+			blockMinutes: clampBlockMinutes(settings.blockMinutes),
+		};
+	}
+
+	/**
+	 * "Add a block" on the phone (v2.1 part C). The phone chose a free time the
+	 * laptop offered, but the laptop decides: a time that is no longer free is
+	 * not made, and the log says why. Once per block id.
+	 */
+	addBlockFromPhone(raw: { blockId: unknown; date: unknown; start: unknown; minutes?: unknown }): StudyBlock | null {
+		const profile = this.requireProfile();
+		const { blockId, date, start } = raw;
+		if (typeof blockId !== "string" || !/^[\w-]{6,40}$/.test(blockId) || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidHM(start)) return null;
+		const blocks = this.store.blocks();
+		if (blocks.some((b) => b.id === blockId)) return null;
+		const block: StudyBlock = { id: blockId, date, start: start as string, minutes: clampBlockMinutes(typeof raw.minutes === "number" ? raw.minutes : this.planSettings().blockMinutes), status: "accepted", source: "phone" };
+		const problem = placementProblem({ block, lectures: this.store.lectures(), commitments: profile.routine?.commitments ?? [], blocks, quietHours: profile.prefs.quietHours });
+		if (problem) {
+			this.log("relay_error", { where: "plan add", blockId, reason: PLACEMENT_COPY[problem] });
+			return null;
+		}
+		this.store.saveBlocks([...blocks, block]);
+		this.log("plan_accepted", { blockId, date, start, minutes: block.minutes, lectureId: null, source: "phone", added: true });
+		return block;
 	}
 
 	/** "Take the first step" on the phone: the block is started, as its Start button would (V-44). */

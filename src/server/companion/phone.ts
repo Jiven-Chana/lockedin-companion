@@ -245,8 +245,11 @@ export class PhoneLink {
 			const fitted = fitNudge({ ...n, round, more: round.length }, maxChars);
 			return { ...fitted, more: fitted.round.length };
 		});
+		const newRelay = this.store.runtime().relayNudgeChars !== undefined;
 		return {
 			timeZone: this.svc.timeZone(),
+			// The week beside the blocks (v2.1 part C), for a relay that knows what to do with it.
+			...(newRelay ? { week: this.svc.phoneWeek() } : {}),
 			nudges: withRounds,
 			// A relay from before v2.1 has a smaller limit on blocks: it gets them as they always were.
 			blocks: [...plan.blocks, ...next.blocks].map((b) => {
@@ -351,6 +354,14 @@ export class PhoneLink {
 					});
 				}
 				break;
+			case "plan_add":
+				// "Add a block" on the phone (v2.1 part C).
+				this.svc.addBlockFromPhone({ blockId: p.blockId, date: p.date, start: p.start, minutes: p.minutes });
+				break;
+			case "prefs":
+				// "Nudges per day" set on the phone (v2.1 part C; lo-fi Settings).
+				if (p.nudgesPerDay === 0 || p.nudgesPerDay === 1 || p.nudgesPerDay === 2) this.svc.updateProfile({ prefs: { nudgesPerDay: p.nudgesPerDay } });
+				break;
 			case "focus_start":
 				// "Take the first step" on the phone (v2.1 part B) starts the block.
 				if (typeof p.blockId === "string") this.svc.phoneStartedBlock(p.blockId);
@@ -359,7 +370,7 @@ export class PhoneLink {
 			case "plan_remove":
 			case "plan_move":
 				if (typeof p.blockId === "string")
-					planEdits.push({ blockId: p.blockId, at: e.at, change: e.type === "plan_tick" ? { status: "accepted" } : e.type === "plan_remove" ? { status: "removed" } : { ...(typeof p.date === "string" ? { date: p.date } : {}), ...(typeof p.start === "string" ? { start: p.start } : {}) } });
+					planEdits.push({ blockId: p.blockId, at: e.at, change: e.type === "plan_tick" ? { status: "accepted" } : e.type === "plan_remove" ? { status: "removed" } : { ...(typeof p.date === "string" ? { date: p.date } : {}), ...(typeof p.start === "string" ? { start: p.start } : {}) }, ...(e.type === "plan_tick" && p.restore === true ? { restore: true } : {}) });
 				break;
 			case "checkin":
 				if (typeof p.feeling === "string") this.svc.answerCheckin({ feeling: p.feeling });
