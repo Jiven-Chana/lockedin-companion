@@ -28,7 +28,7 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { buildLearnOpening, learnNodeRef, type LearnTopic } from "../../core/companion/learn.ts";
+import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
@@ -73,6 +73,7 @@ import {
 	type Profile,
 	type SessionKind,
 	type SessionSpec,
+	type StudyMode,
 	type LearnItem,
 	type LearnScope,
 	type SessionView,
@@ -926,7 +927,7 @@ export class CompanionService {
 				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
 				const first = this.firstStepOf(b);
 				// What the timetable shows on a block (V-44): its first step, and whether it can be started now.
-				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()) };
+				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b) };
 			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
@@ -1049,14 +1050,6 @@ export class CompanionService {
 		return q ? { questionId: q.id, stem: q.stem, slide: q.slides[0] ?? null } : null;
 	}
 
-	/** The session a block opens: its unit (else the latest lecture), starting on its first step. */
-	private blockSpec(block: StudyBlock): SessionSpec | null {
-		const focus = blockFocus({ lectures: this.store.lectures() }, block, this.now());
-		if (!focus) return null;
-		const first = this.firstStepOf(block);
-		return { ...specFor("block", focus, this.store.profile()?.prefs), ...(first ? { firstQuestionId: first.questionId } : {}) };
-	}
-
 	/** Mark a block started, once. `via` says how: the Start button, or its notification. */
 	private markBlockStarted(blockId: string, via: "start" | "nudge"): StudyBlock | null {
 		const blocks = this.store.blocks();
@@ -1072,13 +1065,52 @@ export class CompanionService {
 	 * Start a study block from the laptop (V-44): marks it started and opens
 	 * its session. A block that is already started just opens a session again.
 	 */
-	startBlock(blockId: string): { block: StudyBlock; sessionId: string | null } {
+	startBlock(blockId: string, raw?: unknown): { block: StudyBlock; sessionId: string | null } {
 		const block = this.store.blocks().find((b) => b.id === blockId && b.status !== "removed");
 		if (!block) throw notFound("block");
 		if (block.status !== "started" && !canStartBlock(block, this.now())) throw new CompanionError("block_not_today", 409, PLAN_COPY.notToday);
+		const study = (raw as { study?: unknown } | null | undefined)?.study;
+		if (study !== undefined && study !== "learn" && study !== "practise") throw badRequest("study must be learn or practise");
 		const started = this.markBlockStarted(blockId, "start") ?? block;
-		const spec = this.blockSpec(started);
-		return { block: started, sessionId: spec ? this.createSession(spec).sessionId : null };
+		return { block: started, sessionId: this.openBlock(started, study) };
+	}
+
+	/**
+	 * What a block opens (step 5): Learn while its lecture is part-way through
+	 * or not learned yet, Practise once it has been. The other mode is offered
+	 * beside it (AFF-N: the mode is the student's choice each visit).
+	 */
+	private blockMode(block: StudyBlock) {
+		const focus = blockFocus({ lectures: this.store.lectures() }, block, this.now());
+		if (!focus) return null;
+		const canLearn = (this.store.demo().engineOverride ?? this.defaultEngine()) === "learnharness" && !!this.lectureById(focus)?.hasMaterials;
+		const suggestion = suggestForBlock({ lectureId: focus, sessions: this.store.sessions(), now: this.now(), canLearn, canPractise: this.safeHasScripted(focus) });
+		return { focus, ...suggestion };
+	}
+
+	/** The block's two buttons, as Week and Today show them. */
+	private blockButtons(block: StudyBlock): { study: StudyMode; label: string; other: { study: StudyMode; label: string } | null } | null {
+		const mode = this.blockMode(block);
+		if (!mode) return null;
+		return { study: mode.study, label: LEARN_COPY.blockMode(mode.study, mode.why), other: mode.other ? { study: mode.other, label: LEARN_COPY.instead(mode.other) } : null };
+	}
+
+	/** Open a block's session in the suggested mode, or the one the student chose. Null when the block has nothing to study yet. */
+	private openBlock(block: StudyBlock, chosen?: StudyMode, nudgeKey?: string): string | null {
+		const mode = this.blockMode(block);
+		if (!mode) return null;
+		const study = chosen ?? mode.study;
+		const first = this.firstStepOf(block);
+		if (study === "learn") {
+			// Part-way through this lecture: the block picks it up, with this block's time.
+			if (mode.resume && this.store.session(mode.resume)) {
+				this.store.updateSession(mode.resume, (s) => (s.spec.learn ? { ...s, spec: { ...s.spec, learn: { ...s.spec.learn, minutes: block.minutes } } } : s));
+				return mode.resume;
+			}
+			return this.startLearn({ lectureId: mode.focus }, { minutes: block.minutes, kind: "block", ...(first ? { firstQuestionId: first.questionId } : {}), ...(nudgeKey ? { nudgeKey } : {}) }).sessionId;
+		}
+		const spec: SessionSpec = { ...specFor("block", mode.focus, this.store.profile()?.prefs), ...(first ? { firstQuestionId: first.questionId } : {}), study: "practise" };
+		return this.createSession(spec, nudgeKey ? { nudgeKey } : {}).sessionId;
 	}
 
 	/** Accept proposals: the listed ids, or every proposal in that week. */
@@ -1393,7 +1425,8 @@ export class CompanionService {
 		if (firstStep) c = { ...c, spec: { ...c.spec, firstQuestionId: firstStep.questionId }, text: NUDGE_TEXT.block(block!.minutes, PLAN_COPY.firstStep(firstStep.slide)) };
 		// The question after a lecture opens a Practise round (V-40).
 		if (c.type === "N-1") c = { ...c, spec: { ...c.spec, study: "practise" } };
-		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
+		// A block's notification opens what the block suggests: Learn, picking up where it stopped, or Practise (step 5).
+		const sessionId = c.opens === "checkin" ? undefined : (c.sessionId ?? (block ? this.openBlock(block, undefined, c.key) : null) ?? this.createSession(c.spec, { nudgeKey: c.key }).sessionId);
 		const lecture = c.type === "N-1" ? this.store.lectures().find((l) => c.key === `N-1:${l.id}` || c.key.startsWith(`forced:N-1:${l.id}:`)) ?? this.lectureById(c.lectureId ?? "") : undefined;
 		const used = new Set(this.store.nudges().map((n) => n.questionId).filter((q): q is string => !!q));
 		const question = c.type === "N-1" && c.lectureId ? this.questionFor(c.lectureId, used) : undefined;
@@ -1690,7 +1723,7 @@ export class CompanionService {
 			}
 			return next;
 		});
-		return { ...v, ...this.studyOf(session, lecture, v.budget), ...(v.status === "done" ? this.doneExtras(session, now) : {}) };
+		return { ...v, ...this.studyOf(session, lecture, v.budget), ...this.weekOf(session, v), ...(v.status === "done" ? this.doneExtras(session, now) : {}) };
 	}
 
 	/** Every right answer in the history, for the gap rule (V-43): laptop answers, and the phone's. */
@@ -1768,6 +1801,18 @@ export class CompanionService {
 			.map((m) => ({ code: m.code, name: m.name, ideas: ideas.filter((i) => i.module === m.code) }))
 			.filter((m) => m.ideas.length > 0);
 		return { modules, ideas: ideas.length };
+	}
+
+	/** A week in one Learn session: the header names the week, and the slide panel follows the unit of the idea being taught. */
+	private weekOf(session: CompanionSession, v: SessionView): Partial<Pick<SessionView, "lecture" | "learn">> {
+		const ids = session.spec.learn?.lectureIds;
+		if (!ids || ids.length < 2 || !v.learn) return {};
+		const first = this.lectureById(ids[0]!);
+		const at = v.learn.plan?.currentId ? this.lectureById(learnNodeRef(v.learn.plan.currentId, ids, ids[0]).lectureId) : undefined;
+		return {
+			lecture: { ...v.lecture, title: LEARN_COPY.weekTitle(first?.week ?? 0, ids.length) },
+			learn: { ...v.learn, ...(at ? { unit: { id: at.id, title: at.title } } : {}) },
+		};
 	}
 
 	/** Learn or Practise, for the header (V-40, V-50). A round across a module is named after the module. */
@@ -2065,7 +2110,7 @@ export class CompanionService {
 		const ids = new Set(units.map((u) => u.id));
 		const sessions = this.store.sessions();
 		const learned = new Set(sessions.filter((s) => !!s.spec.learn && s.state === "done").flatMap((s) => s.spec.learn?.lectureIds ?? [s.spec.lectureId]));
-		const stopped = this.unfinishedLearn((s) => ids.has(s.spec.lectureId));
+		const stopped = this.unfinishedLearn((s) => units.some((u) => learnCovers(s, u.id)));
 		const next = units.find((u) => !learned.has(u.id)) ?? units[0];
 		const stoppedUnit = stopped ? units.find((u) => u.id === stopped.spec.lectureId) : undefined;
 		const { week } = currentWeek(mod, now);
@@ -2094,7 +2139,7 @@ export class CompanionService {
 	 * lectures in the current teaching week, in one session. `goal` is what
 	 * the student typed or said, handed to the tutor in their words.
 	 */
-	startLearn(raw: unknown, opts: { minutes?: number; kind?: SessionKind; firstQuestionId?: string } = {}): { sessionId: string } {
+	startLearn(raw: unknown, opts: { minutes?: number; kind?: SessionKind; firstQuestionId?: string; nudgeKey?: string } = {}): { sessionId: string } {
 		const r = (raw ?? {}) as { lectureId?: unknown; module?: unknown; week?: unknown; goal?: unknown; nodes?: unknown };
 		let goal: string | undefined;
 		if (r.goal !== undefined) {
@@ -2136,7 +2181,7 @@ export class CompanionService {
 			...(nodes ? { nodes } : {}),
 			...(opts.firstQuestionId ? { firstQuestionId: opts.firstQuestionId } : {}),
 		};
-		return this.createSession(spec);
+		return this.createSession(spec, opts.nudgeKey ? { nudgeKey: opts.nudgeKey } : {});
 	}
 
 	/**
@@ -2380,7 +2425,7 @@ export class CompanionService {
 					const b = state.blocks.find((x) => x.id === c.id);
 					const first = b ? this.firstStepOf(b) : null;
 					// Today's block can be started from Today (V-44).
-					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null };
+					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null };
 				}
 			}
 			return null;
@@ -2404,9 +2449,13 @@ export class CompanionService {
 						sessionId: resume.id,
 						module: resumeLecture.module,
 						title: resumeLecture.title,
-						answered: resume.answered,
-						budget: resume.budget,
-						text: `${SESSION_COPY.savedAt(resume.answered + 1)} ${SESSION_COPY.left(resume.budget - resume.answered, (resume.budget - resume.answered) * RESUME_RULES.minutesPerQuestion)}.`,
+						study: (resume.spec.study ?? "learn") as StudyMode,
+						// A Learn session is placed by its plan, not by a question count.
+						answered: resume.spec.learn ? Math.max(0, (resume.learnAt?.index ?? 1) - 1) : resume.answered,
+						budget: resume.spec.learn ? Math.max(1, resume.learnAt?.total ?? 1) : resume.budget,
+						text: resume.spec.learn
+							? LEARN_COPY.savedAt(resume.learnAt)
+							: `${SESSION_COPY.savedAt(resume.answered + 1)} ${SESSION_COPY.left(resume.budget - resume.answered, (resume.budget - resume.answered) * RESUME_RULES.minutesPerQuestion)}.`,
 					}
 				: null,
 		};

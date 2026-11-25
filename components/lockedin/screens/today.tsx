@@ -36,10 +36,10 @@ export function TodayScreen() {
 	const t = today.data;
 
 	/** Start today's study block (V-44): it is marked started, and its session opens when there is material to open. */
-	async function startBlock(blockId: string) {
+	async function startBlock(blockId: string, study?: "learn" | "practise") {
 		setBusy(true);
 		try {
-			const { sessionId } = await lockedIn.startBlock(blockId);
+			const { sessionId } = await lockedIn.startBlock(blockId, study);
 			if (sessionId) router.push(`/app/session/${sessionId}`);
 			else void today.reload();
 		} finally {
@@ -159,7 +159,8 @@ export function TodayScreen() {
 							{t?.nextBlock?.firstStep ? <span className="li-small">{t.nextBlock.firstStep}</span> : null}
 						</Link>
 						{/* Today's block is started here, or from its notification (V-44). */}
-						{t?.nextBlock && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn primary" onClick={() => void startBlock(t.nextBlock!.blockId)}>{t.nextBlock.status === "started" ? "Open" : PLAN_COPY.start}</button> : null}
+						{t?.nextBlock && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn primary" onClick={() => void startBlock(t.nextBlock!.blockId, t.nextBlock!.mode?.study)}>{t.nextBlock.mode?.label ?? (t.nextBlock.status === "started" ? "Open" : PLAN_COPY.start)}</button> : null}
+						{t?.nextBlock?.mode?.other && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn" onClick={() => void startBlock(t.nextBlock!.blockId, t.nextBlock!.mode!.other!.study)}>{t.nextBlock.mode.other.label}</button> : null}
 					</div>
 					<Link href="/app/me" className="li-btn" style={{ alignSelf: "flex-start" }}>
 						<span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 999, background: "conic-gradient(oklch(0.6 0.16 0), oklch(0.6 0.16 120), oklch(0.6 0.16 240), oklch(0.6 0.16 360))" }} />

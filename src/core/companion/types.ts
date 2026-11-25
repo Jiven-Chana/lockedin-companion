@@ -169,6 +169,8 @@ export interface LearnPlanNode {
 export interface LearnPlanView {
 	nodes: LearnPlanNode[];
 	edges: { from: string; to: string }[];
+	/** The current idea's id, when there is one. */
+	currentId?: string;
 	/** Which idea the session is on, counting from 1; 0 before the first one. */
 	index: number;
 	total: number;
@@ -224,6 +226,8 @@ export interface LearnView {
 	finished: boolean;
 	/** status "done": the ideas this session covered, by name. */
 	covered?: string[];
+	/** A week in one session: the unit the current idea belongs to. The slide panel shows its slides. */
+	unit?: { id: string; title: string };
 }
 
 /** The learner's answer as it arrives from the session screen. */

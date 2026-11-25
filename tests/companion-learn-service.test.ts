@@ -124,6 +124,7 @@ function teachingTutor(tutor: Tutor) {
 			);
 		};
 		if (input.type === "text" && /^LEARN SESSION/.test(input.text)) return say(assistant([text("One quick guess before we start."), probe("p1")]));
+		// Skip: said in words when nothing is open, or the open guess dismissed.
 		if (input.type === "text" && input.text === LEARN_SAYS.skipProbe) return planned();
 		if (input.type === "answer" && input.toolCallId === "p1") return planned();
 		if (input.type === "text" && input.text === LEARN_SAYS.planOk) return say(assistant([text("A persona is a made-up but evidence-based user (Slide 4)."), quizCall("c1", { type: "check", nodeId: "persona-purpose" })]));
@@ -196,6 +197,16 @@ describe("starting Learn (V-47)", () => {
 		assert.match(opening, /Opening questions: at most 4\./);
 		assert.match(opening, /UNIT 2: .*\nIDEAS \(in your plan, write each slug as u2-<slug>\)/);
 		assert.doesNotMatch(opening, /\nSLIDES \(cite as/);
+		// The header names the week; the slide panel follows the unit of the idea being taught.
+		let v = await svc.view(sessionId);
+		assert.deepEqual([v.lecture.title, v.learn?.unit], ["Week 3 · 2 lectures", undefined]);
+		tutor.trees.set("chat_1", { version: 1, nodes: [{ id: "u1-persona-purpose", title: "Personas" }, { id: "u2-observation", title: "Observation" }], edges: [] });
+		tutor.say("chat_1", assistant([text("Now fieldwork."), quizCall("wk1", { type: "check", nodeId: "u2-observation" })]));
+		v = await svc.view(sessionId);
+		assert.equal(v.learn?.unit?.id, "hci-w4-fieldwork");
+		// An answer in a week session lands on its own unit and idea.
+		await svc.answer(sessionId, { questionId: "wk1", indices: [pick(v, "Wrong A")], confidence: 90 });
+		assert.deepEqual(store.misses().map((m) => [m.lectureId, m.nodeId]), [["hci-w4-fieldwork", "observation"]]);
 	});
 
 	it("this week with nothing to teach says so", () => {
@@ -238,15 +249,22 @@ describe("the loop: guesses, the plan, checks", () => {
 		assert.deepEqual(store.session(sessionId)!.learnAt, { index: 1, total: 2, title: "What personas are for", covered: ["What personas are for"] });
 	});
 
-	it("\"Skip, just teach me\" goes to the tutor even with a guess open", async () => {
-		const { svc, tutor, events } = setup();
+	it("\"Skip, just teach me\" with a guess open dismisses the guess, which is how the tutor hears of it", async () => {
+		const { svc, store, tutor, events } = setup();
 		teachingTutor(tutor);
 		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
 		await svc.whenReady(sessionId);
 		assert.equal((await svc.view(sessionId)).status, "question");
 		await svc.say(sessionId, { say: "skipProbe" });
-		assert.equal(tutor.texts().at(-1), LEARN_SAYS.skipProbe);
+		// Left open, the engine refuses to end the opening questions (seen with the real AI), so the question is dismissed.
+		const last = tutor.sent.at(-1)!.input;
+		assert.ok(last.type === "answer" && last.toolCallId === "p1" && last.answer.dismissed === true);
+		assert.equal(tutor.texts().includes(LEARN_SAYS.skipProbe), false);
 		assert.equal(tutor.sides.length, 0);
+		// A dismissed guess is not an answer: no step, no gap, no event.
+		assert.equal(store.misses().length, 0);
+		assert.equal(events("answer").length, 0);
+		assert.equal((await svc.view(sessionId)).learn?.earlier, 0);
 		assert.deepEqual([(await svc.view(sessionId)).status, (await svc.view(sessionId)).learn?.phase], ["reply", "plan"]);
 		assert.deepEqual(events("learn_said"), [{ sessionId, how: "skipProbe", chars: 0 }]);
 	});
@@ -382,6 +400,94 @@ describe("stopping, picking up and finishing: nothing ends by itself", () => {
 		const { steps } = svc.steps(sessionId);
 		assert.equal(steps.length, 2);
 		assert.deepEqual(steps[1]!.map((i) => i.type), ["answered", "tutor"]);
+	});
+});
+
+describe("a study block suggests a mode and offers the other", () => {
+	const blockOn = (store: CompanionStore) => store.saveBlocks([{ id: "blk1", date: "2026-11-17", start: "15:00", minutes: 25, status: "accepted", source: "planner", lectureId: "hci-w3-personas", module: "HCI" }]);
+
+	it("not learned yet: the block opens Learn for the block's own length, and Practise is offered beside it", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		blockOn(store);
+		const card = svc.plan().blocks.find((b) => b.id === "blk1")!;
+		assert.deepEqual(card.mode, { study: "learn", label: "Learn this · you haven't yet", other: { study: "practise", label: "Practise instead" } });
+		assert.deepEqual(svc.today().nextBlock?.mode, card.mode);
+		const { sessionId } = svc.startBlock("blk1");
+		const session = store.session(sessionId!)!;
+		assert.deepEqual([session.spec.kind, session.spec.study, session.spec.learn?.minutes, session.engine], ["block", "learn", 25, "learnharness"]);
+		await svc.whenReady(sessionId!);
+		assert.match(tutor.texts()[0]!, /Time: about 25 minutes\./);
+	});
+
+	it("the other mode can be chosen instead: Practise, on the bank", () => {
+		const { svc, store } = setup();
+		blockOn(store);
+		const { sessionId } = svc.startBlock("blk1", { study: "practise" });
+		assert.deepEqual([store.session(sessionId!)!.engine, store.session(sessionId!)!.spec.study], ["scripted", "practise"]);
+		assert.throws(() => svc.startBlock("blk1", { study: "quiz" }), /study must be learn or practise/);
+	});
+
+	it("stopped part-way: the next block on that lecture picks it up, with the new block's time", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const first = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(first.sessionId);
+		await svc.say(first.sessionId, { say: "skipProbe" });
+		await svc.view(first.sessionId);
+		svc.stop(first.sessionId);
+		blockOn(store);
+		assert.equal(svc.plan().blocks.find((b) => b.id === "blk1")!.mode?.label, "Learn this · pick up where you stopped");
+		const { sessionId } = svc.startBlock("blk1");
+		assert.equal(sessionId, first.sessionId);
+		assert.equal(store.session(sessionId!)!.spec.learn?.minutes, 25);
+		assert.equal(store.sessions().length, 1);
+	});
+
+	it("learned once: the block suggests Practise, and Learn is still offered", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const first = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(first.sessionId);
+		svc.finish(first.sessionId);
+		blockOn(store);
+		assert.deepEqual(svc.plan().blocks.find((b) => b.id === "blk1")!.mode, { study: "practise", label: "Practise this · you've learned it", other: { study: "learn", label: "Learn instead" } });
+		const { sessionId } = svc.startBlock("blk1");
+		assert.equal(store.session(sessionId!)!.spec.study, "practise");
+	});
+
+	it("with no AI connected a block is Practise, with nothing else to offer", () => {
+		const { svc, store } = setup({ connected: false });
+		blockOn(store);
+		assert.deepEqual(svc.plan().blocks.find((b) => b.id === "blk1")!.mode, { study: "practise", label: "Practise this · your AI isn't connected", other: null });
+	});
+});
+
+describe("Today offers a stopped Learn session again", () => {
+	it("with where it was saved, by idea, and nothing marked missed", async () => {
+		const { svc, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		await svc.say(sessionId, { say: "skipProbe" });
+		await svc.say(sessionId, { say: "planOk" });
+		const v = await svc.view(sessionId);
+		await svc.answer(sessionId, { questionId: "c1", indices: [pick(v, "Right")], confidence: 90 });
+		await svc.view(sessionId);
+		svc.stop(sessionId);
+		const r = svc.today().resume!;
+		assert.deepEqual([r.sessionId, r.study, r.answered, r.budget], [sessionId, "learn", 1, 2]);
+		assert.equal(r.text, "Saved at Scenarios, idea 2 of 2. Pick up any time. Nothing is marked missed.");
+	});
+
+	it("before there is a plan, it is still saved", async () => {
+		const { svc, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		await svc.view(sessionId);
+		svc.stop(sessionId);
+		assert.equal(svc.today().resume?.text, "Saved where you stopped. Pick up any time. Nothing is marked missed.");
 	});
 });
 

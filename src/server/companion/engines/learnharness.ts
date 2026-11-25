@@ -13,7 +13,8 @@
 import type { ChatInput } from "../../../core/input-events.ts";
 import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
-import { QUESTION_TOOLS } from "../../../core/pending.ts";
+import { QUESTION_TOOLS, toolQuestionKind } from "../../../core/pending.ts";
+import { dismissedAnswer } from "../../../core/question-core.ts";
 import { learnSteps, mapLearnView, tutorOwesNextStep } from "../../../core/companion/learn.ts";
 import { HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
@@ -273,6 +274,14 @@ export class LearnHarnessEngine implements SessionEngine {
 		const chatId = this.chatId(session);
 		// Mid-reply: the tutor picks it up at its next pause. If that turn ends first, it goes as an ordinary message.
 		if (this.port.running(chatId) && (await this.port.steer(chatId, text))) return { queued: true };
+		// "Skip, just teach me" with a guess still open: the open question is dismissed, which is how the tutor
+		// learns of the skip. (Left open, the engine refuses to end the opening questions: seen with the real AI.)
+		const open = text === LEARN_SAYS.skipProbe && !this.port.running(chatId) ? pendingQuestionOf(this.record(session)) : null;
+		if (open) {
+			const question = (open.input as { question?: unknown } | null)?.question;
+			await this.send(chatId, { type: "answer", toolCallId: open.toolCallId, answer: dismissedAnswer(toolQuestionKind(open.tool), typeof question === "string" ? question : "") });
+			return { queued: false };
+		}
 		try {
 			await this.send(chatId, { type: "text", text });
 		} catch (err) {

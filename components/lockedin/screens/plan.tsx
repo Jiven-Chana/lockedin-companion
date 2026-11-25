@@ -45,9 +45,9 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 		}
 	};
 	const proposed = b.status === "proposed";
-	const startNow = async () => {
+	const startNow = async (study?: "learn" | "practise") => {
 		try {
-			const { sessionId } = await lockedIn.startBlock(b.id);
+			const { sessionId } = await lockedIn.startBlock(b.id, study);
 			if (sessionId) router.push(`/app/session/${sessionId}`);
 			else onDone();
 		} catch (e) {
@@ -80,7 +80,9 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 				) : b.status !== "started" ? (
 					<span className="li-row" style={{ gap: 6 }}>
 						{/* A block is started on its own day (V-44). */}
-						{b.canStart ? <button type="button" className="li-btn primary" onClick={startNow} aria-label={`Start ${b.start} block`}>{PLAN_COPY.start}</button> : null}
+						{/* The block suggests one mode and offers the other (step 5; AFF-N: the mode is your choice each visit). */}
+						{b.canStart ? <button type="button" className="li-btn primary" onClick={() => void startNow(b.mode?.study)} aria-label={`Start ${b.start} block: ${b.mode?.label ?? PLAN_COPY.start}`}>{b.mode?.label ?? PLAN_COPY.start}</button> : null}
+						{b.canStart && b.mode?.other ? <button type="button" className="li-btn" onClick={() => void startNow(b.mode!.other!.study)}>{b.mode.other.label}</button> : null}
 						{proposed && !b.canStart ? <button type="button" className="li-btn primary" onClick={() => act({ status: "accepted" })} aria-label={`Keep ${b.start} block`}>✓ Keep</button> : null}
 						<button type="button" className="li-btn" onClick={() => setMoving(true)}>Move</button>
 						<button type="button" className="li-btn ghost" onClick={() => act({ status: "removed" })} aria-label={`Remove ${b.start} block`}>✕</button>

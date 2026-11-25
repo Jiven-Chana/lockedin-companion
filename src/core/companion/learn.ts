@@ -13,10 +13,15 @@ import { failedOutputCallIds, hasProbeDone, pendingQuestionOf, sendToUserText, t
 import { QUESTION_TOOLS } from "../pending.ts";
 import type { QuestionAnswerData } from "../question-core.ts";
 import { sideSegmentId } from "../side-chat.ts";
-import { LEARN_COPY, LEARN_RULES, LEARN_SAYS } from "./policy.ts";
+import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { parseSlideRefs, trimSlides } from "./slides.ts";
-import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView } from "./types.ts";
+import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView, StudyMode } from "./types.ts";
+
+/** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
+export function planSize(minutes: number): number {
+	return Math.min(LEARN_RULES.maxIdeas, Math.max(LEARN_RULES.minIdeas, Math.round(minutes / LEARN_RULES.minutesPerIdea)));
+}
 
 /** How many opening questions the tutor may ask, sized to what was asked for. */
 export function probeSize(scope: LearnScope): number {
@@ -73,6 +78,7 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 		`What I want: ${learn.goal?.replace(/\s+/g, " ").trim() || DEFAULT_WANT[learn.scope]}`,
 		`Time: about ${learn.minutes} minutes. I may stop at any point and pick it up later.`,
 		`Opening questions: at most ${probeSize(learn.scope)}.`,
+		`Plan: at most ${planSize(learn.minutes)} ideas.`,
 		...(spec.nodes?.length ? [`Focus: only the ideas ${spec.nodes.join(", ")}.`] : []),
 		...(input.firstStep ? [`First step: start on the same point as "${input.firstStep.stem}"${input.firstStep.slide ? ` (Slide ${input.firstStep.slide})` : ""}.`] : []),
 	];
@@ -247,7 +253,7 @@ export function learnPlan(tree: PlanTree | null | undefined, messages: readonly 
 		edges: tree.edges.map((e) => ({ from: e.from, to: e.to })),
 		index: at + 1,
 		total: nodes.length,
-		...(at >= 0 ? { current: nodes[at]!.title } : {}),
+		...(at >= 0 ? { current: nodes[at]!.title, currentId: nodes[at]!.id } : {}),
 		...(next ? { next: next.title } : {}),
 	};
 }
@@ -376,11 +382,46 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	// Nothing is running. If the newest thing in the lesson is the tutor's own words, it is waiting for the student.
 	// Anything else (an answer, a message, a hand-over, something just made) means its next turn is about to start.
 	const newest = [...messages].reverse().find((m) => !(m.role === "custom" && QUIET_MARKERS.includes(m.customType)));
-	if (newest?.role === "assistant" && newest.stopReason !== "error" && newest.stopReason !== "aborted") return { ...base, status: "reply" };
+	// The opening questions are over but the teaching turn has not begun: the hand-over takes a moment, and its words are still to come.
+	const handover = messages.findIndex((m) => m.role === "custom" && m.customType === "probe-handoff");
+	const handingOver = probed && !(handover >= 0 && messages.slice(handover + 1).some((m) => m.role === "assistant"));
+	if (!handingOver && newest?.role === "assistant" && newest.stopReason !== "error" && newest.stopReason !== "aborted") return { ...base, status: "reply" };
 	// A turn that never started (the app was closed mid-step) must not leave the student waiting: they can carry on.
 	const age = typeof newest?.timestamp === "number" ? now.getTime() - newest.timestamp : 0;
 	if (age > LEARN_RULES.stalledMs) return { ...base, status: "reply" };
 	return { ...base, status: "thinking", activity: LEARN_COPY.writing };
+}
+
+// ─── a study block: Learn or Practise ───────────────────────────────────────
+
+export interface BlockSuggestion {
+	study: StudyMode;
+	/** Why this mode: part-way through, not learned yet, learned already, or no AI connected. */
+	why: "unfinished" | "not-yet" | "learned" | "no-ai";
+	/** The Learn session to pick up, when there is one. */
+	resume?: string;
+	/** The other mode, when it can run: the student can always choose it instead (AFF-N). */
+	other: StudyMode | null;
+}
+
+/** Does this Learn session teach that lecture? A week session covers several. */
+export const learnCovers = (s: CompanionSession, lectureId: string): boolean => !!s.spec.learn && (s.spec.lectureId === lectureId || (s.spec.learn.lectureIds ?? []).includes(lectureId));
+
+/**
+ * What a study block opens (step 5). Learn while the lecture is part-way
+ * through or not learned yet; Practise once it has been learned. The other
+ * mode is offered beside it whenever it can run.
+ */
+export function suggestForBlock(input: { lectureId: string; sessions: readonly CompanionSession[]; now: Date; canLearn: boolean; canPractise: boolean }): BlockSuggestion {
+	const { lectureId, sessions, now, canLearn, canPractise } = input;
+	if (!canLearn) return { study: "practise", why: "no-ai", other: null };
+	const mine = sessions.filter((s) => learnCovers(s, lectureId));
+	const fresh = (s: CompanionSession) => now.getTime() - new Date(s.endedAt ?? s.lastActivityAt ?? s.openedAt ?? s.createdAt).getTime() <= RESUME_RULES.offerDays * 86_400_000;
+	const unfinished = [...mine].reverse().find((s) => !!s.chatId && (s.state === "stopped" || s.state === "active") && fresh(s));
+	const other = (study: StudyMode): StudyMode | null => (study === "learn" ? (canPractise ? "practise" : null) : "learn");
+	if (unfinished) return { study: "learn", why: "unfinished", resume: unfinished.id, other: other("learn") };
+	if (!mine.some((s) => s.state === "done")) return { study: "learn", why: "not-yet", other: other("learn") };
+	return canPractise ? { study: "practise", why: "learned", other: "learn" } : { study: "learn", why: "learned", other: null };
 }
 
 // ─── a typed goal → topics in the module ────────────────────────────────────

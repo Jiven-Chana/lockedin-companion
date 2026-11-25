@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	answerRecordFrom,
+	resumableSession,
+	suggestForBlock,
 	tutorOwesNextStep,
 	buildLearnOpening,
 	gradeAnswer,
@@ -18,6 +20,7 @@ import {
 	mapLearnView,
 	matchTopics,
 	missFromAnswer,
+	planSize,
 	probeSize,
 	questionDataFromCall,
 	toSessionQuestion,
@@ -86,6 +89,11 @@ describe("the opening questions are sized to what was asked for (V-47)", () => {
 	it("the numbers live in policy", () => assert.deepEqual(LEARN_RULES.probe, { week: 4, lecture: 2, section: 1 }));
 });
 
+describe("the plan is sized to the time: about one idea per ten minutes", () => {
+	const cases: [number, number][] = [[10, 2], [25, 3], [50, 5], [90, 8], [120, 8]];
+	for (const [minutes, ideas] of cases) it(`${minutes} minutes: at most ${ideas} ideas`, () => assert.equal(planSize(minutes), ideas));
+});
+
 describe("what the tutor is told at the start", () => {
 	const base = { lecture, moduleName: "Game Theory", now, units: [{ lecture, slidesMarkdown: "## Slide 1: Games\nA game has players.\n\n## Slide 2: Best response\nBest reply to the others.", slidesFile: "/data/materials/gt-w2-nash/slides.md", conceptMap: "graph TD\n  best-response[\"Best response · S2\"] --> nash[\"Nash equilibrium · S3\"]" }] };
 
@@ -98,6 +106,7 @@ describe("what the tutor is told at the start", () => {
 		assert.match(t, /What I want: Teach me this lecture\./);
 		assert.match(t, /Time: about 50 minutes\. I may stop at any point and pick it up later\./);
 		assert.match(t, /Opening questions: at most 2\./);
+		assert.match(t, /Plan: at most 5 ideas\./);
 		assert.match(t, /IDEAS \(plan on these slugs\)\n```mermaid\ngraph TD/);
 		assert.match(t, /SLIDES FILE: \/data\/materials\/gt-w2-nash\/slides\.md/);
 		assert.match(t, /SLIDES \(cite as "\(Slide n\)"\)\n## Slide 1: Games/);
@@ -246,6 +255,16 @@ describe("the chat record becomes one step on the screen", () => {
 		const msgs: LhMessage[] = [opening(), assistant([text("One quick guess first."), probeCall("p1")])];
 		msgs.push(answered(msgs, "p1", { indices: [1] }), ...probeDone());
 		assert.equal(view(msgs).status, "thinking");
+	});
+
+	it("the opening questions are over and the tutor has said so, but the plan is still to come: thinking, not the student's turn", () => {
+		// The order the real engine writes: the closing sentence lands before the hand-over marker does.
+		const msgs: LhMessage[] = [opening(), assistant([call("pd", "probe_done", { assessment: { strands: [{ strand: "Nash", assessment: "Not asked." }] } })]), result("pd", "probe_done", { ok: true }), assistant([text("I'll start with the payoff matrix.")], "stop")];
+		assert.equal(view(msgs).status, "thinking");
+		msgs.push(newHandoffMessage("c1"));
+		assert.equal(view(msgs).status, "thinking");
+		msgs.push(...planInit());
+		assert.equal(view(msgs, { tree }).status, "reply");
 	});
 
 	it("the plan is shown once, in the step where it was proposed, and the tutor waits", () => {
@@ -449,5 +468,32 @@ describe("a typed goal finds its topics in the module (start sheet)", () => {
 		const got = matchTopics("equilibrium", many);
 		assert.equal(got.length, LEARN_RULES.suggestions);
 		assert.ok(got.every((t) => t.nodeId === undefined));
+	});
+});
+
+describe("a study block suggests one mode and offers the other (AFF-N: the mode is a choice per visit)", () => {
+	const at = new Date("2026-11-20T10:10:00.000Z");
+	const learnt = (state: CompanionSession["state"], over: Partial<CompanionSession> = {}): CompanionSession => session({ id: `s-${state}`, state, lastActivityAt: "2026-11-19T10:00:00.000Z", ...over });
+	const cases: [string, { sessions: CompanionSession[]; canLearn: boolean; canPractise: boolean }, { study: string; why: string; resume?: string; other: string | null }][] = [
+		["never learned: Learn, you haven't yet", { sessions: [], canLearn: true, canPractise: true }, { study: "learn", why: "not-yet", other: "practise" }],
+		["stopped part-way: Learn, pick up where you stopped", { sessions: [learnt("stopped")], canLearn: true, canPractise: true }, { study: "learn", why: "unfinished", resume: "s-stopped", other: "practise" }],
+		["left open in a tab counts as part-way too", { sessions: [learnt("active")], canLearn: true, canPractise: true }, { study: "learn", why: "unfinished", resume: "s-active", other: "practise" }],
+		["learned once: Practise, and Learn is still offered", { sessions: [learnt("done")], canLearn: true, canPractise: true }, { study: "practise", why: "learned", other: "learn" }],
+		["a week session that covered this lecture counts as learned", { sessions: [learnt("done", { spec: { ...session().spec, lectureId: "other", learn: { scope: "week", minutes: 50, lectureIds: ["other", lecture.id] } } })], canLearn: true, canPractise: true }, { study: "practise", why: "learned", other: "learn" }],
+		["a session stopped more than a week ago is not offered again: start fresh", { sessions: [learnt("stopped", { lastActivityAt: "2026-11-01T10:00:00.000Z" })], canLearn: true, canPractise: true }, { study: "learn", why: "not-yet", other: "practise" }],
+		["no AI connected: Practise, and nothing else to offer", { sessions: [], canLearn: false, canPractise: true }, { study: "practise", why: "no-ai", other: null }],
+		["no question bank yet: Learn only", { sessions: [learnt("done")], canLearn: true, canPractise: false }, { study: "learn", why: "learned", other: null }],
+		["a Learn session on another lecture changes nothing", { sessions: [learnt("stopped", { spec: { ...session().spec, lectureId: "other" } })], canLearn: true, canPractise: true }, { study: "learn", why: "not-yet", other: "practise" }],
+	];
+	for (const [name, input, expected] of cases) it(name, () => assert.deepEqual(suggestForBlock({ lectureId: lecture.id, now: at, ...input }), expected));
+});
+
+describe("a Learn session that was left is offered again (R-5)", () => {
+	const at = new Date("2026-11-20T10:10:00.000Z");
+	it("it has no question count, so being stopped or left open is what counts", () => {
+		assert.equal(resumableSession([session({ state: "stopped", endedAt: "2026-11-20T09:00:00.000Z" })], at)?.id, "s1");
+		assert.equal(resumableSession([session({ state: "active", lastActivityAt: "2026-11-20T09:00:00.000Z" })], at)?.id, "s1");
+		assert.equal(resumableSession([session({ state: "done" })], at), null);
+		assert.equal(resumableSession([session({ state: "ready" })], at), null);
 	});
 });

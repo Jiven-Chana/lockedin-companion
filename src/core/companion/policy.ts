@@ -278,6 +278,10 @@ export const PRACTISE_COPY = {
  */
 export const LEARN_RULES = {
 	probe: { week: 4, lecture: 2, section: 1 } as Record<LearnScope, number>,
+	/** The plan is sized to the time: about one idea per this many minutes, and never fewer or more than these. */
+	minutesPerIdea: 10,
+	minIdeas: 2,
+	maxIdeas: 8,
 	/** A sitting started outside a block lasts the student's usual block length; this when they have none set. */
 	defaultMinutes: 50,
 	/** Slides sent in the opening message, in estimated tokens. The tutor reads the rest from the file as the plan reaches it. */
@@ -336,8 +340,12 @@ export const LEARN_COPY = {
 	guessAnswer: "The answer",
 	covered: (ideas: readonly string[]) => (ideas.length ? `You covered: ${ideas.join(", ")}.` : "You made a start."),
 	doneTitle: (title: string) => `Done: ${title}.`,
-	savedAt: (at: { index: number; total: number; title: string } | undefined) => (at && at.index > 0 ? `Saved at ${at.title}, idea ${at.index} of ${at.total}. Pick up any time. Nothing is marked missed.` : "Saved with its plan. Pick up any time. Nothing is marked missed."),
+	savedAt: (at: { index: number; total: number; title: string } | undefined) => (at && at.index > 0 ? `Saved at ${at.title}, idea ${at.index} of ${at.total}. Pick up any time. Nothing is marked missed.` : "Saved where you stopped. Pick up any time. Nothing is marked missed."),
 	pickUp: "Pick up where you stopped",
+	/** A study block's two buttons (step 5): the suggested mode with its reason, and the other one, smaller. */
+	blockWhy: { unfinished: "pick up where you stopped", "not-yet": "you haven't yet", learned: "you've learned it", "no-ai": "your AI isn't connected" },
+	blockMode: (study: "learn" | "practise", why: "unfinished" | "not-yet" | "learned" | "no-ai") => `${study === "learn" ? "Learn this" : "Practise this"} · ${LEARN_COPY.blockWhy[why]}`,
+	instead: (study: "learn" | "practise") => (study === "learn" ? "Learn instead" : "Practise instead"),
 	notConnected: "Learn needs your AI connected. Practise works without it.",
 	connect: "Connect",
 	/** The module's start sheet (AFF-K: one small step; INT-02-b: no menu of choices). */
@@ -352,7 +360,7 @@ export const LEARN_COPY = {
 	noMatch: (module: string) => `Nothing in your ${module} material matches that yet. Pick a lecture:`,
 	nothingToLearn: "No slides or notes for this module yet. Add them in the Library and Learn opens up.",
 	nothingThisWeek: "No lectures with slides for this week yet.",
-	weekTitle: (module: string, week: number) => `${module} · week ${week}`,
+	weekTitle: (week: number, lectures: number) => `Week ${week} · ${lectures} lectures`,
 } as const;
 
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;

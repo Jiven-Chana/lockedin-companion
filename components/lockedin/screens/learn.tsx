@@ -149,9 +149,12 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 		else setSay(add);
 	}, []), "learn");
 
+	// The slides beside the lesson: this lecture's, or in a week session the unit the current idea belongs to.
+	const unitId = learn.unit?.id ?? view.lecture.id;
 	useEffect(() => {
-		lockedIn.slides(view.lecture.id).then((r) => { setSlides(r.slides); setHasPdf(r.hasPdf); }).catch(() => { setSlides([]); setHasPdf(false); });
-	}, [view.lecture.id]);
+		setSlide(null);
+		lockedIn.slides(unitId).then((r) => { setSlides(r.slides); setHasPdf(r.hasPdf); }).catch(() => { setSlides([]); setHasPdf(false); });
+	}, [unitId]);
 
 	// Something is being made in the background: look again now and then, so it appears when it lands.
 	const making = learn.step.some((i) => i.type === "making");
@@ -438,12 +441,12 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 							{panel === "slide" ? (
 								<>
 									<div className="li-row" style={{ gap: 8 }}>
-										<b style={{ flexGrow: 1 }}>{slidePositionLabel(pos, hasPdf)}</b>
+										<b style={{ flexGrow: 1 }}>{learn.unit ? `${learn.unit.title} · ` : ""}{slidePositionLabel(pos, hasPdf)}</b>
 										<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Previous page" : "Previous slide"} onClick={() => setSlide(pos.prev)} disabled={pos.prev === null}>‹</button>
 										<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}>›</button>
 									</div>
 									<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
-										{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this yet.</p>}
+										{s ? <SlidePage lectureId={unitId} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this yet.</p>}
 									</div>
 									{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
 								</>

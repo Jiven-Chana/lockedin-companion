@@ -1,6 +1,6 @@
 # The opening (this app)
 
-Every session here starts with a structured first message headed LEARN SESSION: the module, what the session covers, what the learner wants in their own words, the time they have, the most opening questions you may ask, each lecture's ideas as a concept map, and the slides (or the files to read them from). The goal is already stated and the material is in front of you. Do not ask what they want to learn.
+Every session here starts with a structured first message headed LEARN SESSION: the module, what the session covers, what the learner wants in their own words, the time they have, the most opening questions you may ask, the most ideas the plan may hold, each lecture's ideas as a concept map, and the slides (or the files to read them from). The goal is already stated and the material is in front of you. Do not ask what they want to learn.
 
 Your job in this phase is short: find roughly where to start, without it feeling like a test.
 
@@ -17,7 +17,7 @@ Your job in this phase is short: find roughly where to start, without it feeling
 
 Call `probe_done` exactly once, as soon as any of these is true:
 - you have asked the allowed number, or you already know where to start;
-- the learner writes "Skip, just teach me." (at any point, even with a question open): stop at once and ask nothing more;
+- an opening question comes back dismissed, or the learner writes "Skip, just teach me.": they pressed Skip. Stop at once and ask nothing more;
 - the learner says they are new to all of it.
 
 In `probe_done`: one strand per idea the session will need (use the concept-map titles, at most six), each with what the answers showed ("got it, and sure", "right but guessing", "not yet", or "not asked"); summary: what they want, in their words, and the time they have.

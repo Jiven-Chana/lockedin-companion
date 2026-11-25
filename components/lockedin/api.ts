@@ -35,12 +35,14 @@ export interface PlanData {
 	committedMinutes: number;
 	proposedMinutes: number;
 	/** `module`: the block's module (the student's choice, else its unit's), or null for free study (V-37). */
-	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean })[];
+	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean; mode: BlockMode | null })[];
 	lectures: Lecture[];
 	commitments: Routine["commitments"];
 	quietHours: { from: string; to: string };
 	modules: { code: string; name: string; hasMaterial: boolean }[];
 }
+/** A study block's two buttons (step 5): the suggested mode with its reason, and the other one. */
+export interface BlockMode { study: "learn" | "practise"; label: string; other: { study: "learn" | "practise"; label: string } | null }
 export interface LearnSheet {
 	module: { code: string; name: string };
 	connected: boolean;
@@ -85,7 +87,7 @@ export interface TodayData {
 	onboarded: boolean;
 	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
 	lectures: LectureWithStatus[];
-	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null } | null;
+	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null; mode: BlockMode | null } | null;
 	readyToRevisit: number;
 	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
 	banner: Banner;
@@ -219,7 +221,8 @@ export const lockedIn = {
 	plan: (week?: string) => api<PlanData>(`/plan${week ? `?week=${week}` : ""}`),
 	proposePlan: (week?: string) => api<PlanData & { roomMinutes: number; fits: boolean; message: string | null }>("/plan", { body: week ? { week } : {} }),
 	/** Start a study block (V-44): marks it started and opens its session, when there is material to open. */
-	startBlock: (id: string) => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { method: "POST" }),
+	/** Start a block in the mode it suggests, or the one chosen (step 5). */
+	startBlock: (id: string, study?: "learn" | "practise") => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { body: study ? { study } : {} }),
 	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number; module?: string | null }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
 	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
 	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),
