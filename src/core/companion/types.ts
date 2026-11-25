@@ -15,8 +15,8 @@
 export type EngineName = "learnharness" | "scripted";
 export const ENGINE_NAMES: readonly EngineName[] = ["learnharness", "scripted"];
 
-export type SessionKind = "post-lecture" | "missed-lecture" | "retest" | "try-now" | "block" | "practise";
-export const SESSION_KINDS: readonly SessionKind[] = ["post-lecture", "missed-lecture", "retest", "try-now", "block", "practise"];
+export type SessionKind = "post-lecture" | "missed-lecture" | "retest" | "try-now" | "block" | "practise" | "learn";
+export const SESSION_KINDS: readonly SessionKind[] = ["post-lecture", "missed-lecture", "retest", "try-now", "block", "practise", "learn"];
 /**
  * The two ways to study (V-40, V-50). Practise is fast questions from the
  * question bank, with no AI. Learn is the tutor teaching. On screen they are
@@ -25,6 +25,24 @@ export const SESSION_KINDS: readonly SessionKind[] = ["post-lecture", "missed-le
 export type StudyMode = "learn" | "practise";
 
 export type SessionMode = "question-first" | "show-first";
+
+/**
+ * How much a Learn session covers (V-47): one lecture, a module's lectures
+ * for one teaching week, or one section of a lecture (a typed goal that
+ * matched particular ideas). The opening questions are sized to it.
+ */
+export type LearnScope = "lecture" | "week" | "section";
+
+/** A Learn session (V-47, V-54): the tutor teaching, as long as a study block. */
+export interface LearnSpec {
+	scope: LearnScope;
+	/** What the student typed or said they want to cover, in their words. */
+	goal?: string;
+	/** A week in one session: every unit taught, in course order. The first is the session's `lectureId`. */
+	lectureIds?: string[];
+	/** How long the sitting is meant to be: the block's length, or the student's usual block length. */
+	minutes: number;
+}
 
 export interface SessionBudget {
 	questions: number;
@@ -48,11 +66,14 @@ export interface SessionSpec {
 	firstQuestionId?: string;
 	/** Learn or Practise (V-40). Absent means Learn. */
 	study?: StudyMode;
+	/** Learn (V-47): set on every session the tutor teaches. */
+	learn?: LearnSpec;
 	/** A Practise round across a module (V-40): the questions chosen for it, in the order asked. */
 	practise?: { module: string; picks: { lectureId: string; questionId: string }[]; /** "Practise this idea" (V-39): the idea the round stays on, as `lectureId#nodeId`. */ idea?: string };
 }
 
-export type SessionStatus = "preparing" | "question" | "thinking" | "done" | "error";
+/** "reply": Learn only. The tutor has said its piece and is waiting for the student. */
+export type SessionStatus = "preparing" | "question" | "thinking" | "reply" | "done" | "error";
 
 /** One answer option in DISPLAY order. `index` is 1-based, matching
  *  LearnHarness's own answer records (QuestionAnswerData.options). */
@@ -64,8 +85,12 @@ export interface SessionOption {
 export interface SessionQuestion {
 	/** The LearnHarness toolCallId, or the scripted question id. */
 	id: string;
-	/** quiz = graded multiple choice; ask = ungraded choice (teacher's ask_user_question). */
-	kind: "quiz" | "ask";
+	/** quiz = multiple choice with a right answer; ask = a choice with no right answer; write = answered in the student's own words. */
+	kind: "quiz" | "ask" | "write";
+	/** A "have a guess" (V-47): an opening question or a prediction. Never marked wrong, never a gap. */
+	guess?: boolean;
+	/** ask: the student may type something else instead of picking. */
+	other?: boolean;
 	stem: string;
 	/** Extra context the question carries (LearnHarness `details`). */
 	context?: string;
@@ -130,6 +155,75 @@ export interface SessionView {
 	comingBack?: string[];
 	/** status "done": when the next study block starts (ISO), if one is planned. */
 	nextBlockAt?: string | null;
+	/** Learn (V-47): the step on screen, the plan, and the clock. */
+	learn?: LearnView;
+}
+
+/** One idea on a Learn session's plan, as the screen draws it (V-33: LockedIn draws it from the tutor's data). */
+export interface LearnPlanNode {
+	id: string;
+	title: string;
+	state: "done" | "current" | "todo";
+}
+
+export interface LearnPlanView {
+	nodes: LearnPlanNode[];
+	edges: { from: string; to: string }[];
+	/** Which idea the session is on, counting from 1; 0 before the first one. */
+	index: number;
+	total: number;
+	/** The current idea's title, and the one after it (INT-02-c: progress points at what is next). */
+	current?: string;
+	next?: string;
+}
+
+/**
+ * One thing in a Learn step, in the order it happened. A step is everything
+ * since the student's last answer, so the screen shows one step at a time
+ * (AE-5, AFF-C) and never a chat log (AE2-3).
+ */
+export type LearnItem =
+	| { type: "tutor"; id: string; text: string }
+	| { type: "you"; id: string; text: string }
+	| {
+			type: "answered"; id: string; stem: string; guess: boolean;
+			options: { label: string; picked: boolean; answer: boolean }[];
+			/** What the student wrote, for a written answer or "something else". */
+			written?: string;
+			dontKnow: boolean;
+			/** Set only for a Check with a right answer. A guess is never marked. */
+			correct?: boolean;
+			explanation?: string;
+			why?: string;
+		}
+	/** The plan, shown once, in the step where the tutor proposed it. */
+	| { type: "plan"; id: string }
+	/** Something the tutor asked for is being made in the background (AFF-H). */
+	| { type: "making"; id: string; kind: LearnArtifactKind; title?: string }
+	| { type: "failed"; id: string; kind: LearnArtifactKind }
+	| { type: "visual"; id: string; svg: string; notes?: string }
+	| { type: "demo"; id: string; title: string; html: string }
+	| { type: "research"; id: string; brief: string; sources: { title: string; url: string }[] }
+	/** A question asked beside an open question, and its answer. The open question stays. */
+	| { type: "aside"; id: string; ask: string; answer: string };
+
+export type LearnArtifactKind = "visual" | "demo" | "research";
+
+export interface LearnView {
+	/** Where the loop is: the opening guesses, the plan being agreed, or teaching. */
+	phase: "probe" | "plan" | "teach";
+	step: LearnItem[];
+	/** How many steps came before this one ("Earlier"). */
+	earlier: number;
+	plan?: LearnPlanView;
+	minutes: number;
+	/** When this sitting's time is up (ISO). The session never ends by itself. */
+	endsAt?: string;
+	timeUp: boolean;
+	/** The plan's last idea has been checked: "Finish" is offered. */
+	finished: boolean;
+	/** status "done": the ideas this session covered, by name. */
+	covered?: string[];
 }
 
 /** The learner's answer as it arrives from the session screen. */
@@ -141,6 +235,8 @@ export interface AnswerInput {
 	/** One of CONFIDENCE_STOPS (0/30/50/70/90/100). Ignored with dontKnow. */
 	confidence?: number;
 	why?: string;
+	/** A written answer, or "something else" on a question with options. */
+	text?: string;
 }
 
 /** An answer, normalised across engines. Feeds the miss log and event log. */
@@ -150,8 +246,12 @@ export interface AnswerRecord {
 	nodeId?: string;
 	/** The unit the question came from, when it differs from the session's (a mixed Practise round). */
 	lectureId?: string;
-	/** false for ungraded (ask) answers. */
+	/** false for answers that are not marked: a choice with no right answer, a written answer, and a guess. */
 	graded: boolean;
+	/** A "have a guess" (an opening question or a prediction): it never makes a gap and never closes one. */
+	guess?: boolean;
+	/** What the student wrote, when the answer was in their own words. */
+	written?: string;
 	correct: boolean;
 	dontKnow: boolean;
 	confidence?: number;
@@ -402,6 +502,12 @@ export interface CompanionSession {
 	hintedQuestionIds?: string[];
 	/** Engine fallback happened (learnharness → scripted). */
 	fellBackFrom?: EngineName;
+	/** Learn: questions asked beside an open question, with the tutor's answers. */
+	asides?: { questionId: string; ask: string; answer: string; at: string }[];
+	/** Learn: where the plan stood at the last look, for the pick-up card. */
+	learnAt?: { index: number; total: number; title: string; covered: string[] };
+	/** Learn: when the clock for this sitting started. Reset when a stopped session is picked up. */
+	sittingFrom?: string;
 }
 
 export type MissReason = "wrong" | "dont-know" | "low-confidence";
@@ -526,6 +632,8 @@ export const COMPANION_EVENT_TYPES = [
 	"gap_closed",
 	"gap_questions_written",
 	"gap_questions_failed",
+	// v2.0 step 5: Learn. What the student said is never logged, only that they did and how long it was.
+	"learn_said",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

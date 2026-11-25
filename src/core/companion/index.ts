@@ -34,3 +34,4 @@ export * from "./score.ts";
 export * from "./milestones.ts";
 export * from "./practise.ts";
 export * from "./gaps.ts";
+export * from "./learn.ts";

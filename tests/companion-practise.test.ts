@@ -243,11 +243,12 @@ describe("the question after a lecture opens a Practise round (V-40)", () => {
 		assert.deepEqual([session.engine, session.spec.study], ["learnharness", "learn"]);
 	});
 
-	it("a session started the old way is Learn", async () => {
+	it("any session the tutor runs is Learn, whatever started it (two modes only)", async () => {
 		const { svc, store } = await setup();
 		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "gt-2" }));
-		assert.equal(store.session(sessionId)!.engine, "learnharness");
-		await svc.whenReady(sessionId);
+		const session = store.session(sessionId)!;
+		assert.equal(session.engine, "learnharness");
+		assert.deepEqual([session.spec.study, session.spec.learn?.scope, session.budget], ["learn", "lecture", 0]);
 		assert.equal((await svc.view(sessionId)).study, "learn");
 	});
 });

@@ -255,7 +255,7 @@ describe("engines, fallback and errors", () => {
 	it("without fallback a failed prepare is an honest error state", async () => {
 		const { svc, events } = setup({ engines: { learnharness: broken }, defaultEngine: "learnharness" });
 		svc.onboard({});
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		await svc.whenReady(sessionId);
 		const v = await svc.view(sessionId);
 		assert.equal(v.status, "error");
@@ -266,7 +266,7 @@ describe("engines, fallback and errors", () => {
 	it("with COMPANION_AUTO_FALLBACK the session continues on the scripted engine, and says so", async () => {
 		const { svc, store, events } = setup({ engines: { learnharness: broken }, defaultEngine: "learnharness", autoFallback: true });
 		svc.onboard({});
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		await svc.whenReady(sessionId);
 		const v = await svc.view(sessionId);
 		assert.equal(v.engine, "scripted");
@@ -371,7 +371,7 @@ describe("engines, fallback and errors", () => {
 		const { svc, store } = setup();
 		svc.onboard({});
 		svc.demoEngine({ engine: "learnharness" });
-		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "try-now", lectureId: "hci-w3-personas" }));
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
 		assert.equal(store.session(sessionId)?.engine, "learnharness");
 	});
 });

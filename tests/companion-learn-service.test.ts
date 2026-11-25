@@ -1,0 +1,406 @@
+/**
+ * Learn through CompanionService and the real LearnHarnessEngine, over a
+ * stand-in tutor (a fake LhPort that answers like the engine's chat): start,
+ * the opening guesses, talking to the tutor, gaps, stopping and finishing,
+ * and the module's start sheet (v2.0 step 5; V-47, V-54).
+ *
+ * 17 Nov 2026 is a Tuesday. The sample timetable: HCI Tue 11–13, GT Wed 10–12.
+ */
+
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, it } from "node:test";
+import { LEARN_COPY, LEARN_SAYS } from "../src/core/companion/index.ts";
+import type { PlanTree } from "../src/core/contracts.ts";
+import type { ChatInput } from "../src/core/input-events.ts";
+import { newAnswerResult, newHandoffMessage, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
+import { ManualClock } from "../src/server/companion/clock.ts";
+import { CompanionContent } from "../src/server/companion/content.ts";
+import { LearnHarnessEngine, type LhPort, type LhSendResult } from "../src/server/companion/engines/learnharness.ts";
+import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
+import { CompanionError } from "../src/server/companion/errors.ts";
+import { CompanionService } from "../src/server/companion/service.ts";
+import { CompanionStore } from "../src/server/companion/store.ts";
+import { assistant, quizCall, text } from "./helpers/companion-lh.ts";
+
+const CONTENT = path.join(import.meta.dirname, "..", "companion", "content");
+const at = (d: number, h: number, m = 0) => new Date(2026, 10, d, h, m);
+
+const call = (id: string, name: string, args: Record<string, unknown>) => ({ type: "toolCall" as const, id, name, arguments: args });
+const result = (toolCallId: string, toolName: string, details: unknown): LhMessage =>
+	({ id: `r_${toolCallId}`, role: "toolResult", toolCallId, toolName, content: [{ type: "text", text: "ok" }], details, isError: false, timestamp: Date.now() }) as unknown as LhMessage;
+const probe = (id: string) => call(id, "probe", { question: `Guess ${id}?`, options: [{ label: "Right", value: "right" }, { label: "Wrong", value: "wrong" }], explanation: "Because (Slide 4).", correctAnswer: "right" });
+const tree: PlanTree = { version: 1, nodes: [{ id: "persona-purpose", title: "What personas are for" }, { id: "scenarios", title: "Scenarios" }], edges: [{ from: "persona-purpose", to: "scenarios" }] };
+
+/** The tutor: an LhPort whose chat reacts to what it is sent. */
+class Tutor implements LhPort {
+	chats = new Map<string, LhMessage[]>();
+	sent: { chatId: string; input: ChatInput }[] = [];
+	sides: { chatId: string; anchor: string; text: string }[] = [];
+	steered: string[] = [];
+	busy = new Set<string>();
+	trees = new Map<string, PlanTree>();
+	sideFails = false;
+	/** What the tutor does when something arrives. */
+	react: (chatId: string, input: ChatInput, n: number) => void = () => {};
+	createChat() {
+		const id = `chat_${this.chats.size + 1}`;
+		this.chats.set(id, []);
+		return id;
+	}
+	messages = (id: string) => this.chats.get(id) ?? null;
+	running = (id: string) => this.busy.has(id);
+	failure = () => undefined;
+	async send(chatId: string, input: ChatInput): Promise<LhSendResult> {
+		if (this.busy.has(chatId)) return { status: 409, error: "A turn is already running for this session" };
+		this.sent.push({ chatId, input });
+		const record = this.chats.get(chatId)!;
+		if (input.type === "text") record.push(newUserMessage(input.text));
+		if (input.type === "answer") {
+			const name = record.flatMap((m) => (m.role === "assistant" ? m.content : [])).find((b) => b.type === "toolCall" && b.id === input.toolCallId) as { name: string } | undefined;
+			record.push(newAnswerResult(input.toolCallId, name?.name ?? "quiz", input.answer));
+		}
+		this.react(chatId, input, this.sent.length);
+		return { status: 200 };
+	}
+	async askSide(chatId: string, anchor: string, t: string) {
+		if (this.sideFails) throw new Error("The source is not a teaching segment in this session");
+		this.sides.push({ chatId, anchor, text: t });
+		return " Personas stand in for real users (Slide 4). ";
+	}
+	cost = () => 0.02;
+	deleteChat(id: string) {
+		this.chats.delete(id);
+	}
+	tree = (id: string) => this.trees.get(id) ?? null;
+	async steer(chatId: string, t: string) {
+		if (!this.busy.has(chatId)) return false;
+		this.steered.push(t);
+		return true;
+	}
+	say(chatId: string, ...m: LhMessage[]) {
+		this.chats.get(chatId)!.push(...m);
+	}
+	texts = () => this.sent.flatMap((s) => (s.input.type === "text" ? [s.input.text] : []));
+}
+
+function setup(opts: { connected?: boolean; start?: Date } = {}) {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-learn-"));
+	const store = new CompanionStore(dir);
+	const content = new CompanionContent(store, CONTENT);
+	const clock = new ManualClock(opts.start ?? at(17, 14));
+	const tutor = new Tutor();
+	let n = 0;
+	const svc = new CompanionService({
+		store, content, clock,
+		clockControl: { set: (t) => clock.set(t), reset: () => clock.set(at(17, 14)) },
+		engines: { scripted: new ScriptedEngine((id) => content.scriptedSet(id), (picks) => content.practiseSet(picks)), learnharness: new LearnHarnessEngine(tutor, { pollMs: 2 }) },
+		defaultEngine: opts.connected === false ? "scripted" : "learnharness",
+		readyTimeoutMs: 500,
+		newId: (p) => `${p}${++n}`,
+	});
+	svc.onboard({ modules: ["HCI", "GT"], timetableSource: "sample", nudgesPerDay: 1 });
+	const events = (type: string) => store.events().filter((e) => e.type === type).map((e) => e.data);
+	return { svc, store, clock, tutor, events };
+}
+
+/** A tutor that opens with one guess, then proposes the plan and teaches it. */
+function teachingTutor(tutor: Tutor) {
+	tutor.react = (chatId, input) => {
+		const say = (...m: LhMessage[]) => tutor.say(chatId, ...m);
+		const record = tutor.chats.get(chatId)!;
+		const posed = (id: string) => record.some((m) => m.role === "assistant" && m.content.some((b) => b.type === "toolCall" && b.id === id));
+		const planned = () => {
+			tutor.trees.set(chatId, tree);
+			say(
+				assistant([call("pd", "probe_done", { assessment: { strands: [{ strand: "Personas", assessment: "New." }] } }), text("Thanks.")]),
+				result("pd", "probe_done", { ok: true }),
+				newHandoffMessage(chatId),
+				assistant([text("Two ideas, starting with what personas are for."), call("pi", "plan_init", { mermaid: "graph TD" })]),
+				result("pi", "plan_init", { ok: true, tree }),
+				assistant([text("Does that look right?")], "stop"),
+			);
+		};
+		if (input.type === "text" && /^LEARN SESSION/.test(input.text)) return say(assistant([text("One quick guess before we start."), probe("p1")]));
+		if (input.type === "text" && input.text === LEARN_SAYS.skipProbe) return planned();
+		if (input.type === "answer" && input.toolCallId === "p1") return planned();
+		if (input.type === "text" && input.text === LEARN_SAYS.planOk) return say(assistant([text("A persona is a made-up but evidence-based user (Slide 4)."), quizCall("c1", { type: "check", nodeId: "persona-purpose" })]));
+		if (input.type === "answer" && input.toolCallId === "c1") return say(assistant([text("Now scenarios."), quizCall("c2", { type: "check", nodeId: "scenarios" })]));
+		if (input.type === "answer" && input.toolCallId === "c2") return say(assistant([text("That's the plan covered.")], "stop"));
+		if (input.type === "text" && !posed("w1")) return say(assistant([text("Good question. In your own words:"), call("w1", "ask_user_question", { question: "Why do designers use personas?" })]));
+		return say(assistant([text("Noted.")], "stop"));
+	};
+}
+
+const pick = (v: { question?: { options: { index: number; label: string }[] } }, label: string) => v.question!.options.find((o) => o.label === label)!.index;
+
+describe("starting Learn (V-47)", () => {
+	it("\"Learn this\" on a lecture starts at once: the tutor is told the scope, the time and where the slides are", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		const session = store.session(sessionId)!;
+		assert.deepEqual([session.engine, session.spec.kind, session.spec.study, session.spec.learn?.scope, session.spec.learn?.minutes, session.budget], ["learnharness", "learn", "learn", "lecture", 50, 0]);
+		assert.equal(session.state, "ready");
+		const opening = tutor.texts()[0]!;
+		assert.match(opening, /^LEARN SESSION\nModule: HCI/);
+		assert.match(opening, /Opening questions: at most 2\./);
+		assert.match(opening, /SLIDES FILE: .*hci-w3-personas[/\\]slides\.md/);
+		assert.match(opening, /IDEAS \(plan on these slugs\)/);
+		const v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.study, v.learn?.phase, v.question?.guess], ["question", "learn", "probe", true]);
+		assert.equal(v.goal, LEARN_COPY.goal(50));
+	});
+
+	it("what the student typed is handed over in their words, with the idea it matched", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas", nodes: ["persona-purpose"], goal: "  personas,   I've seen them but don't get the point " });
+		await svc.whenReady(sessionId);
+		assert.equal(store.session(sessionId)!.spec.learn?.scope, "section");
+		assert.match(tutor.texts()[0]!, /What I want: personas, I've seen them but don't get the point\n/);
+		assert.match(tutor.texts()[0]!, /Opening questions: at most 1\./);
+		assert.match(tutor.texts()[0]!, /Focus: only the ideas persona-purpose\./);
+	});
+
+	it("with no AI connected, Learn says so and nothing is started", () => {
+		const { svc, store } = setup({ connected: false });
+		assert.throws(() => svc.startLearn({ lectureId: "hci-w3-personas" }), (e: unknown) => e instanceof CompanionError && e.code === "not_connected" && e.status === 409 && e.message === LEARN_COPY.notConnected);
+		assert.equal(store.sessions().length, 0);
+	});
+
+	it("a lecture with no slides can't be taught", () => {
+		const { svc, store } = setup();
+		store.saveLectures([...store.allLectures(), { id: "hci-x", module: "HCI", title: "No slides", week: 9, order: 99, kind: "lecture", hasMaterials: false }]);
+		assert.throws(() => svc.startLearn({ lectureId: "hci-x" }), (e: unknown) => e instanceof CompanionError && e.code === "no_material");
+	});
+
+	it("this week: that module's lectures in the current teaching week, in one session", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		// Week one began on Mon 2 Nov, so 17 Nov is in teaching week 3. Two HCI units are in week 3.
+		const profile = store.profile()!;
+		store.saveProfile({ ...profile, modules: profile.modules.map((m) => ({ ...m, weekOneStart: "2026-11-02" })) });
+		store.saveLectures(store.allLectures().map((l) => (l.id === "hci-w4-fieldwork" ? { ...l, week: 3 } : l)));
+		const sheet = svc.learnSheet("HCI");
+		assert.deepEqual(sheet.week, { week: 3, lectureIds: ["hci-w3-personas", "hci-w4-fieldwork"] });
+		const { sessionId } = svc.startLearn({ module: "HCI", week: true });
+		await svc.whenReady(sessionId);
+		const spec = store.session(sessionId)!.spec;
+		assert.deepEqual([spec.learn?.scope, spec.learn?.lectureIds, spec.lectureId], ["week", ["hci-w3-personas", "hci-w4-fieldwork"], "hci-w3-personas"]);
+		const opening = tutor.texts()[0]!;
+		assert.match(opening, /Covers: this week's lectures \(2\)\./);
+		assert.match(opening, /Opening questions: at most 4\./);
+		assert.match(opening, /UNIT 2: .*\nIDEAS \(in your plan, write each slug as u2-<slug>\)/);
+		assert.doesNotMatch(opening, /\nSLIDES \(cite as/);
+	});
+
+	it("this week with nothing to teach says so", () => {
+		const { svc } = setup();
+		assert.throws(() => svc.startLearn({ module: "GT", week: true }), (e: unknown) => e instanceof CompanionError && e.code === "nothing_this_week");
+	});
+});
+
+describe("two modes only: what the old session kinds become", () => {
+	it("a missed lecture is taught (Learn); a retest is quick questions (Practise)", () => {
+		const { svc, store } = setup();
+		const missed = svc.createSession(svc.parseSpec({ kind: "missed-lecture", lectureId: "hci-w3-personas" }));
+		assert.deepEqual([store.session(missed.sessionId)!.engine, store.session(missed.sessionId)!.spec.study], ["learnharness", "learn"]);
+		store.saveMisses([{ id: "m1", lectureId: "hci-w3-personas", sessionId: "s0", questionId: "q0", questionText: "Q?", correctLabels: ["A"], reason: "wrong", status: "open", timesSeen: 0, nextDue: at(16, 9).toISOString(), createdAt: at(15, 9).toISOString() }]);
+		const retest = svc.createSession(svc.parseSpec({ kind: "retest", lectureId: "hci-w3-personas" }));
+		assert.deepEqual([store.session(retest.sessionId)!.engine, store.session(retest.sessionId)!.spec.study], ["scripted", "practise"]);
+	});
+});
+
+describe("the loop: guesses, the plan, checks", () => {
+	it("a wrong guess is not a gap; a wrong check is", async () => {
+		const { svc, store, tutor, events } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		let v = await svc.view(sessionId);
+		assert.deepEqual(await svc.answer(sessionId, { questionId: "p1", indices: [pick(v, "Wrong")], confidence: 90 }), { correct: false, graded: false });
+		assert.equal(store.misses().length, 0);
+		assert.deepEqual([events("answer")[0]!.guess, events("answer")[0]!.graded], [true, false]);
+
+		v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.learn?.phase, v.learn?.plan?.total], ["reply", "plan", 2]);
+		assert.ok(v.learn!.step.some((i) => i.type === "plan"));
+		assert.deepEqual(await svc.say(sessionId, { say: "planOk" }), { queued: false, answer: null });
+
+		v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.learn?.phase, v.question?.guess, v.learn?.plan?.index], ["question", "teach", undefined, 1]);
+		await svc.answer(sessionId, { questionId: "c1", indices: [pick(v, "Wrong A")], confidence: 90 });
+		assert.deepEqual(store.misses().map((m) => [m.questionId, m.nodeId, m.reason, m.lectureId]), [["c1", "persona-purpose", "wrong", "hci-w3-personas"]]);
+		assert.deepEqual(store.session(sessionId)!.learnAt, { index: 1, total: 2, title: "What personas are for", covered: ["What personas are for"] });
+	});
+
+	it("\"Skip, just teach me\" goes to the tutor even with a guess open", async () => {
+		const { svc, tutor, events } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		assert.equal((await svc.view(sessionId)).status, "question");
+		await svc.say(sessionId, { say: "skipProbe" });
+		assert.equal(tutor.texts().at(-1), LEARN_SAYS.skipProbe);
+		assert.equal(tutor.sides.length, 0);
+		assert.deepEqual([(await svc.view(sessionId)).status, (await svc.view(sessionId)).learn?.phase], ["reply", "plan"]);
+		assert.deepEqual(events("learn_said"), [{ sessionId, how: "skipProbe", chars: 0 }]);
+	});
+});
+
+describe("talking to the tutor (V-54)", () => {
+	async function atCheck() {
+		const s = setup();
+		teachingTutor(s.tutor);
+		const { sessionId } = s.svc.startLearn({ lectureId: "hci-w3-personas" });
+		await s.svc.whenReady(sessionId);
+		await s.svc.say(sessionId, { say: "skipProbe" });
+		await s.svc.say(sessionId, { say: "planOk" });
+		return { ...s, sessionId };
+	}
+
+	it("with a question open, it is answered beside the question, and the question stays", async () => {
+		const { svc, store, tutor, sessionId, events } = await atCheck();
+		const before = tutor.sent.length;
+		const r = await svc.say(sessionId, { text: "what is a persona again?", questionId: "c1" });
+		assert.deepEqual(r, { queued: false, answer: "Personas stand in for real users (Slide 4)." });
+		assert.equal(tutor.sent.length, before, "nothing was sent into the lesson");
+		assert.equal(tutor.sides[0]!.text, "what is a persona again?");
+		const v = await svc.view(sessionId);
+		assert.equal(v.status, "question");
+		assert.deepEqual(v.learn!.step.at(-1), { type: "aside", id: "c1-0", ask: "what is a persona again?", answer: "Personas stand in for real users (Slide 4)." });
+		assert.deepEqual(v.slideRefs, [4]);
+		assert.equal(store.session(sessionId)!.asides?.length, 1);
+		// What was said is never logged, only that it was.
+		assert.deepEqual(events("learn_said").at(-1), { sessionId, how: "beside", chars: 24 });
+	});
+
+	it("where there is nothing to answer beside, it goes as a message", async () => {
+		const { svc, tutor, sessionId } = await atCheck();
+		tutor.sideFails = true;
+		const r = await svc.say(sessionId, { text: "can we slow down?", questionId: "c1" });
+		assert.deepEqual(r, { queued: false, answer: null });
+		assert.equal(tutor.texts().at(-1), "can we slow down?");
+	});
+
+	it("while the tutor is writing, it is handed over at its next pause", async () => {
+		const { svc, tutor, sessionId } = await atCheck();
+		tutor.busy.add("chat_1");
+		assert.deepEqual(await svc.say(sessionId, { text: "use a football example" }), { queued: true, answer: null });
+		assert.deepEqual(tutor.steered, ["use a football example"]);
+	});
+
+	it("when the tutor is waiting, it is the student's turn; a written question takes their own words", async () => {
+		const s = setup();
+		teachingTutor(s.tutor);
+		const { sessionId } = s.svc.startLearn({ lectureId: "hci-w3-personas" });
+		await s.svc.whenReady(sessionId);
+		await s.svc.say(sessionId, { say: "skipProbe" });
+		await s.svc.say(sessionId, { text: "before we start, why personas at all?" });
+		let v = await s.svc.view(sessionId);
+		assert.deepEqual([v.status, v.question?.kind], ["question", "write"]);
+		assert.ok(v.learn!.step.some((i) => i.type === "you" && i.text === "before we start, why personas at all?"));
+		assert.deepEqual(await s.svc.answer(sessionId, { questionId: "w1", text: "so the team argues about a person, not opinions" }), { correct: false, graded: false });
+		v = await s.svc.view(sessionId);
+		const first = v.learn!.step[0]!;
+		assert.ok(first.type === "answered" && first.written === "so the team argues about a person, not opinions");
+		assert.equal(s.store.misses().length, 0);
+	});
+
+	it("refuses an empty message, an over-long one, and a session that isn't Learn", async () => {
+		const { svc, sessionId, store } = await atCheck();
+		await assert.rejects(svc.say(sessionId, { text: "   " }), /say something first/);
+		await assert.rejects(svc.say(sessionId, { text: "x".repeat(2_001) }), /under 2000/);
+		await assert.rejects(svc.say(sessionId, { say: "nope" }), /say must be one of/);
+		store.saveMisses([{ id: "m1", lectureId: "hci-w3-personas", sessionId: "s0", questionId: "q0", questionText: "Q?", correctLabels: ["A"], reason: "wrong", status: "open", timesSeen: 0, nextDue: at(16, 9).toISOString(), createdAt: at(15, 9).toISOString() }]);
+		const practise = svc.createSession(svc.parseSpec({ kind: "retest", lectureId: "hci-w3-personas" }));
+		await assert.rejects(svc.say(practise.sessionId, { text: "hello" }), (e: unknown) => e instanceof CompanionError && e.code === "not_learn");
+	});
+});
+
+describe("stopping, picking up and finishing: nothing ends by itself", () => {
+	async function taught() {
+		const s = setup();
+		teachingTutor(s.tutor);
+		const { sessionId } = s.svc.startLearn({ lectureId: "hci-w3-personas" });
+		await s.svc.whenReady(sessionId);
+		await s.svc.say(sessionId, { say: "skipProbe" });
+		await s.svc.say(sessionId, { say: "planOk" });
+		const v = await s.svc.view(sessionId);
+		await s.svc.answer(sessionId, { questionId: "c1", indices: [pick(v, "Right")], confidence: 90 });
+		return { ...s, sessionId };
+	}
+
+	it("time up is a line, not a stop", async () => {
+		const { svc, clock, sessionId } = await taught();
+		let v = await svc.view(sessionId);
+		assert.deepEqual([v.learn?.timeUp, v.status], [false, "question"]);
+		clock.set(at(17, 15, 1));
+		v = await svc.view(sessionId);
+		assert.deepEqual([v.learn?.timeUp, v.status], [true, "question"]);
+	});
+
+	it("Stop saves it with its plan; opening it again picks up where it was, with a fresh clock", async () => {
+		const { svc, store, clock, sessionId, events } = await taught();
+		await svc.view(sessionId);
+		svc.stop(sessionId);
+		assert.equal(store.session(sessionId)!.state, "stopped");
+		assert.deepEqual(events("session_stopped").at(-1), { sessionId, answered: 1, budget: 0, engine: "learnharness", idea: 2, ideas: 2 });
+		const sheet = svc.learnSheet("HCI");
+		assert.deepEqual(sheet.suggestion, { type: "resume", sessionId, lectureId: "hci-w3-personas", title: "Scenarios", at: { index: 2, total: 2, title: "Scenarios", covered: ["What personas are for", "Scenarios"] } });
+		clock.set(at(18, 9));
+		const v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.question?.id, v.learn?.timeUp], ["question", "c2", false]);
+		assert.equal(store.session(sessionId)!.state, "active");
+		assert.equal(v.learn?.endsAt, at(18, 9, 50).toISOString());
+	});
+
+	it("the last idea checked offers Finish; only the student's Finish ends it, and the done screen names what was covered", async () => {
+		const { svc, store, sessionId, events } = await taught();
+		let v = await svc.view(sessionId);
+		assert.equal(v.learn?.finished, false);
+		await svc.answer(sessionId, { questionId: "c2", indices: [pick(v, "Right")], confidence: 90 });
+		v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.learn?.finished], ["reply", true]);
+		assert.equal(store.session(sessionId)!.state, "active");
+		svc.finish(sessionId);
+		v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.learn?.covered], ["done", ["What personas are for", "Scenarios"]]);
+		assert.equal(events("session_done").length, 1);
+		assert.deepEqual([events("session_done")[0]!.idea, events("session_done")[0]!.ideas], [2, 2]);
+		// A finished lecture is no longer the suggestion: the next one is.
+		assert.deepEqual(svc.learnSheet("HCI").suggestion?.type, "next");
+		assert.notEqual(svc.learnSheet("HCI").suggestion?.lectureId, "hci-w3-personas");
+	});
+
+	it("Earlier: every step so far", async () => {
+		const { svc, sessionId } = await taught();
+		const { steps } = svc.steps(sessionId);
+		assert.equal(steps.length, 2);
+		assert.deepEqual(steps[1]!.map((i) => i.type), ["answered", "tutor"]);
+	});
+});
+
+describe("the module's start sheet (AFF-K: one small step)", () => {
+	it("one suggestion (the next lecture not yet learned), the lectures, and topics to match a typed goal against", () => {
+		const { svc } = setup();
+		const sheet = svc.learnSheet("HCI");
+		assert.deepEqual(sheet.module, { code: "HCI", name: "Human-Computer Interaction" });
+		assert.equal(sheet.connected, true);
+		assert.equal(sheet.minutes, 50);
+		assert.equal(sheet.suggestion?.type, "next");
+		assert.equal(sheet.suggestion?.lectureId, sheet.lectures[0]!.id);
+		assert.ok(sheet.lectures.length >= 3 && sheet.lectures.every((l) => l.id.startsWith("hci-")));
+		assert.ok(sheet.topics.some((t) => t.lectureId === "hci-w3-personas" && t.nodeId === undefined));
+		assert.ok(sheet.topics.some((t) => t.lectureId === "hci-w3-personas" && t.nodeId === "persona-purpose"));
+		assert.equal(sheet.week, null);
+	});
+
+	it("says when the AI isn't connected, so the sheet can offer Practise", () => {
+		assert.equal(setup({ connected: false }).svc.learnSheet("HCI").connected, false);
+	});
+});

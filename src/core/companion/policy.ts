@@ -8,7 +8,7 @@
  * stay under 90 characters (Android and iOS truncate around there; R-4).
  */
 
-import type { Profile, SessionBudget, SessionKind } from "./types.ts";
+import type { LearnScope, Profile, SessionBudget, SessionKind } from "./types.ts";
 
 export const NUDGE_MAX_CHARS = 90;
 
@@ -20,6 +20,7 @@ export const SESSION_BUDGETS: Record<SessionKind, SessionBudget> = {
 	retest: { questions: 3, minutes: 4 }, // N-2 wording
 	"try-now": { questions: 3, minutes: 3 }, // J1: taste before setup
 	practise: { questions: 5, minutes: 3 }, // V-40: a quick round across a module (PRACTISE_RULES)
+	learn: { questions: 0, minutes: 50 }, // V-47: no question count; as long as a study block (LEARN_RULES)
 };
 
 /** "Keep going" adds this many questions (§6.7). */
@@ -268,6 +269,90 @@ export const PRACTISE_COPY = {
 } as const;
 
 /** A session you left is offered again on Today for this long (R-5). */
+/**
+ * Learn (V-47, V-54): the tutor teaching, loose on top of the probe, learn,
+ * predict, check loop. The opening questions are sized to what the student
+ * asked for (the plan's section 3: a week up to 4, a lecture up to 2, one
+ * section 1); a sitting is as long as a study block and never ends by itself.
+ */
+export const LEARN_RULES = {
+	probe: { week: 4, lecture: 2, section: 1 } as Record<LearnScope, number>,
+	/** A sitting started outside a block lasts the student's usual block length; this when they have none set. */
+	defaultMinutes: 50,
+	/** Slides sent in the opening message, in estimated tokens. The tutor reads the rest from the file as the plan reaches it. */
+	slideTokenBudget: 8_000,
+	/** A typed goal: how many matching topics the start sheet offers. */
+	suggestions: 3,
+	/** A typed goal is at most this long. */
+	goalMax: 300,
+	/** What the student types to the tutor is at most this long. */
+	sayMax: 2_000,
+	/** Nothing running and the tutor's turn still not started after this long: the student can carry on themselves. */
+	stalledMs: 20_000,
+} as const;
+
+/** What LockedIn sends the tutor on the student's behalf. The tutor's instructions (companion/seed/prompts) name these exact lines. */
+export const LEARN_SAYS = {
+	skipProbe: "Skip, just teach me.",
+	planOk: "Looks good.",
+	carryOn: "Carry on.",
+} as const;
+
+export const LEARN_COPY = {
+	button: "Learn this",
+	moduleButton: "Learn",
+	/** The label on a question that is never marked (LIT-26, LIT-30; AE2-9: opening questions read as a test). */
+	guess: "Have a guess · nothing is marked",
+	check: "Check",
+	yourTurn: "In your own words",
+	skipProbe: "Skip, just teach me",
+	planOk: "Looks good",
+	carryOn: "Carry on",
+	finish: "Finish",
+	say: "Ask or say something…",
+	saySpeak: "Ask or say something… (or press Speak)",
+	sent: "Sent. Your tutor picks it up at its next pause.",
+	you: "You",
+	planTitle: "The plan for this session",
+	planTab: "Plan",
+	slideTab: "Slide",
+	earlier: (n: number) => `Earlier in this session (${n})`,
+	/** The line under the title: where you are and what is next (INT-02-c). */
+	position: (index: number, total: number, title: string, next?: string) => `Idea ${index} of ${total} · ${title}${next ? ` → next: ${next}` : ""}`,
+	before: (total: number) => `${total} ${total === 1 ? "idea" : "ideas"} on the plan`,
+	finding: "Finding where to start",
+	minutesLeft: (n: number) => `${n} min`,
+	timeUp: (minutes: number) => `That's your ${minutes} minutes. Stop here or keep going.`,
+	goal: (minutes: number) => `About ${minutes} minutes · stop any time, it is saved with its plan`,
+	reading: (module: string) => `Reading your ${module} slides…`,
+	writing: "Your tutor is writing…",
+	making: { visual: "Drawing this for you, about a minute. Carry on.", demo: "Building something you can try, about a minute. Carry on.", research: "Looking this up. Carry on." },
+	failed: { visual: "The picture didn't work this time.", demo: "The demo didn't work this time.", research: "The look-up didn't come back." },
+	madeBy: "Made by your AI tutor",
+	sources: "Sources",
+	guessed: "Your guess",
+	guessAnswer: "The answer",
+	covered: (ideas: readonly string[]) => (ideas.length ? `You covered: ${ideas.join(", ")}.` : "You made a start."),
+	doneTitle: (title: string) => `Done: ${title}.`,
+	savedAt: (at: { index: number; total: number; title: string } | undefined) => (at && at.index > 0 ? `Saved at ${at.title}, idea ${at.index} of ${at.total}. Pick up any time. Nothing is marked missed.` : "Saved with its plan. Pick up any time. Nothing is marked missed."),
+	pickUp: "Pick up where you stopped",
+	notConnected: "Learn needs your AI connected. Practise works without it.",
+	connect: "Connect",
+	/** The module's start sheet (AFF-K: one small step; INT-02-b: no menu of choices). */
+	sheetTitle: (module: string) => `Learn · ${module}`,
+	start: (title: string) => `Start: ${title}`,
+	nextInCourse: (minutes: number) => `next in your course · about ${minutes} min`,
+	stopped: (minutes: number) => `where you stopped · about ${minutes} min`,
+	orSay: "or say what you want to cover",
+	sayPlaceholder: "e.g. mixed strategies, I've seen it but can't do the maths",
+	thisWeek: (n: number) => `This week (${n} ${n === 1 ? "lecture" : "lectures"})`,
+	allLectures: "All lectures",
+	noMatch: (module: string) => `Nothing in your ${module} material matches that yet. Pick a lecture:`,
+	nothingToLearn: "No slides or notes for this module yet. Add them in the Library and Learn opens up.",
+	nothingThisWeek: "No lectures with slides for this week yet.",
+	weekTitle: (module: string, week: number) => `${module} · week ${week}`,
+} as const;
+
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;
 
 export const BLOCK_RULES = {

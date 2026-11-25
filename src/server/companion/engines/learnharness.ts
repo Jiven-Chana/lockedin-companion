@@ -11,12 +11,15 @@
  */
 
 import type { ChatInput } from "../../../core/input-events.ts";
+import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
+import { QUESTION_TOOLS } from "../../../core/pending.ts";
+import { learnSteps, mapLearnView } from "../../../core/companion/learn.ts";
 import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
 import type { AnswerInput, CompanionSession, Lecture } from "../../../core/companion/types.ts";
-import { badRequest, conflict, EngineError } from "../errors.ts";
+import { badRequest, CompanionError, conflict, EngineError } from "../errors.ts";
 import type { PrepareContext, SessionEngine, SessionPatch } from "./types.ts";
 
 export interface LhSendResult {
@@ -38,6 +41,10 @@ export interface LhPort {
 	askSide(chatId: string, anchorMessageId: string, text: string): Promise<string>;
 	cost(chatId: string): number | null;
 	deleteChat(chatId: string): void;
+	/** The session plan the teacher wrote (plan_init), or null before there is one. */
+	tree(chatId: string): PlanTree | null;
+	/** Hand a message to the turn that is running; false when no turn is running to take it. */
+	steer(chatId: string, text: string): Promise<boolean>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -123,7 +130,32 @@ export class LearnHarnessEngine implements SessionEngine {
 		}
 	}
 
+	/** The question tools a session can show: Learn shows all of them, guesses and written answers too. */
+	private tools(session: CompanionSession): readonly string[] {
+		return session.spec.learn ? QUESTION_TOOLS : SUPPORTED_QUESTION_TOOLS;
+	}
+
+	private learnView(session: CompanionSession, lecture: Pick<Lecture, "id" | "title" | "module">, now: Date) {
+		const chatId = this.chatId(session);
+		return mapLearnView({ messages: this.record(session), running: this.port.running(chatId), failure: this.port.failure(chatId), session, lecture, tree: this.port.tree(chatId), now });
+	}
+
+	/** Learn is ready when the tutor's first question is on screen, or it has spoken and is waiting. It is never hurried along. */
+	private async waitUntilLearnReady(session: CompanionSession, timeoutMs: number): Promise<void> {
+		const pollMs = this.opts.pollMs ?? PREPARE_RULES.pollMs;
+		const deadline = Date.now() + timeoutMs;
+		for (;;) {
+			// A session still being prepared is not an error yet, whatever its record says.
+			const v = this.learnView({ ...session, state: "preparing" }, { id: session.spec.lectureId, title: "", module: "" }, new Date(0));
+			if (v.status === "question" || v.status === "reply") return;
+			if (v.status === "error") throw new EngineError(v.error?.startsWith("unsupported_question") ? "unsupported_question" : "turn_failed", v.error);
+			if (Date.now() >= deadline) throw new EngineError("timeout", `the tutor did not start within ${timeoutMs} ms`, 504);
+			await sleep(pollMs);
+		}
+	}
+
 	async waitUntilReady(session: CompanionSession, timeoutMs: number, onNudge?: () => void): Promise<void> {
+		if (session.spec.learn) return this.waitUntilLearnReady(session, timeoutMs);
 		const chatId = this.chatId(session);
 		const pollMs = this.opts.pollMs ?? PREPARE_RULES.pollMs;
 		const maxIdle = this.opts.idlePollsBeforeGivingUp ?? 8;
@@ -158,7 +190,8 @@ export class LearnHarnessEngine implements SessionEngine {
 		}
 	}
 
-	async view(session: CompanionSession, lecture: Lecture) {
+	async view(session: CompanionSession, lecture: Lecture, now: Date = new Date()) {
+		if (session.spec.learn) return this.learnView(session, lecture, now);
 		const chatId = this.chatId(session);
 		const messages = this.record(session);
 		// A hand-off (F-112): question 1 was answered on the phone, outside this chat. The chat owes one question fewer.
@@ -183,7 +216,7 @@ export class LearnHarnessEngine implements SessionEngine {
 		if (this.port.running(chatId)) throw conflict("turn_running", "the teacher is still writing");
 		const pending = pendingQuestionOf(this.record(session));
 		if (!pending || pending.toolCallId !== questionId) throw conflict("question_not_pending", "that question is no longer open");
-		if (!(SUPPORTED_QUESTION_TOOLS as readonly string[]).includes(pending.tool)) throw conflict("unsupported_question");
+		if (!this.tools(session).includes(pending.tool)) throw conflict("unsupported_question");
 		return { chatId, pending };
 	}
 
@@ -220,6 +253,34 @@ export class LearnHarnessEngine implements SessionEngine {
 		return { text: text.trim(), patch: { hintedQuestionIds: [...new Set([...(session.hintedQuestionIds ?? []), questionId])] } };
 	}
 
+	async say(session: CompanionSession, text: string): Promise<{ queued: boolean }> {
+		const chatId = this.chatId(session);
+		// Mid-reply: the tutor picks it up at its next pause. If that turn ends first, it goes as an ordinary message.
+		if (this.port.running(chatId) && (await this.port.steer(chatId, text))) return { queued: true };
+		try {
+			await this.send(chatId, { type: "text", text });
+		} catch (err) {
+			if (err instanceof CompanionError && err.code === "turn_running" && (await this.port.steer(chatId, text))) return { queued: true };
+			throw err;
+		}
+		return { queued: false };
+	}
+
+	async ask(session: CompanionSession, questionId: string, text: string): Promise<{ answer: string | null }> {
+		const { chatId, pending } = this.pending(session, questionId);
+		try {
+			return { answer: (await this.port.askSide(chatId, pending.messageId, text)).trim() };
+		} catch {
+			// No side answer here (the opening questions have no teaching to anchor one to): send it as a message. The tutor asks its question again.
+			await this.send(chatId, { type: "text", text });
+			return { answer: null };
+		}
+	}
+
+	steps(session: CompanionSession) {
+		return learnSteps(this.record(session));
+	}
+
 	async more(session: CompanionSession, questions: number) {
 		const chatId = this.chatId(session);
 		const messages = this.record(session);
@@ -236,6 +297,8 @@ export class LearnHarnessEngine implements SessionEngine {
 		const messages = this.record(session);
 		if (this.port.failure(chatId)) return this.send(chatId, { type: "retry" });
 		if (needsContinuation(messages)) return this.send(chatId, { type: "continue" });
+		// Learn never hurries the tutor: with nothing failed and nothing owed, there is nothing to retry.
+		if (session.spec.learn) throw conflict("nothing_to_retry");
 		// The teacher ended its turn without a question (T-1): ask for it.
 		if (hasProbeDone(messages) && !pendingQuestionOf(messages)) {
 			await this.askForQuestion(chatId);

@@ -46,6 +46,25 @@ describe("first-run seed", () => {
 			},
 			true,
 		],
+		[
+			"an install with older tutor instructions is seeded again on its next start (v2.0)",
+			(d) => {
+				seedDataDir({ root: ROOT, dataDir: d, env: quiet });
+				fs.writeFileSync(path.join(d, "prompts", "prober", "10-probe-doctrine.md"), "# The opening (this app)\n\nDo not measure.\n");
+			},
+			true,
+		],
+		[
+			"an install whose tutor switches are older is seeded again",
+			(d) => {
+				seedDataDir({ root: ROOT, dataDir: d, env: quiet });
+				const file = path.join(d, "settings.json");
+				const settings = readJson(file);
+				settings.agent.tools = { research: false, demo: false, visual: false, pdf: false };
+				fs.writeFileSync(file, JSON.stringify(settings));
+			},
+			true,
+		],
 	];
 	for (const [name, setup, expected] of states)
 		it(name, () => {
@@ -60,6 +79,9 @@ describe("first-run seed", () => {
 		const settings = readJson(path.join(d, "settings.json"));
 		assert.equal(settings.graph.enabled, false);
 		assert.equal(settings.agent.fileAccess.restricted, true);
+		// The tutor may read LockedIn's own copies of the slides, and nothing else (v2.0 step 5).
+		assert.deepEqual(settings.agent.fileAccess.folders, [path.resolve(d, "companion", "materials"), path.resolve(ROOT, "companion", "content")]);
+		assert.deepEqual(settings.agent.tools, { research: true, demo: true, visual: true, pdf: false });
 		assert.equal(Object.keys(settings.agent.prompts).length, 4);
 		assert.equal(settings.models, undefined, "placeholder slots are not written");
 		assert.deepEqual(r.missingModels, ["strong", "cheap", "vision"]);

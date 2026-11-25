@@ -91,7 +91,7 @@ export function ensureSeeded(opts: { root?: string; dataDir?: string; env?: Reco
 	try {
 		if (!needsSeed({ root, dataDir })) return null;
 		const report = seedDataDir({ root, dataDir, env: opts.env ?? process.env });
-		console.log(`[companion] first run: seeded ${dataDir} (${report.prompts} prompt overrides, ${report.lectures} demo lectures)`);
+		console.log(`[companion] seeded ${dataDir} (${report.prompts} prompt overrides, ${report.lectures} demo lectures)`);
 		return report;
 	} catch (err) {
 		console.error(`[companion] first-run seed failed: ${err instanceof Error ? err.message : String(err)}`);

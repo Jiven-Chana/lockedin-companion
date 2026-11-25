@@ -7,7 +7,7 @@
 	},
 	"graph": { "enabled": false, "rendering": false },
 	"agent": {
-		"tools": { "research": false, "demo": false, "visual": false, "pdf": false },
+		"tools": { "research": true, "demo": true, "visual": true, "pdf": false },
 		"graphTools": { "enabled": false },
 		"fileAccess": { "restricted": true, "folders": [] },
 		"prompts": {

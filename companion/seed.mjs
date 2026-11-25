@@ -7,17 +7,19 @@
  *   npm run companion:seed -- --force            # also overwrite existing materials
  *
  * 1. settings.json: merged INTO the existing file, so model choices made in
- *    Settings survive. Placeholder model ids ("<…>") are never written;
+ *    Settings survive. The tutor's file access is set to LockedIn's own
+ *    copies of the slides (v2.0 step 5), and nothing else. Placeholder model ids ("<…>") are never written;
  *    COMPANION_MODEL_STRONG/CHEAP/VISION="provider/id" fill the slots.
  * 2. Prompt overrides: companion/seed/prompts/** → <data>/prompts/**.
  * 3. Demo content: companion/content/<lecture>/** → <data>/companion/materials/<lecture>/**
  *    (existing files kept unless --force, so uploaded slides survive a re-seed).
  * 4. Prints where things went and which engine is active.
  *
- * The server calls seedDataDir() itself on first run (v0.1 F-102): when any
- * prompt override switched on in the seed is missing from <data>/prompts,
- * it seeds before the companion starts, so a fresh data directory needs no
- * manual step. Run this script to re-seed after pulling prompt changes.
+ * The server calls seedDataDir() itself (v0.1 F-102; v2.0): when a prompt
+ * override the seed switches on is missing from <data>/prompts or differs
+ * from the seed's, or the tutor's switches differ, it seeds before the
+ * companion starts. A fresh directory, and an install updated to new tutor
+ * instructions, need no manual step.
  *
  * Lectures are NOT written here: onboarding materialises the sample timetable
  * relative to the (demo) clock, so the week is always "this week".
@@ -108,11 +110,46 @@ export function seededPromptPaths(root) {
 }
 
 /**
- * First run: true when any override the seed switches on is missing from <data>/prompts.
+ * The folders the tutor may read (v2.0 step 5): LockedIn's own copies of the
+ * student's slides, so a long Learn session can read an idea's slides again.
+ * Nothing else on the computer.
+ * @param {{ root: string, dataDir: string }} opts
+ * @returns {string[]}
+ */
+export function tutorFolders({ root, dataDir }) {
+	return [path.resolve(/* turbopackIgnore: true */ dataDir, "companion", "materials"), path.resolve(/* turbopackIgnore: true */ seedPaths(root).content)];
+}
+
+/** The seed's settings with the parts worked out per machine filled in. */
+function seedSettingsFor({ root, dataDir }) {
+	const seed = readSeedSettings(root);
+	return { ...seed, agent: { ...seed.agent, fileAccess: { restricted: true, folders: tutorFolders({ root, dataDir }) } } };
+}
+
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * True on a first run (an override the seed switches on is missing), and
+ * after an update that changed the tutor's instructions or its switches
+ * (v2.0: an install picks up the new ones on its next start).
  * @param {{ root: string, dataDir: string }} opts
  */
 export function needsSeed({ root, dataDir }) {
-	return seededPromptPaths(root).some((rel) => !fs.existsSync(path.join(/* turbopackIgnore: true */ dataDir, "prompts", rel)));
+	const seedPrompts = path.join(/* turbopackIgnore: true */ seedPaths(root).seed, "prompts");
+	const stale = seededPromptPaths(root).some((rel) => {
+		const mine = path.join(/* turbopackIgnore: true */ dataDir, "prompts", rel);
+		return !fs.existsSync(mine) || fs.readFileSync(mine, "utf-8") !== fs.readFileSync(path.join(/* turbopackIgnore: true */ seedPrompts, rel), "utf-8");
+	});
+	if (stale) return true;
+	const settingsFile = path.join(/* turbopackIgnore: true */ dataDir, "settings.json");
+	if (!fs.existsSync(settingsFile)) return true;
+	try {
+		const existing = JSON.parse(fs.readFileSync(settingsFile, "utf-8"));
+		const want = seedSettingsFor({ root, dataDir }).agent;
+		return !["tools", "graphTools", "fileAccess", "prompts"].every((k) => sameJson(existing.agent?.[k], want[k]));
+	} catch {
+		return true;
+	}
 }
 
 /**
@@ -127,7 +164,9 @@ export function seedDataDir({ root, dataDir, force = false, env = process.env })
 	// 1. settings.json
 	const settingsFile = path.join(/* turbopackIgnore: true */ dataDir, "settings.json");
 	const existing = fs.existsSync(settingsFile) ? JSON.parse(fs.readFileSync(settingsFile, "utf-8")) : {};
-	const merged = mergeSettings(existing, readSeedSettings(root), env);
+	const merged = mergeSettings(existing, seedSettingsFor({ root, dataDir }), env);
+	// The tutor reads LockedIn's copies of the slides and nothing else: this list is set, never merged.
+	merged.agent.fileAccess = { restricted: true, folders: tutorFolders({ root, dataDir }) };
 	fs.writeFileSync(settingsFile, `${JSON.stringify(merged, null, "\t")}\n`);
 	const missingModels = ["strong", "cheap", "vision"].filter((s) => !merged.models?.[s]?.model);
 
@@ -164,7 +203,7 @@ async function main() {
 	const r = seedDataDir({ root, dataDir, force });
 	const engine = process.env.COMPANION_ENGINE || "scripted (COMPANION_ENGINE unset)";
 	console.log(`Seeded ${r.dataDir}`);
-	console.log(`  settings.json      merged (graph off, background tools off, file access restricted, 4 prompt overrides on)`);
+	console.log(`  settings.json      merged (graph off, demos, visuals and research on, file access restricted to the slides, 4 prompt overrides on)`);
 	console.log(`  prompts/           ${r.prompts} override file(s)`);
 	console.log(`  companion/materials ${r.lectures} lecture(s): ${r.materials.copied} copied, ${r.materials.kept} kept${r.materials.kept ? " (use --force to overwrite)" : ""}`);
 	console.log(`  engine             ${engine}`);
