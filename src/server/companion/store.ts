@@ -18,6 +18,7 @@ import type {
 	EventLogEntry,
 	Lecture,
 	Miss,
+	ModuleNotes,
 	NudgeRecord,
 	Profile,
 	StudyBlock,
@@ -70,6 +71,7 @@ const FILES = {
 	demo: "demo.json",
 	runtime: "runtime.json",
 	milestones: "milestones.json",
+	notes: "notes.json",
 } as const;
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
@@ -241,6 +243,14 @@ export class CompanionStore {
 	}
 	saveMilestones(m: Record<string, string>): void {
 		this.writeJson(FILES.milestones, m);
+	}
+
+	/** What LockedIn knows about the student, per module (V-53). "Delete all my data" removes it with everything else. */
+	notes(): Record<string, ModuleNotes> {
+		return this.readJson<Record<string, ModuleNotes>>(FILES.notes, {});
+	}
+	saveNotes(n: Record<string, ModuleNotes>): void {
+		this.writeJson(FILES.notes, n);
 	}
 
 	// ─── materials ──────────────────────────────────────────────────────────

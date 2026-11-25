@@ -9,12 +9,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LEARN_COPY, moduleHue, PRACTISE_COPY, weekLabel } from "@/src/core";
+import { LEARN_COPY, moduleHue, NOTE_COPY, PRACTISE_COPY, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, StatusTag } from "../icons";
 import { LearnSheet } from "../learn-sheet";
 import { MaterialUpload } from "../material-upload";
+import { ModuleNotes } from "../module-notes";
 import { Tint, useLockedIn } from "../root";
 import { SetWeek } from "../set-week";
 import { PageHead } from "../shell";
@@ -69,6 +70,7 @@ export function LibraryScreen() {
 	const [q, setQ] = useState("");
 	const [adding, setAdding] = useState<string | null>(null);
 	const [learning, setLearning] = useState<string | null>(null);
+	const [knowing, setKnowing] = useState<string | null>(null);
 	const [msg, setMsg] = useState<string | null>(null);
 	const course = useData(() => lockedIn.course());
 	const search = useData(() => (q.trim() ? lockedIn.lectures(q.trim()) : Promise.resolve(null)), [q]);
@@ -128,6 +130,9 @@ export function LibraryScreen() {
 								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
 								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>
+							{/* What the app holds about you here (V-53): one quiet link, closed until asked for. */}
+							{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" style={{ alignSelf: "flex-start" }} aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
+							{knowing === m.code ? <ModuleNotes code={m.code} onClose={() => setKnowing(null)} /> : null}
 							{learning === m.code ? <LearnSheet code={m.code} onClose={() => setLearning(null)} onPractise={() => void practise(m.code)} /> : null}
 							{adding === m.code ? (
 								<MaterialUpload code={m.code} name={m.name} onClose={() => setAdding(null)} onSaved={(n) => { setAdding(null); setMsg(`${n} ${n === 1 ? "unit" : "units"} added to ${m.name}.`); void course.reload(); }} />

@@ -13,6 +13,7 @@ import { failedOutputCallIds, hasProbeDone, pendingQuestionOf, sendToUserText, t
 import { QUESTION_TOOLS } from "../pending.ts";
 import type { QuestionAnswerData } from "../question-core.ts";
 import { sideSegmentId } from "../side-chat.ts";
+import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { parseSlideRefs, trimSlides } from "./slides.ts";
@@ -47,6 +48,8 @@ export interface LearnOpeningInput {
 	now: Date;
 	/** A study block's first step (V-44): where the tutor starts. */
 	firstStep?: { stem: string; slide: number | null };
+	/** What LockedIn knows about the student in this module (V-53). */
+	notes?: TutorNotes;
 }
 
 const COVERS: Record<LearnScope, (n: number) => string> = {
@@ -82,6 +85,7 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 		...(spec.nodes?.length ? [`Focus: only the ideas ${spec.nodes.join(", ")}.`] : []),
 		...(input.firstStep ? [`First step: start on the same point as "${input.firstStep.stem}"${input.firstStep.slide ? ` (Slide ${input.firstStep.slide})` : ""}.`] : []),
 	];
+	lines.push(...notesForTutor(input.notes ?? {}));
 	let trimmed = false;
 	if (week) {
 		// A week in one session opens on the maps of its units; the slides are read as the plan reaches each idea.

@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
+import { LearnAsk } from "../learn-ask";
 import { LearnScreen } from "./learn";
 import { MicButton, useMic } from "../mic";
 import { InlineProse, Prose } from "../prose";
@@ -183,7 +184,7 @@ export function SessionScreen({ id }: { id: string }) {
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			// Learn has its own screen, and its own keys.
-			if (view?.learn) return;
+			if (view?.learn || view?.status === "ask") return;
 			if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
 			// Esc while speaking drops what was said (the engine's rule), not the whole session.
 			if (e.key === "Escape" && mic.dictation.active) { mic.dictation.cancel(); return; }
@@ -207,6 +208,22 @@ export function SessionScreen({ id }: { id: string }) {
 		);
 	}
 
+	// The module's first Learn session (V-52): one card, once, before the tutor starts.
+	if (view.status === "ask" && view.ask) {
+		return (
+			<Tint hue={moduleHue(view.lecture.module)}>
+				<div className="li-focus li-learn">
+					<div className="li-focus-top">
+						<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>
+						<b className="li-display" style={{ fontSize: "1.25em", flexGrow: 1 }}><span className="li-mode" data-study="learn">{PRACTISE_COPY.learnMode}</span> {view.lecture.module} · {view.lecture.title}</b>
+					</div>
+					<div className="li-panes" data-panel="closed">
+						<section className="li-qcard"><LearnAsk sessionId={id} name={view.ask.name} canCopy={view.ask.canCopy} onDone={() => void load()} /></section>
+					</div>
+				</div>
+			</Tint>
+		);
+	}
 	// Learn (the tutor teaching) is its own screen: one column, one step at a time.
 	if (view.learn) return <LearnScreen id={id} view={view} reload={load} loadError={error} />;
 

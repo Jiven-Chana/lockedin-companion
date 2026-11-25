@@ -72,8 +72,11 @@ export interface SessionSpec {
 	practise?: { module: string; picks: { lectureId: string; questionId: string }[]; /** "Practise this idea" (V-39): the idea the round stays on, as `lectureId#nodeId`. */ idea?: string };
 }
 
-/** "reply": Learn only. The tutor has said its piece and is waiting for the student. */
-export type SessionStatus = "preparing" | "question" | "thinking" | "reply" | "done" | "error";
+/**
+ * "reply": Learn only. The tutor has said its piece and is waiting for the student.
+ * "ask": Learn only. The module's first Learn session: "How do you like to learn this?" comes first (V-52).
+ */
+export type SessionStatus = "ask" | "preparing" | "question" | "thinking" | "reply" | "done" | "error";
 
 /** One answer option in DISPLAY order. `index` is 1-based, matching
  *  LearnHarness's own answer records (QuestionAnswerData.options). */
@@ -157,6 +160,43 @@ export interface SessionView {
 	nextBlockAt?: string | null;
 	/** Learn (V-47): the step on screen, the plan, and the clock. */
 	learn?: LearnView;
+	/** status "ask" (V-52): the module being asked about, and whether another module's answer can be reused. */
+	ask?: { module: string; name: string; canCopy: boolean };
+}
+
+// ─── what LockedIn knows about you (V-52, V-53) ─────────────────────────────
+
+/** The taps on the first-time card. Every row is optional. */
+export interface HowPrefs {
+	start?: "examples" | "questions" | "explanations";
+	steps?: "small" | "big";
+	check?: "often" | "end";
+	/** Anything else, typed or spoken. */
+	more?: string;
+}
+
+/**
+ * The notes LockedIn keeps per module (V-53). The student sees every one and
+ * can edit them; the tutor reads them at the start of a session; "Delete all
+ * my data" removes them. The third note, the last session's plan, is read
+ * from that session and is not stored here.
+ */
+export interface ModuleNotes {
+	/** The first-time card has been answered or skipped (V-52): it is never shown again for this module. */
+	asked?: boolean;
+	/** How you learn it. */
+	how?: { text: string; prefs?: HowPrefs; at: string };
+	/** Where you are in it: rewritten after each Learn session, or by the student. */
+	where?: { text: string; at: string; by: "ai" | "you" };
+}
+
+/** The three notes as the Library shows them. */
+export interface ModuleNotesView {
+	module: { code: string; name: string };
+	asked: boolean;
+	how: { text: string; at: string } | null;
+	where: { text: string; at: string; by: "ai" | "you" } | null;
+	last: { sessionId: string; lecture: string; at: string; index: number; total: number; title: string; plan: { title: string; state: "done" | "current" | "todo" }[]; finished: boolean } | null;
 }
 
 /** One idea on a Learn session's plan, as the screen draws it (V-33: LockedIn draws it from the tutor's data). */
@@ -508,8 +548,10 @@ export interface CompanionSession {
 	fellBackFrom?: EngineName;
 	/** Learn: questions asked beside an open question, with the tutor's answers. */
 	asides?: { questionId: string; ask: string; answer: string; at: string }[];
-	/** Learn: where the plan stood at the last look, for the pick-up card. */
-	learnAt?: { index: number; total: number; title: string; covered: string[] };
+	/** Learn: where the plan stood at the last look, for the pick-up card and the plan note (V-53). */
+	learnAt?: { index: number; total: number; title: string; covered: string[]; plan?: { title: string; state: "done" | "current" | "todo" }[] };
+	/** Learn: the module's first-time question (V-52) has not been answered yet, so the tutor has not been started. */
+	awaitingHow?: boolean;
 	/** Learn: when the clock for this sitting started. Reset when a stopped session is picked up. */
 	sittingFrom?: string;
 }
@@ -638,6 +680,11 @@ export const COMPANION_EVENT_TYPES = [
 	"gap_questions_failed",
 	// v2.0 step 5: Learn. What the student said is never logged, only that they did and how long it was.
 	"learn_said",
+	// v2.0 step 6: the first-time question and the notes (V-52, V-53). The notes' words are never logged.
+	"how_answered",
+	"note_edited",
+	"note_rewritten",
+	"note_rewrite_failed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

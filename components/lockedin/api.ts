@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, LearnItem, LearnTopic, Lecture, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -197,6 +197,11 @@ export const lockedIn = {
 	/** Say something to the tutor (V-54). With `questionId` it is answered beside the open question. */
 	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
 	finish: (id: string) => api(`/sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
+	/** The first-time card (V-52): the taps, "the same as my other modules", or skip. The tutor then starts. */
+	answerHow: (id: string, body: HowPrefs | { same: true } | { skip: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/how`, { body }),
+	/** What LockedIn knows about you in a module (V-53), and editing a note. */
+	notes: (module: string) => api<ModuleNotesView>(`/modules/${encodeURIComponent(module)}/notes`),
+	saveNote: (module: string, body: { how?: string; where?: string }) => api<ModuleNotesView>(`/modules/${encodeURIComponent(module)}/notes`, { method: "PUT", body }),
 	steps: (id: string) => api<{ steps: LearnItem[][] }>(`/sessions/${encodeURIComponent(id)}/steps`).then((r) => r.steps),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),

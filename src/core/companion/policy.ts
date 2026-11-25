@@ -363,6 +363,52 @@ export const LEARN_COPY = {
 	weekTitle: (week: number, lectures: number) => `Week ${week} · ${lectures} lectures`,
 } as const;
 
+/**
+ * What LockedIn knows about you (V-52, V-53). The first-time card is one
+ * card, once per module (AE2-P14: a short questionnaire felt like sixty
+ * questions). The notes are short enough to hand the tutor every session.
+ */
+export const NOTE_RULES = {
+	howWords: 120,
+	whereWords: 250,
+	moreMax: 300,
+	/** "Where you are" is rewritten on the cheap model, so the tutor's own turn stays fast. */
+	slot: "cheap",
+} as const;
+
+/** The first-time card's rows. Each choice is said to the tutor in the words on the right. */
+export const HOW_ROWS = [
+	{ key: "start", label: "Start with", options: [{ value: "examples", label: "Examples", says: "Start each idea with a worked example." }, { value: "questions", label: "Questions", says: "Start each idea with a question for me to try." }, { value: "explanations", label: "Explanations", says: "Explain each idea first, then ask." }] },
+	{ key: "steps", label: "Steps", options: [{ value: "small", label: "Small steps", says: "Small steps." }, { value: "big", label: "Bigger jumps", says: "Bigger jumps: don't spell out what I can see." }] },
+	{ key: "check", label: "Check me", options: [{ value: "often", label: "Often", says: "Check me often." }, { value: "end", label: "Only at the end of an idea", says: "Check me only at the end of an idea." }] },
+] as const;
+
+export const NOTE_COPY = {
+	askTitle: (module: string) => `How do you like to learn ${module}?`,
+	askOnce: "Asked once. You can change it later.",
+	more: "Anything else? Type or say it…",
+	same: "Same as my other modules",
+	skip: "Skip",
+	start: "Start",
+	link: "What LockedIn knows",
+	title: (module: string) => `What LockedIn knows about you in ${module}`,
+	how: "How you learn it",
+	where: "Where you are",
+	last: "Last session",
+	noHow: "Nothing yet. Your tutor uses its usual way: a guess, the explanation, then a check.",
+	noWhere: "Nothing yet. It is written after your first Learn session in this module.",
+	noLast: "No Learn session in this module yet.",
+	stoppedAt: (index: number, total: number, title: string, lecture: string) => (index > 0 ? `${lecture}: stopped at idea ${index} of ${total}, ${title}.` : `${lecture}: stopped before the first idea.`),
+	finishedAt: (lecture: string) => `${lecture}: finished.`,
+	updated: (when: string) => `updated ${when}`,
+	byYou: "edited by you",
+	edit: "Edit",
+	save: "Save",
+	cancel: "Cancel",
+	readBy: "Your tutor reads these at the start of every session. \"Delete all my data\" in Me removes them.",
+	tooLong: (words: number) => `Keep it under ${words} words.`,
+} as const;
+
 export const RESUME_RULES = { offerDays: 7, minutesPerQuestion: 2 } as const;
 
 export const BLOCK_RULES = {

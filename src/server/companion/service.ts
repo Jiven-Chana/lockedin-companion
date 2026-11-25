@@ -29,7 +29,8 @@ import {
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
-import { BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
+import { BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -74,6 +75,8 @@ import {
 	type SessionKind,
 	type SessionSpec,
 	type StudyMode,
+	type ModuleNotes,
+	type ModuleNotesView,
 	type LearnItem,
 	type LearnScope,
 	type SessionView,
@@ -1557,7 +1560,7 @@ export class CompanionService {
 		return engine;
 	}
 
-	createSession(spec: SessionSpec, opts: { nudgeKey?: string; engine?: EngineName } = {}): { sessionId: string } {
+	createSession(spec: SessionSpec, opts: { nudgeKey?: string; engine?: EngineName; askHow?: boolean } = {}): { sessionId: string } {
 		// The first taste is prepared during onboarding, before the profile exists (J1′).
 		if (!(spec.kind === "try-now" && spec.lectureId === FIRST_TASTE_LECTURE)) this.requireProfile();
 		const lecture = this.lectureById(spec.lectureId);
@@ -1588,11 +1591,19 @@ export class CompanionService {
 			createdAt: this.now().toISOString(),
 			state: "preparing",
 		};
-		this.store.saveSession(session);
-		this.log("session_prepare_started", { sessionId: session.id, engine, kind: spec.kind, study: spec.study ?? "learn", lectureId: spec.lectureId, prewarm: !!opts.nudgeKey });
-		const run = this.prepare(session.id).finally(() => this.preparing.delete(session.id));
-		this.preparing.set(session.id, run);
+		// The module's first Learn session (V-52): "How do you like to learn this?" comes first. The tutor starts once it is answered or skipped.
+		const waiting = !!opts.askHow && !!spec.learn && owesHowCard(this.store.notes(), lecture.module);
+		this.store.saveSession(waiting ? { ...session, awaitingHow: true } : session);
+		if (!waiting) this.beginPrepare(session.id, !!opts.nudgeKey);
 		return { sessionId: session.id };
+	}
+
+	private beginPrepare(sessionId: string, prewarm = false): void {
+		const session = this.store.session(sessionId);
+		if (!session || this.preparing.has(sessionId)) return;
+		this.log("session_prepare_started", { sessionId, engine: session.engine, kind: session.spec.kind, study: session.spec.study ?? "learn", lectureId: session.spec.lectureId, prewarm });
+		const run = this.prepare(sessionId).finally(() => this.preparing.delete(sessionId));
+		this.preparing.set(sessionId, run);
 	}
 
 	/** Resolves when preparation settles (ready or error). For tests and the tracer. */
@@ -1692,9 +1703,18 @@ export class CompanionService {
 				lecture: { id: lecture.id, title: lecture.title, module: lecture.module },
 				goal: goalFor(session.spec, lecture, session.budget), answered: 0, budget: session.budget, canHint: false, slideRefs: [],
 			};
-			return session.state === "error"
-				? { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) }
-				: { ...base, status: "preparing", activity: SESSION_COPY.reading(lecture.module) };
+			if (session.state === "error") return { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) };
+			if (session.awaitingHow) {
+				const notes = this.store.notes();
+				// Still owed: the card. Answered meanwhile (another tab, another session of this module): start the tutor.
+				if (owesHowCard(notes, lecture.module)) {
+					const name = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name ?? lecture.module;
+					return { ...base, status: "ask", ask: { module: lecture.module, name, canCopy: howFromOthers(notes, lecture.module) !== null } };
+				}
+				this.store.updateSession(session.id, ({ awaitingHow: _waiting, ...s }) => s);
+				this.beginPrepare(session.id);
+			}
+			return { ...base, status: "preparing", activity: session.spec.learn ? LEARN_COPY.reading(lecture.module) : SESSION_COPY.reading(lecture.module) };
 		}
 		// Learn: opening it (again) starts this sitting's clock, so mark it before the view reads the clock.
 		if (session.spec.learn) this.markOpened(session.id, now);
@@ -1708,7 +1728,7 @@ export class CompanionService {
 			// Where the plan stands, for the pick-up card (and the plan note of V-53).
 			const plan = v.learn?.plan;
 			if (plan && (s.learnAt?.index !== plan.index || s.learnAt.total !== plan.total || s.learnAt.title !== (plan.current ?? ""))) {
-				next = { ...next, learnAt: { index: plan.index, total: plan.total, title: plan.current ?? "", covered: plan.nodes.filter((n) => n.state !== "todo").map((n) => n.title) } };
+				next = { ...next, learnAt: { index: plan.index, total: plan.total, title: plan.current ?? "", covered: plan.nodes.filter((n) => n.state !== "todo").map((n) => n.title), plan: plan.nodes.map((n) => ({ title: n.title, state: n.state })) } };
 			}
 			if (v.question && !(s.shownQuestionIds ?? []).includes(v.question.id)) {
 				next = { ...next, shownQuestionIds: [...(s.shownQuestionIds ?? []), v.question.id], questionShownAt: now.toISOString() };
@@ -2056,6 +2076,162 @@ export class CompanionService {
 		if (session.state === "done" || session.state === "stopped") return;
 		this.store.updateSession(id, (s) => ({ ...s, state: "stopped", endedAt: this.now().toISOString() }));
 		this.log("session_stopped", { sessionId: id, answered: session.answered, budget: session.budget, engine: session.engine, ...(session.learnAt ? { idea: session.learnAt.index, ideas: session.learnAt.total } : {}) });
+		this.noteWhere(id);
+	}
+
+	// ─── what LockedIn knows about you (v2.0 step 6; V-52, V-53) ────────────
+
+	/** The newest earlier Learn session in a module that got as far as a plan: the third note. */
+	private lastLearnIn(module: string): NonNullable<ModuleNotesView["last"]> | null {
+		for (const s of [...this.store.sessions()].reverse()) {
+			if (!s.spec.learn || !s.learnAt) continue;
+			const lecture = this.lectureById(s.spec.lectureId);
+			if (!lecture || lecture.module !== module) continue;
+			return { sessionId: s.id, lecture: lecture.title, at: s.endedAt ?? s.lastActivityAt ?? s.createdAt, index: s.learnAt.index, total: s.learnAt.total, title: s.learnAt.title, plan: s.learnAt.plan ?? [], finished: s.state === "done" };
+		}
+		return null;
+	}
+
+	/** The three notes for a module, as the Library shows them (V-53; R-7, AFF-H: show what the app knows). */
+	moduleNotes(code: string): ModuleNotesView {
+		const mod = this.requireModule(code);
+		const n = this.store.notes()[mod.code] ?? {};
+		return {
+			module: { code: mod.code, name: mod.name },
+			asked: n.asked === true,
+			how: n.how ? { text: n.how.text, at: n.how.at } : null,
+			where: n.where ?? null,
+			last: this.lastLearnIn(mod.code),
+		};
+	}
+
+	private patchNotes(module: string, patch: (n: ModuleNotes) => ModuleNotes): ModuleNotes {
+		const all = this.store.notes();
+		const next = patch(all[module] ?? {});
+		this.store.saveNotes({ ...all, [module]: next });
+		return next;
+	}
+
+	/** The student edits a note: `{ how?: string, where?: string }`. An empty string clears it. */
+	saveModuleNote(code: string, raw: unknown): ModuleNotesView {
+		const mod = this.requireModule(code);
+		const r = (raw ?? {}) as { how?: unknown; where?: unknown };
+		const at = this.now().toISOString();
+		const text = (v: unknown, max: number): string | undefined => {
+			if (v === undefined) return undefined;
+			if (typeof v !== "string") throw badRequest("a note is text");
+			const t = v.trim();
+			if (wordCount(t) > max) throw badRequest(NOTE_COPY.tooLong(max));
+			return t;
+		};
+		const how = text(r.how, NOTE_RULES.howWords);
+		const where = text(r.where, NOTE_RULES.whereWords);
+		if (how === undefined && where === undefined) throw badRequest("nothing to save");
+		this.patchNotes(mod.code, (n) => {
+			const { how: oldHow, where: oldWhere, ...rest } = n;
+			return {
+				...rest,
+				...(how === undefined ? (oldHow ? { how: oldHow } : {}) : how ? { how: { text: how, at } } : {}),
+				...(where === undefined ? (oldWhere ? { where: oldWhere } : {}) : where ? { where: { text: where, at, by: "you" as const } } : {}),
+			};
+		});
+		for (const note of [how !== undefined ? "how" : null, where !== undefined ? "where" : null]) if (note) this.log("note_edited", { module: mod.code, note });
+		return this.moduleNotes(mod.code);
+	}
+
+	/**
+	 * The first-time card (V-52), answered on a waiting Learn session: the
+	 * taps (`{ start?, steps?, check?, more? }`), `{ same: true }` to reuse
+	 * another module's answer, or `{ skip: true }`. Either way the module is
+	 * never asked again, and the tutor starts.
+	 */
+	answerHow(id: string, raw: unknown): { ok: true } {
+		const { session, lecture } = this.requireSession(id);
+		if (!session.spec.learn) throw conflict("not_learn", "only a Learn session asks this");
+		const r = (raw ?? {}) as { same?: unknown; skip?: unknown };
+		const at = this.now().toISOString();
+		const others = howFromOthers(this.store.notes(), lecture.module);
+		if (r.same === true && !others) throw badRequest("no other module has an answer to reuse");
+		const prefs = r.same === true || r.skip === true ? {} : cleanPrefs(raw);
+		const text = r.same === true ? others!.text : howNote(prefs);
+		this.patchNotes(lecture.module, (n) => ({ ...n, asked: true, ...(text ? { how: { text, ...(Object.keys(prefs).length ? { prefs } : {}), at } } : {}) }));
+		this.log("how_answered", { module: lecture.module, how: r.skip === true ? "skip" : r.same === true ? "same" : text ? "taps" : "skip", rows: ["start", "steps", "check"].filter((k) => k in prefs).length, typed: "more" in prefs });
+		if (session.awaitingHow) {
+			this.store.updateSession(id, ({ awaitingHow: _waiting, ...s }) => s);
+			this.beginPrepare(id);
+		}
+		return { ok: true };
+	}
+
+	private readonly noting = new Map<string, Promise<void>>();
+
+	/** Resolves when "where you are" has been rewritten (or not) after a session. For tests. */
+	whenNoted(sessionId: string): Promise<void> {
+		return this.noting.get(sessionId) ?? Promise.resolve();
+	}
+
+	/**
+	 * After a Learn session ends, the AI rewrites the module's "where you are"
+	 * note from what the session showed (V-53), on the cheap model and in the
+	 * background. A failure is logged and the old note stays.
+	 */
+	private noteWhere(sessionId: string): void {
+		const session = this.store.session(sessionId);
+		const generate = this.deps.generate;
+		if (!session?.spec.learn || !session.chatId || !generate || this.noting.has(sessionId)) return;
+		const lecture = this.lectureById(session.spec.lectureId);
+		const engine = this.deps.engines[session.engine];
+		if (!lecture || !engine?.steps) return;
+		let answered: string[];
+		try {
+			answered = engine.steps(session).flat().flatMap((i) => {
+				if (i.type !== "answered") return [];
+				const picked = i.written ?? (i.dontKnow ? "I don't know" : i.options.filter((o) => o.picked).map((o) => o.label).join("; "));
+				const right = i.options.filter((o) => o.answer).map((o) => o.label).join("; ");
+				return [`- ${i.guess ? "Have a guess" : i.options.length ? "Check" : "In their own words"}: ${i.stem.replace(/\s+/g, " ")} | answered: ${picked || "(nothing)"}${i.guess || i.correct === undefined ? "" : i.correct ? " | right" : " | not right"}${right && !i.correct ? ` | answer: ${right}` : ""}${i.why ? ` | their why: ${i.why}` : ""}`];
+			});
+		} catch {
+			return;
+		}
+		// Nothing was answered: the session shows nothing new about where they are.
+		if (answered.length === 0) return;
+		const code = lecture.module;
+		const started = Date.now();
+		const old = this.store.notes()[code]?.where;
+		const plan = session.learnAt?.plan?.length ? session.learnAt.plan.map((n) => `${n.title} (${n.state === "done" ? "done" : n.state === "current" ? "stopped here" : "not reached"})`).join("; ") : "none yet";
+		const user = [
+			`Module: ${code}`,
+			`Lecture: ${lecture.title}`,
+			`The note as it stands${old?.by === "you" ? " (the student edited it themselves)" : ""}:`,
+			old?.text || "(empty)",
+			"",
+			`This session's plan: ${plan}`,
+			`How it ended: ${session.state === "done" ? "the student finished it" : "the student stopped part-way"}`,
+			"",
+			"Questions and answers, in order:",
+			...answered,
+		].join("\n");
+		const run = (async () => {
+			try {
+				const system = fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ this.deps.promptsDir ?? "companion/prompts", "where-you-are.md"), "utf-8");
+				const r = await generate<{ note: string }>({
+					slot: NOTE_RULES.slot, system, user,
+					toolName: "save_note", toolDescription: "Save the rewritten note.",
+					schema: { type: "object", additionalProperties: false, required: ["note"], properties: { note: { type: "string" } } },
+					validate: (v) => {
+						const note = (v as { note?: unknown } | null)?.note;
+						if (typeof note !== "string" || !note.trim()) return "note must be text";
+						return wordCount(note) > NOTE_RULES.whereWords ? `the note has ${wordCount(note)} words; keep it under ${NOTE_RULES.whereWords}` : null;
+					},
+				});
+				const text = r.value.note.trim();
+				this.patchNotes(code, (n) => ({ ...n, where: { text, at: this.now().toISOString(), by: "ai" } }));
+				this.log("note_rewritten", { module: code, sessionId, words: wordCount(text), ms: Date.now() - started, model: r.model, cost: r.cost });
+			} catch (err) {
+				this.log("note_rewrite_failed", { module: code, sessionId, message: err instanceof Error ? err.message : String(err) });
+			}
+		})().finally(() => this.noting.delete(sessionId));
+		this.noting.set(sessionId, run);
 	}
 
 	// ─── Learn (v2.0 step 5; V-47, V-54) ────────────────────────────────────
@@ -2084,7 +2260,15 @@ export class CompanionService {
 			return l ? [{ lecture: l, slidesMarkdown: this.content.slidesMarkdown(id) ?? "", slidesFile: this.content.slidesPath(id), conceptMap: this.content.conceptMapSource(id) }] : [];
 		});
 		const moduleName = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name;
-		return buildLearnOpening({ spec, lecture, ...(moduleName ? { moduleName } : {}), units, now: this.now(), ...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}) });
+		// What LockedIn knows about the student in this module (V-53): the tutor reads all three notes.
+		const mine = this.store.notes()[lecture.module];
+		const last = this.lastLearnIn(lecture.module);
+		const notes = {
+			...(mine?.how?.text ? { how: mine.how.text } : {}),
+			...(mine?.where?.text ? { where: mine.where.text } : {}),
+			...(last ? { last: `${last.finished ? NOTE_COPY.finishedAt(last.lecture) : NOTE_COPY.stoppedAt(last.index, last.total, last.title, last.lecture)}${last.plan.length ? ` Its plan: ${last.plan.map((n) => `${n.title} (${n.state === "done" ? "done" : n.state === "current" ? "stopped here" : "not reached"})`).join("; ")}.` : ""}` } : {}),
+		};
+		return buildLearnOpening({ spec, lecture, ...(moduleName ? { moduleName } : {}), units, now: this.now(), notes, ...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}) });
 	}
 
 	/** A module's units that can be taught, in course order. */
@@ -2181,7 +2365,7 @@ export class CompanionService {
 			...(nodes ? { nodes } : {}),
 			...(opts.firstQuestionId ? { firstQuestionId: opts.firstQuestionId } : {}),
 		};
-		return this.createSession(spec, opts.nudgeKey ? { nudgeKey: opts.nudgeKey } : {});
+		return this.createSession(spec, { ...(opts.nudgeKey ? { nudgeKey: opts.nudgeKey } : {}), askHow: true });
 	}
 
 	/**
@@ -2222,6 +2406,7 @@ export class CompanionService {
 		const now = this.now();
 		this.store.updateSession(id, (s) => ({ ...s, state: "done", endedAt: now.toISOString() }));
 		this.log("session_done", { sessionId: id, answered: session.answered, budget: session.budget, endedEarly: false, engine: session.engine, cost: engine.cost(session), ...(session.learnAt ? { idea: session.learnAt.index, ideas: session.learnAt.total } : {}) });
+		this.noteWhere(id);
 	}
 
 	/** Every step of a Learn session so far ("Earlier"), oldest first. */
