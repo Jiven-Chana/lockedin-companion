@@ -486,6 +486,108 @@ export const DEFAULT_PLAN: NonNullable<Profile["plan"]> = {
 	focusScreen: false,
 };
 
+/**
+ * A module's share of the week (V-63): when the planner shares blocks out,
+ * modules take turns. A module takes `turns` units each time its turn comes,
+ * and its turn comes every `every` rounds (Less sits out the first round).
+ */
+export const SHARE_RULES = {
+	more: { turns: 2, every: 1 },
+	normal: { turns: 1, every: 1 },
+	less: { turns: 1, every: 2 },
+} as const;
+export const SHARE_COPY = { label: "Share of your week", less: "Less", normal: "Normal", more: "More" } as const;
+
+/** The first run (v2.0 step 7, V-45): five steps, every one but sign-in can wait. */
+export const SETUP_RULES = {
+	steps: 5,
+	/** "Study time each week" starts here and moves in these steps (V-63). */
+	defaultTargetMinutes: 5 * 60,
+	targetStepMinutes: 30,
+	maxModules: 20,
+	moduleNameMax: 80,
+	unitTitleMax: 120,
+	/** How often the slides step asks whether the chapters are prepared. */
+	pollMs: 4000,
+} as const;
+
+export const SETUP_COPY = {
+	stepOf: (step: number, of: number) => `Step ${step} of ${of}`,
+	later: "Later",
+	next: "Next",
+	back: "Back",
+	signIn: {
+		title: "Sign in with ChatGPT",
+		lead: "LockedIn teaches with your own ChatGPT account. Nothing else is needed to start.",
+		button: "Sign in with ChatGPT",
+		waiting: "Finish signing in on the ChatGPT page, then come back here.",
+		other: "Use another AI account",
+		choosing: "Choosing your models…",
+		connected: "Connected ✓",
+	},
+	timetable: {
+		title: "Your timetable",
+		lead: "Paste your timetable link and your modules appear. LockedIn nudges you after a lecture, never during one.",
+		label: "Timetable link",
+		placeholder: "https://… or webcal://…",
+		reading: "Reading your timetable…",
+		found: (events: number) => `Found in ${events} calendar events. Untick anything that isn't a module.`,
+		none: "No modules found in that calendar. Add yours below.",
+		failed: "Couldn't read that calendar. Check the link.",
+		file: "Use a calendar file instead",
+		add: "Add a module",
+		addPlaceholder: "Module name",
+		addButton: "Add",
+		yours: "Your modules",
+	},
+	slides: {
+		title: "Your slides and notes",
+		lead: "Drop them in. LockedIn prepares them while you finish setting up.",
+		drop: "Drop files here, or click to choose",
+		formats: "PDF, Markdown or text",
+		reading: "Reading…",
+		found: (units: number) => `${units} ${units === 1 ? "chapter" : "chapters"} found`,
+		preparing: "preparing",
+		ready: "ready",
+		skipped: (n: number) => `${n} had too little text to study from and ${n === 1 ? "was" : "were"} left out.`,
+		change: "Change",
+		done: "Done",
+		remove: "Remove",
+		noModules: "Add a module to put your slides in.",
+		failed: "Couldn't read those files.",
+	},
+	week: {
+		title: "Your week",
+		energy: "When do you have energy?",
+		energies: { morning: "Morning", afternoon: "Afternoon", evening: "Evening" },
+		target: "Study time each week",
+		fewer: "Less study time",
+		more: "More study time",
+		blocks: "Your blocks",
+		freeStudy: "Free study",
+		looksGood: "Looks good",
+		nextWeek: "This week is nearly over, so these are for next week.",
+	},
+	phone: {
+		title: "Your phone",
+		lead: "One question after each lecture arrives on your phone. Scan the code, then type the code your phone shows.",
+		finish: "Finish",
+	},
+	end: {
+		title: "You're set up.",
+		learn: (title: string) => `Learn: ${title}`,
+		learnLead: "Your first session, on your own slides.",
+		noSlides: "Add your slides and LockedIn will teach from them.",
+		addSlides: "Add your slides",
+		today: "Go to Today",
+	},
+	already: "You're already set up.",
+	moduleExists: (name: string) => `You already have a module called ${name}.`,
+	moduleName: "A module needs a name (up to 80 characters).",
+	tooManyModules: "That's the most modules LockedIn can hold.",
+	nothingToStudy: "Those files had too little text to study from.",
+} as const;
+
 /** "Plan my week with me" (F-109, J8): about 6 turns, short turns, on a fast slot. */
 export const SETUP_CHAT_RULES = { maxTurns: 6, maxWords: 60, slot: "cheap" } as const;
 
@@ -509,6 +611,13 @@ export const PLAN_COPY = {
 	checkin: (started: number, minutes: number) =>
 		`Last week: ${started} ${started === 1 ? "block" : "blocks"} started, ${PLAN_COPY.hours(minutes).replace(/ h (\d+)$/, " h $1 min")}. How did it feel?`,
 	feelings: { "too-much": "Too much", "about-right": "About right", "too-little": "Too little" } as const,
+	/** Why a block is where it is (V-45, AFF-G), read after its time: "Tue 14:00 · because you have energy in the afternoon". */
+	placed: {
+		anchor: "same time as last week",
+		energy: (when: "morning" | "afternoon" | "evening") => `because you have energy in the ${when}`,
+		afterLecture: (module: string) => `right after your ${module} lecture`,
+		gap: "a free gap in your day",
+	},
 	targetProposal: (minutes: number) => `Try ${PLAN_COPY.hours(minutes)} next week?`,
 	keepTarget: (minutes: number) => `Keep ${PLAN_COPY.hours(minutes)}`,
 	yes: "Yes",

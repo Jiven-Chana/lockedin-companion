@@ -30,14 +30,14 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { blockWhy, clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
@@ -81,6 +81,15 @@ import {
 	type LearnScope,
 	type SessionView,
 	type StudyBlock,
+	ENERGY_TIMES,
+	WEEK_SHARES,
+	type EnergyTime,
+	type ModuleInfo,
+	type Routine,
+	type SetupEnd,
+	type SetupView,
+	type SetupWeek,
+	type WeekShare,
 } from "../../core/companion/types.ts";
 import { CONFIDENCE_STOPS } from "../../core/question-core.ts";
 import type { Clock } from "./clock.ts";
@@ -475,6 +484,253 @@ export class CompanionService {
 			(s) => s.spec.kind === card.spec.kind && s.spec.lectureId === card.spec.lectureId && !s.openedAt && s.answered === 0 && (s.state === "preparing" || s.state === "ready"),
 		);
 		return { ...card, ...(waiting ? { sessionId: waiting.id } : this.createSession(card.spec)) };
+	}
+
+
+	// ─── the first run (v2.0 step 7; V-45, V-63 to V-66) ────────────────────
+
+	/** Setup is still going: the timetable step made the profile and the end hasn't been reached. */
+	private inSetup(profile: Profile | null | undefined): boolean {
+		return !!profile?.setup && !profile.setup.doneAt;
+	}
+
+	/** Modules as typed or ticked: { name, code? }. A missing code is made from the name; names and codes already there are left out. */
+	private newModules(raw: unknown, existing: readonly { code: string; name: string }[]): { code: string; name: string }[] {
+		if (!Array.isArray(raw)) throw badRequest("modules must be a list");
+		const taken = new Set(existing.map((m) => m.code));
+		const names = new Set(existing.map((m) => m.name.toLowerCase()));
+		const out: { code: string; name: string }[] = [];
+		for (const item of raw) {
+			const m = (item ?? {}) as { code?: unknown; name?: unknown };
+			const name = typeof m.name === "string" ? m.name.trim() : "";
+			if (!name || name.length > SETUP_RULES.moduleNameMax) throw badRequest(SETUP_COPY.moduleName);
+			const given = typeof m.code === "string" && m.code.trim() ? m.code.trim().toUpperCase() : null;
+			if (given ? taken.has(given) : names.has(name.toLowerCase())) continue;
+			const code = given ?? codeFromName(name, taken);
+			if (!MODULE_CODE_RE.test(code)) throw badRequest(`invalid module code ${code}`);
+			taken.add(code);
+			names.add(name.toLowerCase());
+			out.push({ code, name });
+		}
+		if (existing.length + out.length > SETUP_RULES.maxModules) throw badRequest(SETUP_COPY.tooManyModules);
+		return out;
+	}
+
+	/** Where setup is: the step to open on, and what each step has so far. */
+	setup(): SetupView {
+		const profile = this.store.profile();
+		const phone = { available: this.phone !== null, paired: this.phone?.paired() ?? false };
+		if (!profile) return { started: false, done: false, step: this.aiReady ? 2 : 1, phone, calendar: false, modules: [], week: null, end: null };
+		const modules = profile.modules.map((m) => {
+			const list = this.learnUnits(m.code).filter((u) => !isTimed(u));
+			return {
+				code: m.code,
+				name: m.name,
+				units: list.length,
+				preparing: list.filter((u) => this.packs?.isRunning(u.id) || ["queued", "generating"].includes(this.packs?.status(u.id)?.state ?? "")).length,
+				list: list.map((u) => ({ id: u.id, title: u.title, week: u.week })),
+			};
+		});
+		return {
+			started: true,
+			done: !this.inSetup(profile),
+			step: profile.setup?.step ?? SETUP_RULES.steps,
+			phone,
+			calendar: profile.timetableSource === "ics",
+			modules,
+			week: profile.setup?.week ? this.setupWeekView(profile.setup.week, null) : null,
+			end: this.setupEnd(),
+		};
+	}
+
+	/**
+	 * Setup step 2. Body: { calendar: { kind: "link", url } | { kind: "file", text } | { kind: "none" },
+	 * modules: [{ name, code? }], timeZone? }. Makes the profile the first
+	 * time, with no modules if the student chose "Later"; going back and
+	 * forward adds what is new and keeps what was there.
+	 */
+	async setupTimetable(body: unknown): Promise<SetupView> {
+		const b = (body ?? {}) as { modules?: unknown; calendar?: { kind?: unknown; url?: unknown; text?: unknown }; timeZone?: unknown };
+		const existing = this.store.profile();
+		if (existing && !this.inSetup(existing)) throw new CompanionError("already_set_up", 409, SETUP_COPY.already);
+		const kind = b.calendar?.kind;
+		if (kind !== "link" && kind !== "file" && kind !== "none") throw badRequest("calendar.kind must be link, file or none");
+		const timeZone = validTimeZone(b.timeZone);
+		const added = this.newModules(b.modules ?? [], existing?.modules ?? []);
+		// Fetch before saving anything, so a bad link leaves no half-made profile.
+		const link = kind === "link" ? await this.fetchCalendarLink(b.calendar?.url) : null;
+		const fileText = kind === "file" ? (typeof b.calendar?.text === "string" ? b.calendar.text : null) : null;
+		if (kind === "file" && fileText === null) throw badRequest("calendar.text is required for a file");
+
+		const now = this.now();
+		const ai = this.ai ? await this.ai.status().catch(() => null) : null;
+		const base: Profile = existing ?? {
+			createdAt: now.toISOString(),
+			modules: [],
+			timetableSource: "none",
+			prefs: { ...DEFAULT_PREFS },
+			appearance: { ...DEFAULT_APPEARANCE },
+			ai: { provider: ai?.provider ?? null, ...(ai?.provider ? { connectedAt: now.toISOString() } : {}) },
+		};
+		if (!existing) this.store.saveLectures([]);
+		this.store.saveProfile({ ...base, modules: [...base.modules, ...added], ...(timeZone ? { timeZone } : {}), setup: { ...base.setup, step: 3 } });
+		let events: number | null = null;
+		if (link) {
+			events = this.importIcs(link.text).added;
+			this.store.saveRuntime({ calendarUrl: link.url });
+		} else if (fileText !== null) {
+			events = this.importIcs(fileText).added;
+		}
+		for (const m of added) this.log("module_added", { module: m.code, via: "setup" });
+		this.log("setup_timetable", { calendar: kind, modules: this.requireProfile().modules.map((m) => m.code), events, ai: ai?.provider ?? null });
+		return this.setup();
+	}
+
+	/** The step the student has reached (2 to 5), so a closed tab reopens there. */
+	setupStep(body: unknown): SetupView {
+		const profile = this.requireProfile();
+		const step = (body as { step?: unknown } | null)?.step;
+		if (typeof step !== "number" || !Number.isInteger(step) || step < 2 || step > SETUP_RULES.steps) throw badRequest(`step must be 2 to ${SETUP_RULES.steps}`);
+		if (this.inSetup(profile)) this.store.saveProfile({ ...profile, setup: { ...profile.setup, step } });
+		return this.setup();
+	}
+
+	/** "+ Add a module" (V-64), in setup and in the Library: a name is enough. */
+	addModule(body: unknown): { code: string; name: string } {
+		const profile = this.requireProfile();
+		const raw = (body as { name?: unknown } | null)?.name;
+		const name = typeof raw === "string" ? raw.trim() : "";
+		if (!name || name.length > SETUP_RULES.moduleNameMax) throw badRequest(SETUP_COPY.moduleName);
+		const same = profile.modules.find((m) => m.name.toLowerCase() === name.toLowerCase());
+		if (same) throw badRequest(SETUP_COPY.moduleExists(same.name));
+		const [mod] = this.newModules([{ name }], profile.modules);
+		this.store.saveProfile({ ...profile, modules: [...profile.modules, mod!] });
+		this.log("module_added", { module: mod!.code, via: this.inSetup(profile) ? "setup" : "library" });
+		return mod!;
+	}
+
+	/** A module's share of the week (V-63). Body: { share: "less" | "normal" | "more" }. */
+	setModuleShare(code: string, body: unknown) {
+		const profile = this.requireProfile();
+		const mod = this.requireModule(code);
+		const share = (body as { share?: unknown } | null)?.share;
+		if (!(WEEK_SHARES as readonly unknown[]).includes(share)) throw badRequest(`share must be one of ${WEEK_SHARES.join(", ")}`);
+		const { share: was, ...rest } = mod;
+		const next: ModuleInfo = share === "normal" ? rest : { ...rest, share: share as "less" | "more" };
+		this.store.saveProfile({ ...profile, modules: profile.modules.map((m) => (m.code === code ? next : m)) });
+		this.log("module_share_changed", { module: code, from: was ?? "normal", to: share });
+		return { ...next, share: share as WeekShare };
+	}
+
+	/**
+	 * Setup's slides step (V-66): read the files, split them and save every
+	 * unit worth studying straight away. The checklist is not shown; titles
+	 * and weeks can be changed afterwards.
+	 */
+	async quickMaterials(code: string, files: UploadedFile[]): Promise<{ units: Lecture[]; skipped: number }> {
+		const p = await this.proposeMaterials(code, files);
+		const all = p.files.flatMap((f) => f.units.map((u) => ({ file: f.file, title: u.title, week: u.week, pages: u.pages, chars: u.chars })));
+		const units = all.filter((u) => u.chars >= MATERIALS_RULES.minUnitChars).map(({ chars: _chars, ...u }) => u);
+		if (units.length === 0) {
+			this.courseMaterials.discard(p.uploadId);
+			throw badRequest(SETUP_COPY.nothingToStudy);
+		}
+		return { units: this.saveMaterials(code, { uploadId: p.uploadId, units }).units, skipped: all.length - units.length };
+	}
+
+	/** A new title for a course unit made from the student's material. Body: { title }. */
+	renameUnit(lectureId: string, body: unknown): Lecture {
+		assertSafeId(lectureId, "lecture id");
+		const unit = this.store.lectures().find((l) => l.id === lectureId);
+		if (!unit) throw notFound("lecture");
+		if (isTimed(unit)) throw badRequest("a timetabled lecture's title comes from your calendar");
+		const raw = (body as { title?: unknown } | null)?.title;
+		const title = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
+		if (!title || title.length > SETUP_RULES.unitTitleMax) throw badRequest(`a title of 1 to ${SETUP_RULES.unitTitleMax} characters`);
+		const updated = this.store.updateLecture(lectureId, (l) => ({ ...l, title }))!;
+		this.log("unit_renamed", { lectureId, module: unit.module });
+		return updated;
+	}
+
+	private setupWeekView(week: string, message: string | null): SetupWeek {
+		const profile = this.requireProfile();
+		const plan = this.plan(week);
+		return {
+			energy: [...(profile.routine?.energy ?? [])],
+			target: plan.target ?? SETUP_RULES.defaultTargetMinutes,
+			week: plan.week,
+			blocks: plan.blocks.filter((x) => x.status === "proposed" || x.status === "accepted").map((x) => ({ id: x.id, date: x.date, start: x.start, minutes: x.minutes, module: x.module, title: x.focus?.title ?? null, why: x.why })),
+			message,
+		};
+	}
+
+	/**
+	 * Setup's week step (V-45): "When do you have energy?" and one total for
+	 * the week (V-63). Body: { energy?: ["morning" | "afternoon" | "evening"],
+	 * weeklyTargetMinutes? }; what isn't sent stays as it was, and the total
+	 * starts at five hours. Each call suggests the week again, so the blocks
+	 * move as the student taps. With no room left this week it plans the next.
+	 */
+	setupWeek(body: unknown): SetupWeek {
+		const profile = this.requireProfile();
+		const b = (body ?? {}) as { energy?: unknown; weeklyTargetMinutes?: unknown };
+		const settings = this.planSettings();
+		let energy: EnergyTime[] = [...(profile.routine?.energy ?? [])];
+		if (b.energy !== undefined) {
+			const given = b.energy;
+			if (!Array.isArray(given) || !given.every((e) => (ENERGY_TIMES as readonly unknown[]).includes(e))) throw badRequest(`energy must be a list of ${ENERGY_TIMES.join(", ")}`);
+			energy = ENERGY_TIMES.filter((e) => given.includes(e));
+		}
+		let target = settings.weeklyTargetMinutes ?? SETUP_RULES.defaultTargetMinutes;
+		if (b.weeklyTargetMinutes !== undefined) {
+			const t = b.weeklyTargetMinutes;
+			if (typeof t !== "number" || !Number.isInteger(t) || t < 30 || t > 40 * 60) throw badRequest("weeklyTargetMinutes must be 30 minutes to 40 hours");
+			target = t;
+		}
+		const now = this.now();
+		const routine: Routine = { commitments: [], places: [], preferredBlockMinutes: settings.blockMinutes, ...profile.routine, energy, weeklyTargetMinutes: target, confirmedAt: now.toISOString() };
+		this.store.saveProfile({ ...profile, routine, plan: { ...settings, weeklyTargetMinutes: target } });
+		if (target !== settings.weeklyTargetMinutes) this.log("target_changed", { from: settings.weeklyTargetMinutes, to: target, via: "setup" });
+
+		const suggested = (p: { blocks: { status: string }[] }) => p.blocks.some((x) => x.status === "proposed" || x.status === "accepted" || x.status === "started");
+		let plan = this.proposePlan({});
+		if (!suggested(plan)) plan = this.proposePlan({ week: dateKey(addDays(this.mondayOf(now), 7)) });
+		const latest = this.requireProfile();
+		if (latest.setup) this.store.saveProfile({ ...latest, setup: { ...latest.setup, week: plan.week } });
+		const view = this.setupWeekView(plan.week, plan.message);
+		this.log("setup_week", { energy, target, week: plan.week, blocks: view.blocks.length });
+		return view;
+	}
+
+	/** Where setup ends: the first unit in keep-up order, from the student's own slides. */
+	private setupEnd(): SetupEnd | null {
+		const profile = this.store.profile();
+		if (!profile) return null;
+		const units = lecturesWithStatus(this.store.state()).filter((l) => l.hasMaterials && l.kind !== "event");
+		const first = pacedUnits({ modules: profile.modules, units, now: this.now(), blocks: 1 })[0]?.lectureId ?? profile.modules.flatMap((m) => this.learnUnits(m.code))[0]?.id;
+		const unit = first ? this.lectureById(first) : undefined;
+		return unit ? { lectureId: unit.id, module: unit.module, title: unit.title } : null;
+	}
+
+	/** The end of setup, reached once. Later steps left for "Later" stay where they always were: Me, the Library, Week. */
+	setupDone(): SetupView {
+		const profile = this.requireProfile();
+		if (this.inSetup(profile)) {
+			this.store.saveProfile({ ...profile, setup: { ...profile.setup!, doneAt: this.now().toISOString() } });
+			const s = this.setup();
+			this.log("onboarding_done", {
+				flow: "v2.0",
+				calendar: s.calendar,
+				modules: profile.modules.map((m) => m.code),
+				units: s.modules.reduce((n, m) => n + m.units, 0),
+				target: profile.plan?.weeklyTargetMinutes ?? null,
+				energy: profile.routine?.energy ?? [],
+				blocks: this.store.blocks().filter((x) => x.status === "accepted").length,
+				phone: s.phone.paired,
+				ai: profile.ai?.provider ?? null,
+			});
+		}
+		return this.setup();
 	}
 
 	// ─── course material and the module calendar (F-104, V-18) ─────────────
@@ -930,7 +1186,7 @@ export class CompanionService {
 				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
 				const first = this.firstStepOf(b);
 				// What the timetable shows on a block (V-44): its first step, and whether it can be started now.
-				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b) };
+				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b), why: blockWhy(b, profile.modules) };
 			}),
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
@@ -1035,6 +1291,7 @@ export class CompanionService {
 			if (problem) throw new CompanionError("block_overlaps", 409, PLACEMENT_COPY[problem], { problem });
 		}
 		if (moved && next.status === "proposed") next.status = "accepted"; // moving a proposal is choosing it
+		if (moved) delete next.placed; // where it is now is the student's choice, not the planner's reason
 		const source = p.source === "phone" ? "phone" : undefined;
 		this.store.saveBlocks(blocks.map((b) => (b.id === blockId ? next : b)));
 		const data = { blockId, date: next.date, start: next.start, minutes: next.minutes, lectureId: next.lectureId ?? null, module: next.module ?? null, ...(source ? { source } : {}) };
@@ -2617,7 +2874,8 @@ export class CompanionService {
 		})();
 		return {
 			now: now.toISOString(),
-			onboarded: !!state.profile,
+			// A profile made by setup isn't set up until setup's end is reached (V-45).
+			onboarded: !!state.profile && !this.inSetup(state.profile),
 			tryNow: tryNow ? { lectureId: tryNow.id, title: tryNow.title, module: tryNow.module, spec: specFor("try-now", tryNow.id, state.profile?.prefs) } : null,
 			lectures: todays,
 			nextBlock,

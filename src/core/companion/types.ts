@@ -364,7 +364,13 @@ export interface ModuleInfo {
 	weekOneStart?: string;
 	/** Teaching-week numbers after which a reading week falls ([6] = a reading week between weeks 6 and 7). */
 	readingWeeks?: number[];
+	/** This module's share of the week's blocks (V-63). Unset = normal. */
+	share?: "less" | "more";
 }
+
+/** A module's share of the week as the student sets it: one tap, never hours (V-63). */
+export type WeekShare = "less" | "normal" | "more";
+export const WEEK_SHARES: readonly WeekShare[] = ["less", "normal", "more"];
 
 /** V-10, F-118: Calm (default) animates only what explains a change; Full adds page transitions and the drifting background; Off removes everything (as does the system reduced-motion setting). */
 export type MotionChoice = "calm" | "full" | "off";
@@ -396,6 +402,48 @@ export interface Profile {
 	timeZone?: string;
 	/** The AI connection at onboarding (v0.1 F-101). The live state is GET /api/companion/ai. */
 	ai?: { provider: "chatgpt" | "anthropic" | "openai" | "openrouter" | null; connectedAt?: string };
+	/**
+	 * The first run (v2.0, V-45): the step reached, so a closed tab reopens
+	 * there, and the week its blocks were suggested for. Absent on a profile
+	 * made before v2.0 or by a facilitator scenario: that student is set up.
+	 */
+	setup?: { step: number; week?: string; doneAt?: string };
+}
+
+// ─── the first run (v2.0 step 7, V-45) ──────────────────────────────────────
+
+/** One line per module in setup's slides step: "7 chapters found · preparing". */
+export interface SetupModuleLine {
+	code: string;
+	name: string;
+	units: number;
+	/** Units whose study pack is still being written. */
+	preparing: number;
+	list: { id: string; title: string; week: number }[];
+}
+export interface SetupWeek {
+	energy: EnergyTime[];
+	/** Minutes a week. */
+	target: number;
+	/** The Monday of the week the blocks are in. */
+	week: string;
+	blocks: { id: string; date: string; start: string; minutes: number; module: string | null; title: string | null; why: string | null }[];
+	/** "Your week only has room for …", when the total doesn't fit. */
+	message: string | null;
+}
+/** Where setup ends: the student's own first unit, to learn. Null with no slides yet. */
+export interface SetupEnd { lectureId: string; module: string; title: string }
+export interface SetupView {
+	/** False until the timetable step has made the profile. */
+	started: boolean;
+	done: boolean;
+	/** 1 sign in, 2 timetable, 3 slides, 4 week, 5 phone. */
+	step: number;
+	phone: { available: boolean; paired: boolean };
+	calendar: boolean;
+	modules: SetupModuleLine[];
+	week: SetupWeek | null;
+	end: SetupEnd | null;
 }
 
 /**
@@ -449,10 +497,16 @@ export interface StudyBlock {
 	reason?: "keep-up" | "gap";
 	/** The weekday-and-time slot it repeats from last week (LIT-18 anchors), e.g. "2@14:00". */
 	anchorOf?: string;
+	/** What put the planner's block at this time (V-45: every block says why it is where it is). Gone once the student moves it. */
+	placed?: BlockPlaced;
 	status: "proposed" | "accepted" | "started" | "removed";
 	source: "planner" | "student" | "phone";
 	startedAt?: string;
 }
+
+export type EnergyTime = "morning" | "afternoon" | "evening";
+export const ENERGY_TIMES: readonly EnergyTime[] = ["morning", "afternoon", "evening"];
+export type BlockPlaced = { by: "anchor" } | { by: "energy"; when: EnergyTime } | { by: "after-lecture"; module: string } | { by: "gap" };
 
 /** What the setup chat learns (F-109, V-4). Confirmed by the student; never sets a Settings toggle. */
 export interface Routine {
@@ -685,6 +739,12 @@ export const COMPANION_EVENT_TYPES = [
 	"note_edited",
 	"note_rewritten",
 	"note_rewrite_failed",
+	// v2.0 step 7: the first run (V-45), modules added by hand (V-64) and a module's share of the week (V-63)
+	"setup_timetable",
+	"setup_week",
+	"module_added",
+	"module_share_changed",
+	"unit_renamed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

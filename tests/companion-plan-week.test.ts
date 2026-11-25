@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	blockWhy,
 	CHECKIN_RULES,
 	DEFAULT_PREFS,
 	lastWeekSummary,
@@ -107,6 +108,28 @@ describe("proposing the week", () => {
 	});
 });
 
+describe("why a block is where it is (V-45, AFF-G)", () => {
+	const modules = [{ code: "GT", name: "Game Theory" }];
+	it("the planner records what put each block there: last week's slot, then energy, then a lecture just before, else a free gap", () => {
+		const cases: { name: string; over: Partial<PlanInput>; want: StudyBlock["placed"]; says: string }[] = [
+			{ name: "a free gap", over: {}, want: { by: "gap" }, says: "a free gap in your day" },
+			{ name: "energy", over: { routine: { energy: ["afternoon"], commitments: [] } }, want: { by: "energy", when: "afternoon" }, says: "because you have energy in the afternoon" },
+			{ name: "right after a lecture", over: { lectures: [lecture("gt", "GT", 23, 9)] }, want: { by: "after-lecture", module: "GT" }, says: "right after your Game Theory lecture" },
+			{ name: "last week's slot wins over energy", over: { routine: { energy: ["afternoon"], commitments: [] }, lastWeek: [block("2026-11-17", "14:00")] }, want: { by: "anchor" }, says: "same time as last week" },
+			{ name: "energy wins over a lecture just before", over: { routine: { energy: ["morning"], commitments: [] }, lectures: [lecture("gt", "GT", 23, 9)] }, want: { by: "energy", when: "morning" }, says: "because you have energy in the morning" },
+		];
+		for (const c of cases) {
+			const b = proposeWeek(base({ targetMinutes: 50, ...c.over })).proposals[0]!;
+			assert.deepEqual(b.placed, c.want, c.name);
+			assert.equal(blockWhy(b, modules), c.says, c.name);
+		}
+	});
+	it("a block the student made or moved has no reason; a lecture of a module without a name uses its code", () => {
+		assert.equal(blockWhy(block("2026-11-24", "10:00"), modules), null);
+		assert.equal(blockWhy({ ...block("2026-11-24", "10:00"), placed: { by: "after-lecture", module: "NC" } }, modules), "right after your NC lecture");
+	});
+});
+
 describe("the pacing rule", () => {
 	const unit = (id: string, module: string, week: number, status: UnitStatus["status"], order = week): UnitStatus => ({ id, module, week, order, status, hasMaterials: true });
 	const gt = { code: "GT", weekOneStart: "2026-09-28" }; // week 9 on Mon 23 Nov
@@ -136,6 +159,22 @@ describe("the pacing rule", () => {
 		const r = pacedUnits({ modules: [gt, { code: "HCI", weekOneStart: "2026-09-28" }], units: [...units, ...hci], now: at(23, 9), blocks: 4 });
 		// Keep-up alternates between modules; one block in four is reserved for GT's catch-up.
 		assert.deepEqual(r.map((u) => `${u.module}:${u.reason}`), ["GT:keep-up", "HCI:keep-up", "GT:keep-up", "GT:gap"]);
+	});
+	it("a module's share of the week: More takes two turns, Less takes one turn in every two (V-63)", () => {
+		const mods = (shares: Record<string, "less" | "more">) => ["A", "B", "C"].map((code) => ({ code, ...(shares[code] ? { share: shares[code] } : {}) }));
+		const many = ["A", "B", "C"].flatMap((m) => [1, 2, 3].map((n) => unit(`${m}${n}`, m, 0, "not-started", n)));
+		const cases: { name: string; shares: Record<string, "less" | "more">; blocks: number; want: string[] }[] = [
+			{ name: "all normal", shares: {}, blocks: 6, want: ["A1", "B1", "C1", "A2", "B2", "C2"] },
+			{ name: "more of B", shares: { B: "more" }, blocks: 6, want: ["A1", "B1", "B2", "C1", "A2", "B3"] },
+			{ name: "less of A", shares: { A: "less" }, blocks: 6, want: ["B1", "C1", "A1", "B2", "C2", "B3"] },
+			{ name: "less of A, a short week", shares: { A: "less" }, blocks: 2, want: ["B1", "C1"] },
+			{ name: "more and less together", shares: { A: "more", C: "less" }, blocks: 5, want: ["A1", "A2", "B1", "A3", "B2"] },
+			{ name: "only a Less module has anything left: it still gets studied", shares: { A: "less", B: "less", C: "less" }, blocks: 4, want: ["A1", "B1", "C1", "A2"] },
+		];
+		for (const c of cases) {
+			const r = pacedUnits({ modules: mods(c.shares), units: many, now: at(23, 9), blocks: c.blocks });
+			assert.deepEqual(r.map((u) => u.lectureId), c.want, c.name);
+		}
 	});
 	it("no week set: the first units not yet started", () => {
 		const r = pacedUnits({ modules: [{ code: "GT" }], units, now: at(23, 9), blocks: 2 });
