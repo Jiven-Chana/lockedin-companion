@@ -67,7 +67,7 @@ export function LearnSheet({ code, onClose, onPractise }: { code: string; onClos
 							onClick={() => (d.suggestion!.type === "resume" ? router.push(`/app/session/${d.suggestion!.sessionId}`) : void go({ lectureId: d.suggestion!.lectureId }))}>
 							<span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
 								<b>{d.suggestion.type === "resume" ? `${LEARN_COPY.pickUp}: ${d.suggestion.title}` : LEARN_COPY.start(d.suggestion.title)}</b>
-								<span style={{ fontWeight: 400, opacity: 0.9 }}>{d.suggestion.type === "resume" ? LEARN_COPY.stopped(d.minutes) : LEARN_COPY.nextInCourse(d.minutes)}</span>
+								<span style={{ fontWeight: 400, opacity: 0.9 }}>{d.suggestion.type === "resume" ? LEARN_COPY.stoppedIn(d.lectures.find((l) => l.id === d.suggestion!.lectureId)?.title ?? d.module.name, d.suggestion.at) : LEARN_COPY.nextInCourse(d.minutes)}</span>
 							</span>
 						</button>
 					) : null}

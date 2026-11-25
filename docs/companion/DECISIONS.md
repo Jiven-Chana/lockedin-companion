@@ -121,6 +121,31 @@ The direction is [`v2.0-direction.md`](v2.0-direction.md), rewritten the same da
 
 **For the group:** V-41 means the "app blocking" feature chain (23 Nov core set) ends at the lo-fi, with the hi-fi link "not built, and why". V-40's "Practise mixes topics" rests on interleaving, which has no `LIT` id yet. V-45, V-46 and V-48 depart from or pre-empt group decisions and each is owed a row in the team's `design-log.md`; T18 (25 Nov) tests V-45 and V-46 directly.
 
+## Made while building Learn (v2.0 step 5, 25 Nov 2026, Jiven)
+
+Six questions, asked before any code. Jiven rejected the first, busier drafts of the screen as "a bit cluttered": "we need simplicity for focus with the ability to see some of the other parts without it being a distraction or a useless feature that the research doesn't back". V-57 to V-59 are the result.
+
+| # | Decision | Why | Supersedes |
+|---|---|---|---|
+| V-55 | **Two modes only, everywhere.** The short AI quiz goes. A lecture has "Learn this" (the tutor) and "Practise this" (the bank). A missed lecture opens Learn. "Revisit what I missed", a retest and the welcome-back taste open Practise. Any session the tutor runs is Learn; a Learn session that can't start falls back to Practise on the unit's bank | V-40: a student should always know whether they are being taught or tested (X-4). Chosen over keeping a third kind of session, and over Learn alone on lectures | "Quiz me", "Show me this lecture", the 5-question AI session |
+| V-56 | **A study block suggests one mode and offers the other.** Learn while its lecture is part-way through ("pick up where you stopped") or not learned yet ("you haven't yet"); Practise once it has been learned. The other mode is a smaller button beside it. The block's notification opens the suggested one | AFF-N: the mode is a choice per visit, never a profile. One obvious button still answers AFF-K. Chosen over "always Learn" and over deciding for the student | A block always opening the same kind of session (V-44) |
+| V-57 | **The Learn screen is one column and one step at a time.** A step is everything since the student's last answer. No chat log and no side panel by default. One line under the title says which idea and which is next. "Plan" and "Slide" open a panel only when tapped; a slide reference in the text opens that slide. The plan is shown once, in the step where the tutor proposes it. A question is labelled "Have a guess · nothing is marked", "Check" or "In your own words" | AE-5 (the whole plan at once overwhelmed; one question at a time did not), AFF-C (too much at once), AE2-3 (a chat box beside a graph panel read as "Claude with a shell"), INT-02-c (progress should point at what is next), INT-01-g (every explanation links to its slide). Chosen over plan-above-slide always open, tabs always open, and a plan strip | The side-by-side session screen, for Learn |
+| V-58 | **One line to the tutor, always at the bottom: type or speak.** With a question open, the reply appears beside the question and the question stays. While the tutor is writing, the message is handed over at its next pause. Otherwise it is the student's turn. Pictures, demos and look-ups appear inside the step they belong to, with a note while they are on their way. Only Hint and Show me first on a question; "Skip, just teach me" during the opening guesses; "Looks good" on the plan | V-54; AFF-H (say what background work is for). The extra chips and the stage line of the first draft were dropped: nothing in the research backs them | "The learner can't type replies here" |
+| V-59 | **Learn asks nothing before it starts wherever the topic is already known:** a lecture, a study block and Today start at once. Only "Learn" on a module opens a sheet: one suggestion (the unfinished session, else the next lecture not yet learned), one line to type or say what to cover, matched to that module's topics as it is typed, and "This week" and "All lectures" as quiet links. There is no "where are you?" question | "Are we just bombarding the user with optionality and choice overload and decision fatigue? How do we make it more seamless" (Jiven). AFF-K (name one small step), INT-02-b (decision paralysis), AE2-P14 (a short questionnaire felt like 60 questions). The module comes from where the student tapped, his own suggestion; matching across every module was ruled out ("the system can't really know about your lecture") | The three-way start of V-47's first sketch |
+| V-60 | **A Learn session never ends by itself.** It is as long as the block (the student's block length otherwise). Time up is a quiet line. "Stop for now", or closing the tab, saves it with where its plan stood; it is offered again on Today and at the next block on that lecture. It is finished when the plan's last idea has been checked and the student presses "Finish", or whenever they press it | R-5 (nothing is marked missed), AFF-B, AE2-P12. Chosen over stopping at time-up and over no clock | The question budget, for Learn |
+
+**Smaller choices in step 5, approved with the six above:**
+- A "have a guess" (an opening question or a prediction) never makes a gap and never counts towards closing one. Only a Check does.
+- The tutor's picture, demo and look-up tools are on. Reading the student's PDFs directly stays off.
+- So that long sessions keep their slides, the tutor can read LockedIn's own copies of the slides again, and nothing else on the computer.
+- "This week" is that module's lectures in its current teaching week.
+- With no AI connected, "Learn this" says so and offers Practise.
+- A typed goal that matches nothing in the module shows the lecture list.
+- A block's Learn starts on the block's named first step.
+- An install picks up the new tutor instructions on its next start.
+- **Found while testing with the real AI, and fixed in the same way as a choice:** the plan holds about one idea per ten minutes (the tutor planned eight or nine for 50 minutes until the limit was stated in the session's first message); a tutor that reacts to an answer and stops is asked to carry on, once per stop.
+
+
 ## Open: the group decides (plan §14)
 
 Status on 23 Nov:

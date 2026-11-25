@@ -96,7 +96,7 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 			const title = item.guess ? null : item.correct === true ? "Right" : item.correct === false ? (item.dontKnow ? "Here's the answer" : "Not quite") : null;
 			return (
 				<div className={`li-answered${item.correct === true ? " li-feedback right" : item.correct === false ? " li-feedback miss" : ""}`}>
-					<span className="li-small"><b><InlineProse text={item.stem} /></b></span>
+					{item.stem.includes("\n") ? <div className="li-small"><Prose text={item.stem} /></div> : <span className="li-small"><b><InlineProse text={item.stem} /></b></span>}
 					{item.options.length ? (
 						<ul>
 							{item.options.filter((o) => o.picked || o.answer).map((o) => (
@@ -137,8 +137,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const [error, setError] = useState<string | null>(null);
 	const [earlier, setEarlier] = useState<LearnItem[][] | null>(null);
 	const [, setTick] = useState(0);
-	const column = useRef<HTMLElement>(null);
-	const stem = useRef<HTMLHeadingElement>(null);
+	const stem = useRef<HTMLHeadingElement & HTMLDivElement>(null);
 
 	// One microphone, for whichever box you are in: the line at the bottom, or your written answer.
 	const target = useRef<"say" | "written" | "why">("say");
@@ -172,7 +171,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	}, [q?.id]);
 	// A new step starts at its top; something added to the step is brought into view.
 	const stepKey = learn.step[0]?.type === "answered" ? learn.step[0].id : "first";
-	useEffect(() => { column.current?.scrollIntoView({ block: "start" }); }, [stepKey]);
+	useEffect(() => { window.scrollTo({ top: 0 }); }, [stepKey]);
 	useEffect(() => { if (view.status === "thinking") setSent(false); }, [view.status, learn.step.length]);
 
 	const openSlide = useCallback((n: number) => { setSlide(n); setPanel("slide"); }, []);
@@ -313,7 +312,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 				</div>
 
 				<div className="li-panes" data-panel={panel ? "open" : "closed"}>
-					<section className="li-qcard" aria-label="Your tutor" ref={column}>
+					<section className="li-qcard" aria-label="Your tutor">
 						{view.status === "error" ? (
 							<>
 								<h2 className="li-q-stem">{failure.says}</h2>
@@ -354,7 +353,10 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 								{q ? (
 									<>
 										{label ? <span className="li-eyebrow">{label}</span> : null}
-										<h2 className="li-q-stem" style={{ fontSize: "1.45em" }} tabIndex={-1} ref={stem}><InlineProse text={q.stem} onSlide={openSlide} /></h2>
+										{/* A question is one line, or (a table, a worked set-up) several blocks. */}
+										{q.stem.includes("\n")
+											? <div className="li-q-stem" style={{ fontSize: "1.15em", fontWeight: 400 }} tabIndex={-1} ref={stem}><Prose text={q.stem} onSlide={openSlide} /></div>
+											: <h2 className="li-q-stem" style={{ fontSize: "1.45em" }} tabIndex={-1} ref={stem}><InlineProse text={q.stem} onSlide={openSlide} /></h2>}
 										{q.context ? <p className="li-muted" style={{ margin: 0 }}><InlineProse text={q.context} onSlide={openSlide} /></p> : null}
 										{q.kind !== "write" ? (
 											<div role={q.multi ? "group" : "radiogroup"} aria-label="Answers" className="li-stack" style={{ gap: 10 }}>

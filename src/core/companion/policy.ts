@@ -352,7 +352,7 @@ export const LEARN_COPY = {
 	sheetTitle: (module: string) => `Learn · ${module}`,
 	start: (title: string) => `Start: ${title}`,
 	nextInCourse: (minutes: number) => `next in your course · about ${minutes} min`,
-	stopped: (minutes: number) => `where you stopped · about ${minutes} min`,
+	stoppedIn: (lecture: string, at: { index: number; total: number } | null) => (at && at.index > 0 ? `${lecture} · idea ${at.index} of ${at.total}` : lecture),
 	orSay: "or say what you want to cover",
 	sayPlaceholder: "e.g. mixed strategies, I've seen it but can't do the maths",
 	thisWeek: (n: number) => `This week (${n} ${n === 1 ? "lecture" : "lectures"})`,
