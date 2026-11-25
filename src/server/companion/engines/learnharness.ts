@@ -15,7 +15,7 @@ import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "../../../core/pending.ts";
 import { dismissedAnswer } from "../../../core/question-core.ts";
-import { learnSteps, mapLearnView, tutorOwesNextStep } from "../../../core/companion/learn.ts";
+import { learnSteps, mapLearnView, tutorOwesNextStep, type LearnMade } from "../../../core/companion/learn.ts";
 import { HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
@@ -46,6 +46,8 @@ export interface LhPort {
 	tree(chatId: string): PlanTree | null;
 	/** Hand a message to the turn that is running; false when no turn is running to take it. */
 	steer(chatId: string, text: string): Promise<boolean>;
+	/** Pictures, demos and look-ups that are finished, whether or not the engine has put them in the chat yet. */
+	made(chatId: string): LearnMade[];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -138,7 +140,7 @@ export class LearnHarnessEngine implements SessionEngine {
 
 	private learnView(session: CompanionSession, lecture: Pick<Lecture, "id" | "title" | "module">, now: Date) {
 		const chatId = this.chatId(session);
-		return mapLearnView({ messages: this.record(session), running: this.port.running(chatId), failure: this.port.failure(chatId), session, lecture, tree: this.port.tree(chatId), now });
+		return mapLearnView({ messages: this.record(session), running: this.port.running(chatId), failure: this.port.failure(chatId), session, lecture, tree: this.port.tree(chatId), now, made: this.port.made(chatId) });
 	}
 
 	/** Learn is ready when the tutor's first question is on screen, or it has spoken and is waiting. It is never hurried along. */
@@ -303,7 +305,7 @@ export class LearnHarnessEngine implements SessionEngine {
 	}
 
 	steps(session: CompanionSession) {
-		return learnSteps(this.record(session));
+		return learnSteps(this.record(session), this.port.made(this.chatId(session)));
 	}
 
 	async more(session: CompanionSession, questions: number) {

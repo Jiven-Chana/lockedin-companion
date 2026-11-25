@@ -168,12 +168,28 @@ function artifactItem(toolCallId: string, kind: string, result: unknown): LearnI
 }
 
 /**
+ * A picture, demo or look-up the engine has finished making but has not put
+ * in the chat yet. The engine holds one back while a question is open and
+ * hands it over with the answer; the screen shows it as soon as it exists.
+ */
+export interface LearnMade {
+	/** The tutor's call that asked for it. */
+	toolCallId: string;
+	kind: string;
+	result?: unknown;
+	/** It could not be made. */
+	failed?: boolean;
+}
+
+/**
  * Every step of the session, oldest first. A new step starts at each answer
  * and opens with what was answered. Something still being made stays in view
- * in the newest step; once made, it sits where it landed.
+ * in the newest step; once made, it sits where it landed. Something made but
+ * still held back by the engine (`made`) shows where the tutor asked for it.
  */
-export function learnSteps(messages: readonly LhMessage[]): LearnItem[][] {
+export function learnSteps(messages: readonly LhMessage[], made: readonly LearnMade[] = []): LearnItem[][] {
 	const failed = failedOutputCallIds(messages);
+	const ready = new Map(made.map((m) => [m.toolCallId, m]));
 	const callTypes = new Map<string, unknown>();
 	const settled = new Set<string>();
 	const planOk = new Set<string>();
@@ -208,6 +224,11 @@ export function learnSteps(messages: readonly LhMessage[]): LearnItem[][] {
 					planShown = true;
 					step.push({ type: "plan", id: b.id });
 				} else if (ARTIFACT_KINDS.includes(b.name) && !settled.has(b.id)) {
+					const done = ready.get(b.id);
+					if (done) {
+						step.push((done.failed ? null : artifactItem(b.id, b.name, done.result)) ?? { type: "failed", id: b.id, kind: b.name as LearnArtifactKind });
+						return;
+					}
 					const title = (b.arguments as { title?: unknown } | undefined)?.title;
 					step.push({ type: "making", id: b.id, kind: b.name as LearnArtifactKind, ...(typeof title === "string" && title ? { title } : {}) });
 				}
@@ -315,13 +336,15 @@ export interface LearnViewInput {
 	lecture: Pick<Lecture, "id" | "title" | "module">;
 	tree: PlanTree | null | undefined;
 	now: Date;
+	/** Finished pictures, demos and look-ups the engine has not handed to the chat yet. */
+	made?: readonly LearnMade[];
 }
 
 /** LearnHarness chat record → the Learn screen's state. Never carries an open question's answer. */
 export function mapLearnView(input: LearnViewInput): SessionView {
-	const { messages, running, session, lecture, tree, now } = input;
+	const { messages, running, session, lecture, tree, now, made } = input;
 	const learn = session.spec.learn ?? { scope: "lecture" as const, minutes: LEARN_RULES.defaultMinutes };
-	const steps = learnSteps(messages);
+	const steps = learnSteps(messages, made);
 	const step = [...steps.at(-1)!];
 	const plan = learnPlan(tree, messages);
 	const probed = hasProbeDone(messages as LhMessage[]);

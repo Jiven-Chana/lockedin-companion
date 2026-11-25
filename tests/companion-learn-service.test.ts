@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { LEARN_COPY, LEARN_SAYS } from "../src/core/companion/index.ts";
+import { LEARN_COPY, LEARN_SAYS, type LearnMade } from "../src/core/companion/index.ts";
 import type { PlanTree } from "../src/core/contracts.ts";
 import type { ChatInput } from "../src/core/input-events.ts";
 import { newAnswerResult, newHandoffMessage, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
@@ -76,6 +76,8 @@ class Tutor implements LhPort {
 		this.chats.delete(id);
 	}
 	tree = (id: string) => this.trees.get(id) ?? null;
+	finished = new Map<string, LearnMade[]>();
+	made = (id: string) => this.finished.get(id) ?? [];
 	async steer(chatId: string, t: string) {
 		if (!this.busy.has(chatId)) return false;
 		this.steered.push(t);

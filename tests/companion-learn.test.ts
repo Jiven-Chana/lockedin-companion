@@ -26,6 +26,7 @@ import {
 	toSessionQuestion,
 	type CompanionSession,
 	type LearnItem,
+	type LearnMade,
 	type LearnSpec,
 	type Lecture,
 } from "../src/core/companion/index.ts";
@@ -79,8 +80,8 @@ function answered(messages: LhMessage[], toolCallId: string, pick: { indices?: n
 	throw new Error(`no call ${toolCallId}`);
 }
 
-const view = (messages: LhMessage[], over: { running?: boolean; failure?: string; tree?: PlanTree | null; session?: CompanionSession; now?: Date } = {}) =>
-	mapLearnView({ messages, running: over.running ?? false, failure: over.failure, session: over.session ?? session(), lecture, tree: over.tree ?? null, now: over.now ?? now });
+const view = (messages: LhMessage[], over: { running?: boolean; failure?: string; tree?: PlanTree | null; session?: CompanionSession; now?: Date; made?: LearnMade[] } = {}) =>
+	mapLearnView({ messages, running: over.running ?? false, failure: over.failure, session: over.session ?? session(), lecture, tree: over.tree ?? null, now: over.now ?? now, made: over.made });
 const types = (items: LearnItem[]) => items.map((i) => i.type);
 
 describe("the opening questions are sized to what was asked for (V-47)", () => {
@@ -356,6 +357,29 @@ describe("the chat record becomes one step on the screen", () => {
 		const landed = view(msgs, { tree }).learn!.step;
 		assert.deepEqual(types(landed), ["answered", "visual", "tutor"]);
 		assert.deepEqual(landed[1], { type: "visual", id: "v1", svg: "<svg></svg>", notes: "Rows are player 1." });
+	});
+
+	it("a picture that is finished shows at once, even while a question is open and the engine is still holding it back", () => {
+		const msgs: LhMessage[] = [opening(), ...probeDone(), ...planInit(), assistant([text("Let me draw the payoff matrix."), call("v1", "visual", { brief: "A 2x2 payoff matrix" })]), result("v1", "visual", "Dispatched (job j1)."), assistant([text("Meanwhile:"), quizCall("q1", { type: "check", nodeId: "nash" })])];
+		const cases: { name: string; made: LearnMade[]; want: LearnItem }[] = [
+			{ name: "nothing finished yet", made: [], want: { type: "making", id: "v1", kind: "visual" } },
+			{ name: "another call's picture", made: [{ toolCallId: "v9", kind: "visual", result: { svg: "<svg></svg>" } }], want: { type: "making", id: "v1", kind: "visual" } },
+			{ name: "finished", made: [{ toolCallId: "v1", kind: "visual", result: { svg: "<svg></svg>", notes: "Rows are player 1." } }], want: { type: "visual", id: "v1", svg: "<svg></svg>", notes: "Rows are player 1." } },
+			{ name: "finished with nothing to show", made: [{ toolCallId: "v1", kind: "visual", result: {} }], want: { type: "failed", id: "v1", kind: "visual" } },
+			{ name: "failed", made: [{ toolCallId: "v1", kind: "visual", failed: true }], want: { type: "failed", id: "v1", kind: "visual" } },
+		];
+		for (const c of cases) {
+			const v = view(msgs, { tree, made: c.made });
+			assert.equal(v.status, "question", c.name);
+			// It sits where the tutor said it would draw it, above the question.
+			assert.deepEqual(types(v.learn!.step).slice(-3), ["tutor", c.want.type, "tutor"], c.name);
+			assert.deepEqual(v.learn!.step.at(-2), c.want, c.name);
+		}
+		// Once answered, the engine hands it over and it sits where it landed: shown once, not twice.
+		msgs.push(answered(msgs, "q1", { indices: [1] }));
+		msgs.push({ id: "steer_j1", role: "custom", customType: "subagent-steer", content: "The visual is ready.", display: true, details: { jobId: "j1", kind: "visual", toolCallId: "v1", result: { svg: "<svg></svg>" } }, timestamp: 0 } as unknown as LhMessage);
+		const after = view(msgs, { tree, running: true, made: cases[2]!.made });
+		assert.deepEqual(types(after.learn!.step), ["answered", "visual"]);
 	});
 
 	it("a demo and a look-up arrive as themselves; one that failed says so", () => {

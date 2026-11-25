@@ -65,6 +65,9 @@ class FakePort implements LhPort {
 	tree(id: string) {
 		return this.trees.get(id) ?? null;
 	}
+	made() {
+		return [];
+	}
 	steered: { chatId: string; text: string }[] = [];
 	/** Whether a running turn takes a steer. */
 	takesSteer = true;

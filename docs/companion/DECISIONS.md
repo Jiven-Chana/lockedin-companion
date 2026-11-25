@@ -140,6 +140,7 @@ Six questions, asked before any code. Jiven rejected the first, busier drafts of
 **Smaller choices in step 5, approved with the six above:**
 - A "have a guess" (an opening question or a prediction) never makes a gap and never counts towards closing one. Only a Check does.
 - The tutor's picture, demo and look-up tools are on. Reading the student's PDFs directly stays off.
+- A picture, demo or look-up shows the moment it is finished, where the tutor said it would make it, even with a question open. The engine only hands it to the tutor with the next answer, so before this fix (found in Jiven's own testing, 25 Nov) the screen stayed on "drawing" until the question was answered.
 - So that long sessions keep their slides, the tutor can read LockedIn's own copies of the slides again, and nothing else on the computer.
 - "This week" is that module's lectures in its current teaching week.
 - With no AI connected, "Learn this" says so and offers Practise.
