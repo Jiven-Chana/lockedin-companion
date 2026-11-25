@@ -339,3 +339,38 @@ button.li-chip:hover { border-color: var(--li-accent); }
 	.li-week-list { display: grid; }
 }
 
+
+/* Learn (v2.0 step 5): one column, one step at a time. The plan and the slide open only when asked for (AE-5, AFF-C, AE2-3). */
+.li-learn .li-panes { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 880px; margin: 0 auto; }
+.li-learn .li-panes[data-panel="open"] { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); max-width: none; }
+.li-learn .li-qcard { gap: 16px; }
+.li-learn-tool { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; color: var(--li-deep-ink); font-weight: 700; }
+.li-learn-tool[aria-pressed="true"] { background: var(--li-deep-ink); color: var(--li-deep); border-color: var(--li-deep-ink); }
+.li-step { display: flex; flex-direction: column; gap: 14px; }
+.li-step > .li-prose-block > :first-child, .li-you > :first-child { margin-top: 0; }
+.li-you { border-left: 3px solid var(--li-accent); padding: 2px 0 2px 14px; color: var(--li-muted); }
+.li-you b { color: var(--li-ink); }
+.li-answered { border: 1px solid var(--li-line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.li-answered ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.li-answered li { display: flex; gap: 10px; align-items: baseline; }
+.li-answered li[data-answer="true"] { font-weight: 700; }
+.li-answered .li-tag { font-size: 0.8em; font-weight: 700; color: var(--li-muted); white-space: nowrap; }
+.li-artifact { border: 1px solid var(--li-line); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.li-artifact img { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #ffffff; border-radius: 10px; }
+.li-artifact iframe { width: 100%; border: 0; border-radius: 10px; background: #ffffff; }
+.li-making { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--li-soft); }
+/* The line to the tutor stays in reach at the bottom of the window, however long the step is. */
+.li-say { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--li-line); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-surface); z-index: 2; }
+.li-say textarea { resize: none; }
+.li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 0; }
+.li-plan li + li::before { content: ""; position: absolute; left: 13px; top: -9px; height: 18px; border-left: 2px solid currentColor; opacity: 0.35; }
+.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 999px; border: 2px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; opacity: 0.55; }
+.li-plan li[data-state="done"] .li-plan-mark { opacity: 1; }
+.li-plan li[data-state="current"] .li-plan-mark { opacity: 1; border-width: 3px; }
+.li-plan li[data-state="current"] .li-plan-title { font-weight: 700; }
+.li-plan li[data-state="todo"] .li-plan-title { opacity: 0.75; }
+.li-plan-word { font-size: 0.75em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.li-tabs { display: inline-flex; gap: 6px; }
+.li-tabs button { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; color: var(--li-deep-ink); font-weight: 700; }
+.li-tabs button[aria-selected="true"] { background: var(--li-deep-ink); color: var(--li-deep); border-color: var(--li-deep-ink); }

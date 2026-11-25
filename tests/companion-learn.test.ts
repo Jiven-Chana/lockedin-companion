@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	answerRecordFrom,
+	tutorOwesNextStep,
 	buildLearnOpening,
 	gradeAnswer,
 	isGuess,
@@ -271,6 +272,13 @@ describe("the chat record becomes one step on the screen", () => {
 		assert.deepEqual(v.learn!.step.at(-1), { type: "you", id: msgs.at(-1)!.id, text: "skip the first idea, I know it" });
 	});
 
+	it("a message sent with a question open sets the question aside while the tutor answers", () => {
+		const msgs: LhMessage[] = [opening(), ...probeDone(), ...planInit(), newUserMessage(LEARN_SAYS.planOk), assistant([text("What do you expect?"), quizCall("q1", { type: "predict", nodeId: "nash" })]), newUserMessage("can you draw it?")];
+		const v = view(msgs, { tree, running: true });
+		assert.equal(v.status, "thinking");
+		assert.equal(v.question, undefined);
+	});
+
 	it("teaching: the header says which idea, and which is next", () => {
 		const msgs: LhMessage[] = [opening(), ...probeDone(), ...planInit(), newUserMessage(LEARN_SAYS.planOk), assistant([text("What do you expect?"), quizCall("q1", { type: "predict", nodeId: "best-response" })])];
 		msgs.push(answered(msgs, "q1", { indices: [1] }), assistant([text("A best response is… (Slide 2)"), quizCall("q2", { type: "check", nodeId: "best-response" })]));
@@ -388,6 +396,31 @@ describe("the chat record becomes one step on the screen", () => {
 	it("the slides a step cites are collected for the slide panel", () => {
 		const v = view([opening(), ...probeDone(), ...planInit(), assistant([text("See (Slide 4) and (Slide 2).")], "stop")], { tree });
 		assert.deepEqual(v.slideRefs, [2, 4]);
+	});
+});
+
+describe("a tutor that reacts to an answer and stops is asked to carry on, once", () => {
+	const upTo = (): LhMessage[] => {
+		const msgs: LhMessage[] = [opening(), ...probeDone(), ...planInit(), newUserMessage(LEARN_SAYS.planOk), assistant([text("A best response is… (Slide 2)"), quizCall("c1", { type: "check", nodeId: "best-response" })])];
+		msgs.push(answered(msgs, "c1", { indices: [1], confidence: 90 }));
+		return msgs;
+	};
+	const steer = { id: "steer_j1", role: "custom", customType: "subagent-steer", content: "ready", display: true, details: { jobId: "j1", kind: "visual", toolCallId: "v1", result: { svg: "<svg></svg>" } }, timestamp: 0 } as unknown as LhMessage;
+	const cases: [string, (m: LhMessage[]) => LhMessage[], boolean][] = [
+		["it gave feedback and stopped", (m) => [...m, assistant([text("That reasoning is right.")], "stop")], true],
+		["it ended on a question of its own: the student's turn", (m) => [...m, assistant([text("Right. Shall we look at an example first?")], "stop")], false],
+		["it has just been asked to carry on: not again", (m) => [...m, assistant([text("Right.")], "stop"), newUserMessage(LEARN_SAYS.carryOn), assistant([text("Good.")], "stop")], false],
+		["the student had said something: their turn", (m) => [...m, assistant([text("Right.")], "stop"), newUserMessage("slow down please"), assistant([text("Of course.")], "stop")], false],
+		["something it made arrived and it explained it", (m) => [...m, assistant([text("Right.")], "stop"), newUserMessage("ok"), assistant([text("Sure.")], "stop"), steer, assistant([text("In the figure, the rows are player 1.")], "stop")], true],
+		["it asked the next question itself", (m) => [...m, assistant([text("Right. Next:"), quizCall("c2", { type: "predict", nodeId: "nash" })])], false],
+		["its turn failed", (m) => [...m, assistant([text("Right.")], "error")], false],
+		["it has said nothing since the answer", (m) => m, false],
+	];
+	for (const [name, add, expected] of cases) it(name, () => assert.equal(tutorOwesNextStep(add(upTo())), expected));
+
+	it("lines LockedIn sends for a button press are not shown as something the student typed", () => {
+		const msgs = [...upTo(), assistant([text("Right.")], "stop"), newUserMessage(LEARN_SAYS.carryOn), assistant([text("Next idea.")], "stop")];
+		assert.deepEqual(types(view(msgs, { tree }).learn!.step), ["answered", "tutor", "tutor"]);
 	});
 });
 

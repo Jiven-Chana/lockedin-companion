@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, Lecture, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { AiStatus, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, KeyProvider, LearnItem, LearnTopic, Lecture, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -40,6 +40,18 @@ export interface PlanData {
 	commitments: Routine["commitments"];
 	quietHours: { from: string; to: string };
 	modules: { code: string; name: string; hasMaterial: boolean }[];
+}
+export interface LearnSheet {
+	module: { code: string; name: string };
+	connected: boolean;
+	minutes: number;
+	suggestion:
+		| { type: "resume"; sessionId: string; lectureId: string; title: string; at: { index: number; total: number; title: string } | null }
+		| { type: "next"; lectureId: string; title: string }
+		| null;
+	week: { week: number; lectureIds: string[] } | null;
+	lectures: { id: string; title: string; week: number }[];
+	topics: LearnTopic[];
 }
 export interface ChatTurnData { say: string; chips?: string[]; done?: boolean; draft?: Record<string, unknown>; fallback?: boolean }
 export interface CheckinData { started: number; minutes: number; text: string; target: number | null; nextWeek: string; roomMinutes: number; feelings: Record<string, string> }
@@ -176,9 +188,17 @@ export const lockedIn = {
 	startPractise: (module: string, idea?: string) => api<{ sessionId: string; written: number }>("/practise", { body: { module, ...(idea ? { idea } : {}) } }),
 	/** Gaps by idea (V-39): module, idea, the questions missed. */
 	gaps: () => api<GapsData>("/gaps"),
+	/** The module's Learn start sheet (step 5): one suggestion, this week, and the topics a typed goal is matched against. */
+	learnSheet: (module: string) => api<LearnSheet>(`/learn?module=${encodeURIComponent(module)}`),
+	/** Start Learn (V-47): a lecture, one part of it (`nodes`), or the module's lectures this week. */
+	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	/** Say something to the tutor (V-54). With `questionId` it is answered beside the open question. */
+	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
+	finish: (id: string) => api(`/sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
+	steps: (id: string) => api<{ steps: LearnItem[][] }>(`/sessions/${encodeURIComponent(id)}/steps`).then((r) => r.steps),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),
 	session: (id: string) => api<SessionView>(`/sessions/${encodeURIComponent(id)}`),
-	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
+	answer: (id: string, body: { questionId: string; indices?: number[]; dontKnow?: boolean; confidence?: number; why?: string; text?: string }) => api<{ correct: boolean }>(`/sessions/${encodeURIComponent(id)}/answer`, { body }),
 	hint: (id: string, questionId: string) => api<{ text: string }>(`/sessions/${encodeURIComponent(id)}/hint`, { body: { questionId } }),
 	showMe: (id: string, questionId: string) => api(`/sessions/${encodeURIComponent(id)}/show-me`, { body: { questionId } }),
 	more: (id: string) => api<{ budget: number }>(`/sessions/${encodeURIComponent(id)}/more`, { body: {} }),

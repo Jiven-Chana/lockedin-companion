@@ -13,7 +13,7 @@ import { failedOutputCallIds, hasProbeDone, pendingQuestionOf, sendToUserText, t
 import { QUESTION_TOOLS } from "../pending.ts";
 import type { QuestionAnswerData } from "../question-core.ts";
 import { sideSegmentId } from "../side-chat.ts";
-import { LEARN_COPY, LEARN_RULES } from "./policy.ts";
+import { LEARN_COPY, LEARN_RULES, LEARN_SAYS } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { parseSlideRefs, trimSlides } from "./slides.ts";
 import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView } from "./types.ts";
@@ -106,6 +106,8 @@ export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | und
 // ─── the chat record as steps ───────────────────────────────────────────────
 
 const OPENING_RE = /^(LEARN|APP) SESSION\b/;
+/** Lines LockedIn sends for a button press. They are not something the student typed, so the step doesn't repeat them. */
+const OWN_LINES: readonly string[] = Object.values(LEARN_SAYS);
 const ARTIFACT_KINDS: readonly string[] = ["visual", "demo", "research"];
 /** Markers that are bookkeeping, not something that happened in the lesson. */
 const QUIET_MARKERS: readonly string[] = ["plan-block", "compaction", "side-question", "side-question-told", "graph-context"];
@@ -182,7 +184,7 @@ export function learnSteps(messages: readonly LhMessage[]): LearnItem[][] {
 	for (const m of messages) {
 		if (m.role === "user") {
 			const t = userText(m).trim();
-			if (t && !OPENING_RE.test(t)) step.push({ type: "you", id: m.id, text: t });
+			if (t && !OPENING_RE.test(t) && !OWN_LINES.includes(t)) step.push({ type: "you", id: m.id, text: t });
 		} else if (m.role === "assistant") {
 			m.content.forEach((b, i) => {
 				if (b.type === "text") {
@@ -266,6 +268,35 @@ function currentChecked(tree: PlanTree, messages: readonly LhMessage[]): boolean
 	return messages.some((m) => m.role === "toolResult" && checks.has(m.toolCallId) && answerOf(m) !== null);
 }
 
+/**
+ * The tutor reacted to an answer (or to something it had made) and stopped
+ * without the next step. In the middle of teaching that is a stall, not a
+ * pause for the student: LockedIn says "Carry on." for them, once per stop.
+ * It waits instead when the tutor ended on a question of its own, when the
+ * student had just said something, and when it has already been asked.
+ */
+export function tutorOwesNextStep(messages: readonly LhMessage[]): boolean {
+	let said = "";
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i]!;
+		if (m.role === "custom" && QUIET_MARKERS.includes(m.customType)) continue;
+		if (m.role === "assistant") {
+			if (m.stopReason === "error" || m.stopReason === "aborted") return false;
+			// It asked its next question itself: nothing is owed.
+			if (!said && m.content.some((b) => b.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(b.name))) return false;
+			if (!said) said = m.content.flatMap((b) => (b.type === "text" ? [b.text] : sendToUserText(b) ? [sendToUserText(b)!] : [])).join("\n").trim();
+			continue;
+		}
+		if (!said) return false;
+		// What set this turn off.
+		if (m.role === "toolResult" && !answerOf(m)) continue;
+		if (/\?\s*$/.test(said)) return false;
+		if (m.role === "toolResult") return true;
+		return m.role === "custom" && (m.customType === "subagent-steer" || m.customType === "subagent-abort");
+	}
+	return false;
+}
+
 export interface LearnViewInput {
 	messages: readonly LhMessage[];
 	running: boolean;
@@ -331,6 +362,9 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	if (session.state === "done") {
 		return { ...base, status: "done", learn: { ...base.learn!, covered: (plan?.nodes ?? []).filter((n) => n.state !== "todo").map((n) => n.title) } };
 	}
+	const spoken = messages.some((m) => m.role === "assistant");
+	// While the tutor is writing, no question is open: one still on the record was set aside by what the student just said.
+	if (running) return spoken ? { ...base, status: "thinking", activity: LEARN_COPY.writing } : { ...base, status: "preparing", activity: LEARN_COPY.reading(lecture.module) };
 	if (pending && supported) {
 		const qd = questionDataFromCall(pending.toolCallId, pending.tool, pending.input);
 		const canHint = qd.kind === "quiz" && sideSegmentId(messages as LhMessage[], pending.messageId) !== null;
@@ -338,8 +372,6 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	}
 	if (pending) return { ...base, status: "error", error: `unsupported_question:${pending.tool}` };
 
-	const spoken = messages.some((m) => m.role === "assistant");
-	if (running) return spoken ? { ...base, status: "thinking", activity: LEARN_COPY.writing } : { ...base, status: "preparing", activity: LEARN_COPY.reading(lecture.module) };
 	if (!spoken) return session.state === "preparing" ? { ...base, status: "preparing", activity: LEARN_COPY.reading(lecture.module) } : { ...base, status: "error", error: "no_question" };
 	// Nothing is running. If the newest thing in the lesson is the tutor's own words, it is waiting for the student.
 	// Anything else (an answer, a message, a hand-over, something just made) means its next turn is about to start.
@@ -388,4 +420,24 @@ export function matchTopics<T extends LearnTopic>(query: string, topics: readonl
 		.filter((x) => x.score > 0);
 	scored.sort((a, b) => b.score - a.score || Number(!!a.t.nodeId) - Number(!!b.t.nodeId) || a.i - b.i);
 	return scored.slice(0, limit).map((x) => x.t);
+}
+
+// ─── a demo the tutor built ─────────────────────────────────────────────────
+
+/** Tells the page how tall the demo is, so its frame fits it. Runs inside the demo's own sandbox. */
+const DEMO_SIZE_SCRIPT = `<script>(function(){var post=function(){try{parent.postMessage({type:"li-demo-height",height:Math.ceil(document.documentElement.scrollHeight)},"*")}catch(e){}};if(typeof ResizeObserver!=="undefined"){new ResizeObserver(post).observe(document.documentElement)}window.addEventListener("load",post);setTimeout(post,60);setTimeout(post,500)})();</script>`;
+
+/**
+ * The document for a demo's frame. The frame is sandboxed with scripts only:
+ * no access to the app, its storage or the student's data.
+ */
+export function learnDemoDoc(html: string): string {
+	return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, () => `${DEMO_SIZE_SCRIPT}</body>`) : `${html}${DEMO_SIZE_SCRIPT}`;
+}
+
+/** A demo's reported height, kept within sensible bounds; null for any other message. */
+export function learnDemoHeight(data: unknown): number | null {
+	const d = data as { type?: unknown; height?: unknown } | null;
+	if (!d || d.type !== "li-demo-height" || typeof d.height !== "number" || !Number.isFinite(d.height) || d.height <= 0) return null;
+	return Math.min(Math.max(Math.round(d.height), 120), 1_400);
 }

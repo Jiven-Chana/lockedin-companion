@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AI_COPY, HANDOFF_COPY, moduleHue, PLAN_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
+import { AI_COPY, HANDOFF_COPY, moduleHue, PLAN_COPY, PRACTISE_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn } from "../api";
 import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing, Icon, StatusTag } from "../icons";
@@ -80,7 +80,7 @@ export function TodayScreen() {
 		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: SESSION_COPY.tryNow(), cta: "Try it", done: 0, total: tn.spec.budget.questions, go: () => void start(tn.spec) };
 	} else {
 		const l = lectures.find((x) => x.hasMaterials) ?? null;
-		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: "Quiz me", done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id }) };
+		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: PRACTISE_COPY.mode, done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id, study: "practise" }) };
 	}
 
 	return (

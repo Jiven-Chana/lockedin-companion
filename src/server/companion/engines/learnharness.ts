@@ -14,8 +14,8 @@ import type { ChatInput } from "../../../core/input-events.ts";
 import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
 import { QUESTION_TOOLS } from "../../../core/pending.ts";
-import { learnSteps, mapLearnView } from "../../../core/companion/learn.ts";
-import { HINT_REQUEST, keepGoingText, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
+import { learnSteps, mapLearnView, tutorOwesNextStep } from "../../../core/companion/learn.ts";
+import { HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
 import type { AnswerInput, CompanionSession, Lecture } from "../../../core/companion/types.ts";
@@ -119,11 +119,11 @@ export class LearnHarnessEngine implements SessionEngine {
 	}
 
 	/** Ask the teacher for the next question. False when a request is already on its way. */
-	private async askForQuestion(chatId: string): Promise<boolean> {
+	private async askForQuestion(chatId: string, text: string = TEACHER_RULES.continueText): Promise<boolean> {
 		if (this.asking.has(chatId)) return false;
 		this.asking.add(chatId);
 		try {
-			await this.send(chatId, { type: "text", text: TEACHER_RULES.continueText });
+			await this.send(chatId, { type: "text", text });
 			return true;
 		} finally {
 			this.asking.delete(chatId);
@@ -190,8 +190,24 @@ export class LearnHarnessEngine implements SessionEngine {
 		}
 	}
 
+	/**
+	 * Learn: while teaching, a tutor that reacts to an answer and stops is
+	 * asked to carry on, once per stop, so the student is not left pressing a
+	 * button after every answer.
+	 */
+	private async learnViewKeptMoving(session: CompanionSession, lecture: Lecture, now: Date) {
+		const v = this.learnView(session, lecture, now);
+		if (v.status !== "reply" || v.learn?.phase !== "teach" || v.learn.finished || session.state === "stopped" || !tutorOwesNextStep(this.record(session))) return v;
+		const thinking = { ...v, status: "thinking" as const, activity: LEARN_COPY.writing };
+		try {
+			return (await this.askForQuestion(this.chatId(session), LEARN_SAYS.carryOn)) ? { ...thinking, teacherNudged: true } : thinking;
+		} catch {
+			return v;
+		}
+	}
+
 	async view(session: CompanionSession, lecture: Lecture, now: Date = new Date()) {
-		if (session.spec.learn) return this.learnView(session, lecture, now);
+		if (session.spec.learn) return this.learnViewKeptMoving(session, lecture, now);
 		const chatId = this.chatId(session);
 		const messages = this.record(session);
 		// A hand-off (F-112): question 1 was answered on the phone, outside this chat. The chat owes one question fewer.

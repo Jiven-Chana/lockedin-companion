@@ -264,6 +264,7 @@ export const PRACTISE_COPY = {
 	mode: "Practise",
 	learnMode: "Learn",
 	button: "Practise this module",
+	thisButton: "Practise this",
 	noQuestions: "No questions for this module yet. Add its slides or notes and they'll be written for you.",
 	noMore: "That's every question this module has for now.",
 } as const;
@@ -301,6 +302,7 @@ export const LEARN_SAYS = {
 export const LEARN_COPY = {
 	button: "Learn this",
 	moduleButton: "Learn",
+	ideaButton: "Learn this idea",
 	/** The label on a question that is never marked (LIT-26, LIT-30; AE2-9: opening questions read as a test). */
 	guess: "Have a guess · nothing is marked",
 	check: "Check",

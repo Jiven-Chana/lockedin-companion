@@ -13,7 +13,7 @@
 
 import katex from "katex";
 import { createElement, Fragment, type ReactNode } from "react";
-import { parseProse, type Inline, type ProseBlock } from "@/src/core";
+import { parseInline, parseProse, type Inline, type ProseBlock } from "@/src/core";
 import { Diagram } from "./diagram";
 
 function maths(tex: string, display: boolean, key: string): ReactNode {
@@ -74,6 +74,11 @@ function block(b: ProseBlock, i: number, onSlide?: (n: number) => void): ReactNo
 				</div>
 			);
 	}
+}
+
+/** One line of the model's text (a question, an answer option): maths, bold and slide chips, with no block around it. */
+export function InlineProse({ text, onSlide }: { text: string; onSlide?: (n: number) => void }) {
+	return <>{inline(parseInline(text), onSlide, "i")}</>;
 }
 
 export function Prose({ text, onSlide }: { text: string; onSlide?: (n: number) => void }) {

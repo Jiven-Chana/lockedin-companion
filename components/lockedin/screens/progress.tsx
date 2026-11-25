@@ -76,7 +76,8 @@ export function ProgressScreen() {
 	async function start(spec: { kind: "retest" | "try-now" | "post-lecture"; lectureId: string; nodes?: string[] }, extra?: object) {
 		setBusy(spec.lectureId);
 		try {
-			const { sessionId } = await lockedIn.startSession({ ...(extra ?? {}), ...spec });
+			// Getting something back is Practise: quick questions from the bank (V-40).
+			const { sessionId } = await lockedIn.startSession({ ...(extra ?? {}), ...spec, study: "practise" });
 			router.push(`/app/session/${sessionId}`);
 		} finally {
 			setBusy(null);

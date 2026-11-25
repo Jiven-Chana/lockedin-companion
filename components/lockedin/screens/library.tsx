@@ -9,10 +9,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { moduleHue, PRACTISE_COPY, weekLabel } from "@/src/core";
+import { LEARN_COPY, moduleHue, PRACTISE_COPY, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, StatusTag } from "../icons";
+import { LearnSheet } from "../learn-sheet";
 import { MaterialUpload } from "../material-upload";
 import { Tint, useLockedIn } from "../root";
 import { SetWeek } from "../set-week";
@@ -67,13 +68,19 @@ export function LibraryScreen() {
 	const { now } = useLockedIn();
 	const [q, setQ] = useState("");
 	const [adding, setAdding] = useState<string | null>(null);
+	const [learning, setLearning] = useState<string | null>(null);
 	const [msg, setMsg] = useState<string | null>(null);
 	const course = useData(() => lockedIn.course());
 	const search = useData(() => (q.trim() ? lockedIn.lectures(q.trim()) : Promise.resolve(null)), [q]);
 
-	async function quiz(lectureId: string) {
-		const { sessionId } = await lockedIn.startSession({ kind: "post-lecture", lectureId });
-		router.push(`/app/session/${sessionId}`);
+	// "Learn this" starts at once: the topic is already known (step 5).
+	async function learn(lectureId: string) {
+		try {
+			const { sessionId } = await lockedIn.startLearn({ lectureId });
+			router.push(`/app/session/${sessionId}`);
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
+		}
 	}
 
 	const hits = search.data ? new Set(search.data.map((l) => l.id)) : null;
@@ -88,7 +95,7 @@ export function LibraryScreen() {
 			</span>
 			{l.status === "revisit" ? <StatusTag status="revisit" /> : l.status === "answered" ? <StatusTag status="answered" /> : <StatusTag status="notyet" />}
 			<Link className="li-btn soft" href={`/app/library/${l.id}`}>Open</Link>
-			<button type="button" className="li-btn primary" disabled={!l.hasMaterials} onClick={() => quiz(l.id)}>Quiz me</button>
+			<button type="button" className="li-btn primary" disabled={!l.hasMaterials} onClick={() => void learn(l.id)}>{LEARN_COPY.button}</button>
 		</div>
 	);
 
@@ -116,9 +123,12 @@ export function LibraryScreen() {
 								<WeekControl key={`${m.code}-${m.week}-${m.reading}`} mod={m} onChange={() => void course.reload()} />
 								<span className="li-small li-muted">{m.units.filter((l) => l.status !== "not-started").length} of {m.units.length} started</span>
 								{/* A quick round across the whole module (V-40): only once a unit has material to draw questions from. */}
-								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn primary" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
+								{/* The two ways to study a module (V-40): the tutor, or a quick round. Each needs a unit with material. */}
+								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn primary" aria-expanded={learning === m.code} onClick={() => setLearning(learning === m.code ? null : m.code)}>{LEARN_COPY.moduleButton}</button> : null}
+								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
 								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>
+							{learning === m.code ? <LearnSheet code={m.code} onClose={() => setLearning(null)} onPractise={() => void practise(m.code)} /> : null}
 							{adding === m.code ? (
 								<MaterialUpload code={m.code} name={m.name} onClose={() => setAdding(null)} onSaved={(n) => { setAdding(null); setMsg(`${n} ${n === 1 ? "unit" : "units"} added to ${m.name}.`); void course.reload(); }} />
 							) : null}

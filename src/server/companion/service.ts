@@ -1504,6 +1504,11 @@ export class CompanionService {
 			if (r.mode !== "question-first" && r.mode !== "show-first") throw badRequest("mode must be question-first or show-first");
 			spec.mode = r.mode;
 		}
+		// Learn or Practise, when the screen says which (V-40). Unsaid, the session's kind and the AI connection decide.
+		if (r.study !== undefined) {
+			if (r.study !== "learn" && r.study !== "practise") throw badRequest("study must be learn or practise");
+			spec.study = r.study;
+		}
 		const questions = r.questions ?? r.budget?.questions;
 		if (questions !== undefined) {
 			if (!Number.isInteger(questions) || (questions as number) < 1 || (questions as number) > 20) throw badRequest("questions must be 1–20");

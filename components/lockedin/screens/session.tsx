@@ -13,9 +13,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
-import { FocusRing } from "../icons";
+import { LearnScreen } from "./learn";
 import { MicButton, useMic } from "../mic";
-import { Prose } from "../prose";
+import { InlineProse, Prose } from "../prose";
 import { Tint } from "../root";
 import { SlidePage } from "../slide-page";
 
@@ -182,6 +182,8 @@ export function SessionScreen({ id }: { id: string }) {
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
+			// Learn has its own screen, and its own keys.
+			if (view?.learn) return;
 			if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
 			// Esc while speaking drops what was said (the engine's rule), not the whole session.
 			if (e.key === "Escape" && mic.dictation.active) { mic.dictation.cancel(); return; }
@@ -204,6 +206,9 @@ export function SessionScreen({ id }: { id: string }) {
 			</div>
 		);
 	}
+
+	// Learn (the tutor teaching) is its own screen: one column, one step at a time.
+	if (view.learn) return <LearnScreen id={id} view={view} reload={load} loadError={error} />;
 
 	const failure = sessionFailure(view.error);
 	const s = slides.find((x) => x.number === pos.number);
@@ -248,14 +253,14 @@ export function SessionScreen({ id }: { id: string }) {
 						{reviewing && fb && answered ? (
 							<>
 								<p className="li-muted" style={{ margin: 0 }}>You answered</p>
-								<h2 className="li-q-stem" style={{ fontSize: "1.35em" }}>{answered.question.stem}</h2>
+								<h2 className="li-q-stem" style={{ fontSize: "1.35em" }}><InlineProse text={answered.question.stem} /></h2>
 								<div className="li-stack" style={{ gap: 8 }}>
 									{answered.question.options.map((o) => {
 										const isAnswer = fb.correctLabels.includes(o.label);
 										const isMiss = answered.picked === o.index && !isAnswer;
 										return (
 											<div key={o.index} className={`li-opt ${isAnswer ? "is-answer" : isMiss ? "is-miss" : ""}`} style={{ cursor: "default" }}>
-												<span style={{ flexGrow: 1 }}>{o.label}</span>
+												<span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
 												{isAnswer ? <b className="li-small">✓ Answer</b> : isMiss ? <b className="li-small">Your pick</b> : null}
 											</div>
 										);
@@ -284,14 +289,14 @@ export function SessionScreen({ id }: { id: string }) {
 						{showQuestion && view.question ? (
 							<>
 								{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : null}
-								<h2 className="li-q-stem" tabIndex={-1} ref={qRef}>{view.question.stem}</h2>
+								<h2 className="li-q-stem" tabIndex={-1} ref={qRef}><InlineProse text={view.question.stem} /></h2>
 								{/* AI is labelled as AI, with its source (X-9; synthesis change 6). */}
 								{view.question.ai ? <span className="li-small" style={{ color: "var(--li-muted)" }}>{GAP_COPY.writtenByAi(view.question.slides?.[0] ?? null)}</span> : null}
 								{view.question.context ? <p className="li-muted" style={{ margin: 0 }}>{view.question.context}</p> : null}
 								<div role="radiogroup" aria-label="Answers" className="li-stack" style={{ gap: 10 }}>
 									{view.question.options.map((o) => (
 										<button key={o.index} type="button" role="radio" aria-checked={picked === o.index} className="li-opt" onClick={() => setPicked(o.index)}>
-											<span className="li-kbd">{o.index}</span><span style={{ flexGrow: 1 }}>{o.label}</span>
+											<span className="li-kbd">{o.index}</span><span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
 										</button>
 									))}
 									{view.question.kind === "quiz" ? (
