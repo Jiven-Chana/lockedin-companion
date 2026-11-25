@@ -76,6 +76,8 @@ export interface SessionQuestion {
 	slides?: number[];
 	/** The unit this question comes from, when a round mixes units: the slide panel shows that unit's slides. */
 	lectureId?: string;
+	/** Written by the AI from the student's slides: the screen says so, with the slide (X-9). */
+	ai?: boolean;
 }
 
 export interface SessionFeedback {
@@ -184,6 +186,8 @@ export interface ScriptedQuestion {
 	slides?: number[];
 	/** The unit it comes from, when a round mixes units (Practise). */
 	lectureId?: string;
+	/** Written by the AI from the student's slides (a study pack's bank), not by a person. */
+	ai?: boolean;
 }
 
 export interface ScriptedSet {
@@ -520,6 +524,8 @@ export const COMPANION_EVENT_TYPES = [
 	"milestone_earned",
 	"plan_module_set",
 	"gap_closed",
+	"gap_questions_written",
+	"gap_questions_failed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];
 

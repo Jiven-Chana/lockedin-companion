@@ -179,7 +179,7 @@ export function scriptedView(set: ScriptedSet, state: ScriptedState, session: Co
 		...base,
 		...(prose ? { prose } : {}),
 		// The question's own slide (lo-fi: "the slide this question comes from"): the bank's, else the one its lead-in cites.
-		question: { ...withSlides(toSessionQuestion(qd), q.slides?.length ? q.slides : parseSlideRefs(q.leadIn ?? "")), ...(q.lectureId ? { lectureId: q.lectureId } : {}) },
+		question: { ...withSlides(toSessionQuestion(qd), q.slides?.length ? q.slides : parseSlideRefs(q.leadIn ?? "")), ...(q.lectureId ? { lectureId: q.lectureId } : {}), ...(q.ai ? { ai: true } : {}) },
 		canHint: !!q.hint,
 		slideRefs: [...new Set([...parseSlideRefs(prose), ...(feedback?.slideRefs ?? [])])].sort((a, b) => a - b),
 	};

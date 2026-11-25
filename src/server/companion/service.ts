@@ -1721,7 +1721,8 @@ export class CompanionService {
 				needed: g.needed,
 				confidentError: g.confidentError,
 				// "Practise this idea" needs questions on it to draw from.
-				canPractise: bank.some((q) => q.node === g.nodeId) || (g.nodeId === GENERAL_IDEA && bank.length > 0),
+				// Either the idea has questions to draw from, or it is on the unit's map and the AI is connected to write some.
+				canPractise: bank.some((q) => q.node === g.nodeId) || (g.nodeId === GENERAL_IDEA && bank.length > 0) || (this.aiReady && titles.has(g.key)),
 				questions: g.misses.map((m) => ({
 					id: m.id,
 					text: m.questionText,
@@ -1749,16 +1750,41 @@ export class CompanionService {
 	}
 
 	/**
+	 * Start Practise (V-40). For "Practise this idea" (V-39) the AI first writes
+	 * new questions around the gap, when it is connected; they lead the round.
+	 * Without the AI, or if it fails, the round uses the idea's unused questions.
+	 */
+	async practise(raw: unknown): Promise<{ sessionId: string; written: number }> {
+		const idea = (raw as { idea?: unknown } | null)?.idea;
+		let written: string[] = [];
+		if (typeof idea === "string" && idea.includes("#") && this.packs && (this.ai ? await this.ai.ready().catch(() => false) : false)) {
+			const [lectureId, nodeId] = [idea.slice(0, idea.indexOf("#")), idea.slice(idea.indexOf("#") + 1)];
+			const misses = this.store.misses().filter((m) => m.status === "open" && ideaKeyOfMiss(m) === idea);
+			try {
+				const fresh = await this.packs.writeForIdea(lectureId, nodeId, misses.map((m) => ({ stem: m.questionText, chosen: m.chosen ?? [], correct: m.correctLabels, reason: m.reason, ...(m.confidence !== undefined ? { confidence: m.confidence } : {}), ...(m.why ? { why: m.why } : {}) })), GAP_RULES.newQuestions);
+				written = fresh.map((q) => q.id);
+			} catch (err) {
+				// The round still runs, on the questions the idea already has.
+				this.log("gap_questions_failed", { idea, error: err instanceof Error ? err.message.slice(0, 200) : "unknown" });
+			}
+		}
+		return { ...this.startPractise(raw, written), written: written.length };
+	}
+
+	/**
 	 * Start a Practise round across a module (V-40): questions from the
 	 * module's banks, chosen by the mixing rule. No AI, no wait.
 	 */
-	startPractise(raw: unknown): { sessionId: string } {
+	startPractise(raw: unknown, lead: readonly string[] = []): { sessionId: string } {
 		const code = (raw as { module?: unknown } | null)?.module;
 		if (typeof code !== "string" || !this.requireProfile().modules.some((m) => m.code === code)) throw badRequest("module must be one of your modules");
 		// "Practise this idea" (V-39): the round stays on one idea of one unit.
 		const idea = (raw as { idea?: unknown }).idea;
 		if (idea !== undefined && (typeof idea !== "string" || !idea.includes("#"))) throw badRequest("idea must be an idea key, lectureId#nodeId");
-		const picks = this.practisePicks(code, idea ? GAP_RULES.newQuestions : PRACTISE_RULES.questions, new Set(), idea as string | undefined);
+		// Questions just written for this gap lead the round; the rest are chosen by the rule.
+		const n = idea ? GAP_RULES.newQuestions : PRACTISE_RULES.questions;
+		const leading = idea ? lead.slice(0, n).map((questionId) => ({ lectureId: (idea as string).slice(0, (idea as string).indexOf("#")), questionId })) : [];
+		const picks = [...leading, ...this.practisePicks(code, n - leading.length, new Set(leading.map((p) => p.questionId)), idea as string | undefined)];
 		if (picks.length === 0) throw new CompanionError("no_questions", 422, idea ? GAP_COPY.noQuestions : PRACTISE_COPY.noQuestions);
 		const spec: SessionSpec = {
 			kind: "practise", lectureId: picks[0]!.lectureId, mode: "question-first", study: "practise",

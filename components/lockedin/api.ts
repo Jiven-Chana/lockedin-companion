@@ -173,7 +173,7 @@ export const lockedIn = {
 	tick: () => api<{ nudge: Banner; prepared: string[] }>("/nudges/due"),
 	nudge: (id: string, action: "open" | "snooze" | "dismiss" | "wasnt-there") => api<{ sessionId?: string; returnAt?: string; href?: string }>(`/nudges/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
 	/** Start a Practise round across a module (V-40): bank questions, no AI. */
-	startPractise: (module: string, idea?: string) => api<{ sessionId: string }>("/practise", { body: { module, ...(idea ? { idea } : {}) } }),
+	startPractise: (module: string, idea?: string) => api<{ sessionId: string; written: number }>("/practise", { body: { module, ...(idea ? { idea } : {}) } }),
 	/** Gaps by idea (V-39): module, idea, the questions missed. */
 	gaps: () => api<GapsData>("/gaps"),
 	startSession: (spec: Partial<SessionSpec> & { kind: SessionSpec["kind"]; lectureId: string; questions?: number }) => api<{ sessionId: string }>("/sessions", { body: spec }),

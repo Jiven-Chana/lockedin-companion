@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BLOCK_RULES, CONFIDENCE_TAPS, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { FocusRing } from "../icons";
@@ -285,6 +285,8 @@ export function SessionScreen({ id }: { id: string }) {
 							<>
 								{view.prose ? <Prose text={view.prose} onSlide={setSlide} /> : null}
 								<h2 className="li-q-stem" tabIndex={-1} ref={qRef}>{view.question.stem}</h2>
+								{/* AI is labelled as AI, with its source (X-9; synthesis change 6). */}
+								{view.question.ai ? <span className="li-small" style={{ color: "var(--li-muted)" }}>{GAP_COPY.writtenByAi(view.question.slides?.[0] ?? null)}</span> : null}
 								{view.question.context ? <p className="li-muted" style={{ margin: 0 }}>{view.question.context}</p> : null}
 								<div role="radiogroup" aria-label="Answers" className="li-stack" style={{ gap: 10 }}>
 									{view.question.options.map((o) => (

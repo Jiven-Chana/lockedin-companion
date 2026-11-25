@@ -228,7 +228,7 @@ export const CONFIDENCE_TAPS = [
  * `sureConfidence` or above ("Fairly sure" or "Certain"). `newQuestions` is how
  * many the AI writes for "Practise this idea".
  */
-export const GAP_RULES = { rightAnswers: 2, sureConfidence: 70, newQuestions: 5 } as const;
+export const GAP_RULES = { rightAnswers: 2, sureConfidence: 70, newQuestions: 5, minUsable: 3 } as const;
 
 /** Gaps by idea, in words. Nothing is dated or called overdue (R-6): a gap is something ready to grow (V-49). */
 export const GAP_COPY = {
@@ -239,6 +239,10 @@ export const GAP_COPY = {
 	/** How far an idea is towards leaving the list (V-43). */
 	progress: (right: number, needed: number) => (right === 0 ? `Leaves this list after ${needed} right answers, on different days, when you're fairly sure or certain.` : `${right} of ${needed} right answers towards leaving this list. One more, on another day.`),
 	practise: "Practise this idea",
+	/** While the AI writes questions around the gap (AFF-H: say what is happening during a wait). */
+	writing: (n: number) => `Writing ${n} new questions on this…`,
+	/** Every question from a study pack is written by the AI from the student's slides, and says so (X-9). */
+	writtenByAi: (slide: number | null) => (slide ? `Written by AI from slide ${slide}` : "Written by AI from your slides"),
 	youChose: "You chose",
 	dontKnow: "You said you didn't know",
 	unsure: "Right, but you weren't sure",

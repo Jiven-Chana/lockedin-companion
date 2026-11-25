@@ -13,7 +13,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { GAP_COPY, moduleHue } from "@/src/core";
+import { GAP_COPY, GAP_RULES, moduleHue } from "@/src/core";
 import { ApiError, lockedIn, type GapsData } from "./api";
 import { Tint } from "./root";
 
@@ -68,7 +68,7 @@ function IdeaRow({ idea, onError }: { idea: Idea; onError: (m: string) => void }
 				<div className="li-stack" style={{ gap: 8, paddingLeft: 22 }}>
 					<ul className="li-gap-list">{idea.questions.map((q) => <Question key={q.id} q={q} />)}</ul>
 					<span className="li-small li-muted">{GAP_COPY.progress(idea.right, idea.needed)}</span>
-					{idea.canPractise ? <button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={() => void practise()}>{GAP_COPY.practise}</button> : null}
+					{idea.canPractise ? <button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy} aria-busy={busy} onClick={() => void practise()}>{busy ? GAP_COPY.writing(GAP_RULES.newQuestions) : GAP_COPY.practise}</button> : null}
 				</div>
 			) : null}
 		</li>

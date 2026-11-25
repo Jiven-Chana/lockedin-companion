@@ -15,6 +15,7 @@ import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
 import { CompanionService } from "../src/server/companion/service.ts";
 import { CompanionStore } from "../src/server/companion/store.ts";
 import { closeGaps, countedRights, GAP_RULES, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type Miss, type RightAnswer } from "../src/core/companion/index.ts";
+import { assignQuestionIds, nextGapId, stemKey, type BankQuestion } from "../src/core/companion/study-pack.ts";
 
 const day = (d: number, h = 12) => new Date(2026, 10, d, h); // November 2026
 const miss = (id: string, over: Partial<Miss> = {}): Miss => ({
@@ -112,13 +113,24 @@ async function setup(now: Date) {
 	const content = new CompanionContent(store, path.join(import.meta.dirname, "..", "companion", "content"));
 	const clock = new ManualClock(now);
 	let n = 0;
+	const replies: unknown[] = [];
+	const asked: { user: string; system: string }[] = [];
 	const engine = () => new ScriptedEngine((id) => content.scriptedSet(id), (picks) => content.practiseSet(picks));
 	const svc = new CompanionService({
 		store, content, clock,
 		clockControl: { set: (t) => clock.set(t), reset: () => clock.set(now) },
 		engines: { scripted: engine(), learnharness: engine() },
 		defaultEngine: "scripted",
-		generate: (async () => { throw new Error("not called"); }) as never,
+		// A stand-in for the AI: it returns what the test queued, after running the caller's own check on it.
+		generate: (async (req: { user: string; system: string; validate?: (v: unknown) => string | null }) => {
+			asked.push({ user: req.user, system: req.system });
+			const value = replies.shift();
+			if (!value) throw new Error("the AI did not answer");
+			const problem = req.validate?.(value) ?? null;
+			if (problem) throw new Error(problem);
+			return { value, model: "fake/model" };
+		}) as never,
+		promptsDir: path.join(import.meta.dirname, "..", "companion", "prompts"),
 		newId: (p) => `${p}${++n}`,
 	});
 	await svc.onboardFlow({ calendar: { kind: "none" }, modules: [{ code: "GT", name: "Game Theory" }] });
@@ -138,7 +150,7 @@ async function setup(now: Date) {
 			await svc.answer(sessionId, { questionId: v.question.id, indices: [v.question.options.findIndex((o) => o.label === want) + 1], ...(confidence === undefined ? {} : { confidence }) });
 		}
 	};
-	return { svc, store, clock, session };
+	return { svc, store, clock, session, replies, asked };
 }
 
 describe("a gap closes after two sure right answers on different days, through the service (V-43)", () => {
@@ -222,6 +234,109 @@ describe("the gaps list: module, idea, the questions missed (V-39)", () => {
 		await assert.rejects(svc.more(sessionId, {}), (e: { code?: string }) => e.code === "no_more_questions", "more stays on the idea too");
 		assert.throws(() => svc.startPractise({ module: "GT", idea: "gt-2#nothing" }), (e: { status?: number; code?: string }) => e.status === 422 && e.code === "no_questions");
 		assert.throws(() => svc.startPractise({ module: "GT", idea: "nash" }), (e: { status?: number }) => e.status === 400);
+	});
+});
+
+describe("a question keeps its id when a study pack is written again (V-39)", () => {
+	const fresh = (stem: string, node = "nash"): Omit<BankQuestion, "id"> => ({ stem, options: ["A", "B", "C"], correct: 0, explanation: "Because.", slides: [1], node, difficulty: 1 });
+	const had = (id: string, stem: string, over: Partial<BankQuestion> = {}): BankQuestion => ({ ...fresh(stem), id, ...over });
+
+	it("a first pack numbers from 1", () => {
+		const r = assignQuestionIds("gt-2", [fresh("One?"), fresh("Two?")], []);
+		assert.deepEqual([r.bank.map((q) => q.id), r.lastNumber], [["gt-2-q1", "gt-2-q2"], 2]);
+	});
+
+	it("the same question keeps its id wherever it now sits; a new one never takes an old number", () => {
+		const previous = [had("gt-2-q1", "What is a Nash equilibrium?"), had("gt-2-q2", "Dropped this time?"), had("gt-2-q3", "Why is (B, R) stable?")];
+		const r = assignQuestionIds("gt-2", [fresh("Why is (B,R) stable"), fresh("A brand new question?"), fresh("what is a nash equilibrium?")], previous, 3);
+		assert.deepEqual(r.bank.map((q) => q.id), ["gt-2-q3", "gt-2-q4", "gt-2-q1"]);
+		assert.equal(r.lastNumber, 4);
+	});
+
+	it("a number is never reused, even after the question that had it is gone", () => {
+		const r = assignQuestionIds("gt-2", [fresh("New?")], [had("gt-2-q2", "Old?")], 9);
+		assert.deepEqual([r.bank[0]!.id, r.lastNumber], ["gt-2-q10", 10]);
+	});
+
+	it("two new questions with the same words don't share an id", () => {
+		const r = assignQuestionIds("gt-2", [fresh("Same?"), fresh("Same?")], [had("gt-2-q1", "Same?")]);
+		assert.deepEqual(r.bank.map((q) => q.id), ["gt-2-q1", "gt-2-q2"]);
+	});
+
+	it("questions written for a gap are kept while their idea is on the map", () => {
+		const previous = [had("gt-2-q1", "One?"), had("gt-2-g1", "Written for a gap?", { origin: "gap" }), had("gt-2-g2", "On an idea that is gone?", { origin: "gap", node: "old" })];
+		const r = assignQuestionIds("gt-2", [fresh("One?")], previous, 1, new Set(["nash"]));
+		assert.deepEqual(r.bank.map((q) => [q.id, q.origin ?? null]), [["gt-2-q1", null], ["gt-2-g1", "gap"]]);
+	});
+
+	it("stems match by their words, not their punctuation or case", () => {
+		assert.equal(stemKey("  Why is (B, R)  stable? "), stemKey("why is b r stable"));
+		assert.notEqual(stemKey("Why is (B, R) stable?"), stemKey("Why is (T, L) stable?"));
+	});
+
+	it("gap ids count up and never collide", () => {
+		assert.equal(nextGapId("gt-2", []), "gt-2-g1");
+		assert.equal(nextGapId("gt-2", [had("gt-2-q7", "x"), had("gt-2-g3", "y", { origin: "gap" })]), "gt-2-g4");
+		assert.equal(nextGapId("gt-2", [had("gt-2-g3", "y", { origin: "gap" })], 2), "gt-2-g6");
+	});
+});
+
+describe("new questions written around a gap (V-39)", () => {
+	const written = (stem: string, over: Record<string, unknown> = {}) => ({ stem, options: ["Right", "Wrong A", "Wrong B"], correct: 0, explanation: "Because (Slide 1).", slides: [1], node: "nash", difficulty: 2, ...over });
+	const missed = [{ stem: "Nash 1?", chosen: ["Wrong A"], correct: ["Right"], reason: "wrong", confidence: 100, why: "I thought both players had to be happy" }];
+
+	it("the AI is told the idea, what was chosen and why, and what already exists; its questions join the bank marked as gap questions", async () => {
+		const { svc, store, replies, asked } = await setup(day(20, 13));
+		replies.push({ questions: [written("Can one player gain by changing alone at a Nash equilibrium?"), written("Is a Nash equilibrium always best for both players?", { difficulty: 3 }), written("What stops a player moving away from a Nash equilibrium?")] });
+		const out = await svc.packs!.writeForIdea("gt-2", "nash", missed, 3);
+		assert.deepEqual(out.map((q) => [q.id, q.origin, q.node]), [["gt-2-g1", "gap", "nash"], ["gt-2-g2", "gap", "nash"], ["gt-2-g3", "gap", "nash"]]);
+		const user = asked[0]!.user;
+		for (const part of ["nash: Nash equilibrium", "WRITE 3 QUESTIONS", "They chose: Wrong A", "How sure they were: 100%", "I thought both players had to be happy", "- Nash 1?", "SLIDES"]) assert.ok(user.includes(part), `the request includes "${part}"`);
+		assert.match(asked[0]!.system, /never gives the answer away/);
+		const bank = JSON.parse(fs.readFileSync(path.join(store.materialsDir("gt-2"), "bank.json"), "utf-8")) as { id: string }[];
+		assert.deepEqual(bank.map((q) => q.id), ["gt-2-q1", "gt-2-q2", "gt-2-q3", "gt-2-g1", "gt-2-g2", "gt-2-g3"]);
+		assert.deepEqual(store.events().filter((e) => e.type === "gap_questions_written").map((e) => [e.data.written, e.data.asked, e.data.node]), [[3, 3, "nash"]]);
+	});
+
+	it("a repeat of an existing question, a question on another idea, or one that breaks the rules is not used", async () => {
+		const { svc, replies } = await setup(day(20, 13));
+		replies.push({ questions: [written("nash 1"), written("On another idea?", { node: "mixed" }), written("x".repeat(120)), written("A good one?"), written("Another good one?"), written("A third good one?")] });
+		const out = await svc.packs!.writeForIdea("gt-2", "nash", missed, 5);
+		assert.deepEqual(out.map((q) => q.stem), ["A good one?", "Another good one?", "A third good one?"]);
+	});
+
+	it("too few usable questions is a failed try, with the reasons sent back", async () => {
+		const { svc, replies } = await setup(day(20, 13));
+		replies.push({ questions: [written("Nash 1?"), written("Only one good?")] });
+		await assert.rejects(svc.packs!.writeForIdea("gt-2", "nash", missed, 5), /fix these questions: #1: this repeats an existing question/);
+	});
+
+	it("an idea that is not on the unit's map can't be written for", async () => {
+		const { svc } = await setup(day(20, 13));
+		await assert.rejects(svc.packs!.writeForIdea("gt-2", "sampling", missed, 5), /not on the unit's map/);
+	});
+
+	it("with no AI connected, \"Practise this idea\" still runs, on the idea's own questions", async () => {
+		const { svc, store, session } = await setup(day(20, 13));
+		await session(["Nash 1?"], 70);
+		const r = await svc.practise({ module: "GT", idea: "gt-2#nash" });
+		assert.equal(r.written, 0);
+		assert.equal(store.session(r.sessionId)!.spec.practise!.picks.length, 3);
+	});
+
+	it("questions just written lead the round, and the rest are the idea's least-asked", async () => {
+		const { svc, store, replies, session } = await setup(day(20, 13));
+		await session(["Nash 1?"], 70);
+		replies.push({ questions: [written("New one?"), written("New two?"), written("New three?")] });
+		const fresh = await svc.packs!.writeForIdea("gt-2", "nash", missed, 3);
+		const { sessionId } = svc.startPractise({ module: "GT", idea: "gt-2#nash" }, fresh.map((q) => q.id));
+		const picks = store.session(sessionId)!.spec.practise!.picks.map((p) => p.questionId);
+		assert.deepEqual(picks.slice(0, 3), ["gt-2-g1", "gt-2-g2", "gt-2-g3"]);
+		assert.equal(picks.length, 5);
+		assert.equal(new Set(picks).size, 5);
+		await svc.whenReady(sessionId);
+		const v = await svc.view(sessionId);
+		assert.deepEqual([v.question?.stem, v.question?.ai, v.question?.slides], ["New one?", true, [1]], "a pack question says it was written by AI, with its slide");
 	});
 });
 
