@@ -29,6 +29,7 @@ export * from "./plan-week.ts";
 export * from "./checkin.ts";
 export * from "./routine.ts";
 export * from "./sync.ts";
+export * from "./phone-round.ts";
 export * from "./diagram.ts";
 export * from "./score.ts";
 export * from "./milestones.ts";

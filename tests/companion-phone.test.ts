@@ -225,7 +225,8 @@ describe("Send a test question to my phone (v1.0.4)", () => {
 		assert.ok(n, "on the relay");
 		assert.match(n.id, /^test:/);
 		assert.ok(Math.abs(Date.parse(n.fireAt) - before) < 5_000, "fires at real time");
-		assert.deepEqual([n.opens, n.lectureId, n.question?.id, n.more], ["question", "gt-nash", "gt-nash-q1", 4]);
+		// "2 more on your laptop": the unit's pack has three questions, and the count is what is really there (v2.1).
+		assert.deepEqual([n.opens, n.lectureId, n.question?.id, n.more], ["question", "gt-nash", "gt-nash-q1", 2]);
 		assert.equal(events().filter((e) => e === "phone_test_sent").length, 1);
 	});
 
@@ -255,6 +256,115 @@ describe("Send a test question to my phone (v1.0.4)", () => {
 		await assert.rejects(s.svc.requirePhone().sendTest(), (e: unknown) => e instanceof Error && e.message === PHONE_TEST_COPY.nothing);
 		const unpaired = await setup({ packs: true });
 		await assert.rejects(unpaired.svc.requirePhone().sendTest(), /Pair a phone first/);
+	});
+});
+
+describe("the round on the phone (v2.1 part A; V-46)", () => {
+	type Q = { id: string; lectureId: string; stem: string; unit?: string; module?: string; slides: number[] };
+	type N = { id: string; kind: string; title: string; body: string; why?: string; more?: number; unit?: string; module?: string; question?: Q; round?: Q[] };
+	async function paired(gt = 6) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", gt);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { nudges: N[] };
+		let e = 0;
+		const send = async (type: string, nudgeId: string, payload: Record<string, unknown>) => s.phone("POST", `/v1/pairs/${pairId}/events`, token, [{ id: `evt-round-${String(++e).padStart(4, "0")}`, at: new Date(2026, 10, 17, 13, 6, e).toISOString(), type, nudgeId, payload }]);
+		const test = async () => {
+			const r = await s.svc.requirePhone().sendTest();
+			return (await read()).nudges.find((x) => x.id === r.nudgeId)!;
+		};
+		const ref = (id: string) => ({ lectureId: "gt-nash", questionId: id });
+		return { ...s, read, send, test, ref };
+	}
+
+	it("a question arrives with the rest of its round, and says which unit each one is from", async () => {
+		const { test } = await paired();
+		const n = await test();
+		assert.equal(n.question?.id, "gt-nash-q1");
+		assert.deepEqual(n.round?.map((q) => q.id), ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"]);
+		assert.equal(n.more, 4);
+		assert.deepEqual([n.question?.unit, n.question?.module], ["Nash equilibrium", "GT"]);
+		assert.ok(n.round!.every((q) => q.unit === "Nash equilibrium" && q.module === "GT"));
+	});
+
+	it("a short bank gives a short round, and \"more on your laptop\" counts what is really there", async () => {
+		const { test } = await paired(3);
+		const n = await test();
+		assert.deepEqual(n.round?.map((q) => q.id), ["gt-nash-q2", "gt-nash-q3"]);
+		assert.equal(n.more, 2);
+	});
+
+	it("\"Done for now\" saves the rest; they come straight after the next notification's own question", async () => {
+		const { svc, store, test, send, ref, events } = await paired();
+		const first = await test();
+		await send("answered", first.id, { questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true });
+		await send("done_for_now", first.id, { saved: ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"].map(ref) });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"]);
+		// The next question is q2 itself (the first not sent yet): the saved ones follow it, then a new one fills the round.
+		const next = await test();
+		assert.equal(next.question?.id, "gt-nash-q2");
+		assert.deepEqual(next.round?.map((q) => q.id), ["gt-nash-q3", "gt-nash-q4", "gt-nash-q5", "gt-nash-q1"]);
+		assert.ok(events().includes("done_for_now"));
+	});
+
+	it("only the next notification leads with what was saved; an answer on the phone takes a question off the list", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const first = await test();
+		await send("done_for_now", first.id, { saved: [ref("gt-nash-q5"), ref("gt-nash-q4")] });
+		await svc.requirePhone().sync({ force: true });
+		await send("answered", first.id, { questionId: "gt-nash-q5", lectureId: "gt-nash", choice: 1, correct: false });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q4"]);
+		assert.equal(store.misses().some((m) => m.questionId === "gt-nash-q5"), true, "a wrong answer on the phone is still a gap");
+		// Rubbish in the saved list is ignored, not stored.
+		await send("done_for_now", first.id, { saved: [{ lectureId: 3 }, "x", ref("gt-nash-q4")] });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q4"]);
+	});
+
+	it("after three answers on the phone, the laptop opens the same round at question 4", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const n = await test();
+		const round = [n.question!, ...n.round!].map((q) => ref(q.id));
+		const answers = [{ questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true }, { questionId: "gt-nash-q2", lectureId: "gt-nash", choice: 2, correct: false }, { questionId: "gt-nash-q3", lectureId: "gt-nash", choice: 0, correct: true }];
+		for (const a of answers) await send("answered", n.id, a);
+		await send("done_for_now", n.id, { saved: [ref("gt-nash-q4"), ref("gt-nash-q5")] });
+		await send("handover", n.id, { lectureId: "gt-nash", round, answers });
+		await svc.requirePhone().sync({ force: true });
+		const toast = store.nudges().find((x) => x.key.startsWith("handoff:"))!;
+		assert.equal(toast.text, "3 questions answered on your phone. 2 more ready.");
+		const session = store.session(toast.sessionId!)!;
+		assert.equal(session.spec.study, "practise");
+		assert.deepEqual(session.spec.practise?.picks.map((p) => p.questionId), round.map((r) => r.questionId));
+		assert.equal(session.spec.seedAnswers?.length, 3);
+		await svc.whenReady(session.id);
+		const v = await svc.view(session.id);
+		assert.equal(v.answered, 3);
+		assert.equal(v.budget, 5);
+		assert.equal(v.question?.id, "gt-nash-q4");
+		assert.deepEqual(store.runtime().phoneSaved ?? [], [], "what the laptop took over is no longer saved on the phone");
+	});
+
+	it("one answer still reads \"Question 1 answered on your phone\"", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const n = await test();
+		const round = [n.question!, ...n.round!].map((q) => ref(q.id));
+		await send("handover", n.id, { lectureId: "gt-nash", round, answers: [{ questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true }] });
+		await svc.requirePhone().sync({ force: true });
+		assert.equal(store.nudges().find((x) => x.key.startsWith("handoff:"))?.text, "Question 1 answered on your phone ✓ 4 more ready.");
+	});
+
+	it("a relay from before v2.1 gets notifications it can accept; a newer one says its limit and gets the whole round", async () => {
+		const { svc, store, test } = await paired();
+		await test();
+		assert.equal(store.runtime().relayNudgeChars, 12_000, "the relay's own limit is remembered from its answer");
+		const plain = svc.requirePhone().buildSchedule();
+		assert.ok(plain.nudges.every((n) => JSON.stringify(n).length <= 12_000));
+		store.saveRuntime({ relayNudgeChars: 700 });
+		const cut = svc.requirePhone().buildSchedule().nudges.find((n) => n.question)!;
+		assert.ok(JSON.stringify(cut).length <= 700 || (cut.round as unknown[]).length === 0);
+		assert.ok(((cut.round as unknown[]) ?? []).length < 4);
 	});
 });
 

@@ -595,6 +595,9 @@ export interface NudgeQuestion {
 	correct: 0 | 1 | 2;
 	explanation: string;
 	slides: number[];
+	/** v2.1: the unit's title and its module, for the phone's "HCI · Lecture 7" and "Lecture 7 · slide 12". */
+	unit?: string;
+	module?: string;
 }
 
 export interface ScheduledNudge {
@@ -611,6 +614,8 @@ export interface ScheduledNudge {
 	module?: string;
 	opens: "session" | "checkin" | "question";
 	question?: NudgeQuestion;
+	/** v2.1 (V-46): questions 2 onwards of the round `question` starts, so "Keep going here" needs no laptop. */
+	round?: NudgeQuestion[];
 	/** The phone's "later" fires this (counted when the laptop planned it, R-5). */
 	snoozeFireAt: string;
 	expiresAt: string;

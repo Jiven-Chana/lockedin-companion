@@ -129,8 +129,8 @@ describe("pairing with a 6-digit code (v1.0.3)", () => {
 describe("the schedule (§5.2: the laptop writes, versions only go up)", () => {
 	it("a higher version replaces the queue; the same or a lower one is ignored", async () => {
 		const { call, pairId, laptopSecret, phoneToken } = await setup();
-		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, timeZone: "Europe/London", nudges: [nudge("a", 10)], blocks: [{ date: "2026-11-24", start: "14:00" }] })).body, { accepted: true, version: 2 });
-		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, nudges: [nudge("b", 10)] })).body, { accepted: false, version: 2 });
+		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, timeZone: "Europe/London", nudges: [nudge("a", 10)], blocks: [{ date: "2026-11-24", start: "14:00" }] })).body, { accepted: true, version: 2, limits: { nudgeChars: LIMITS.payloadChars } });
+		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, nudges: [nudge("b", 10)] })).body, { accepted: false, version: 2, limits: { nudgeChars: LIMITS.payloadChars } });
 		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [] })).body.accepted, false);
 		const view = (await call("GET", `/v1/pairs/${pairId}/schedule`, phoneToken)).body;
 		assert.deepEqual(view.nudges.map((n: { id: string }) => n.id), ["a"]);
@@ -143,7 +143,10 @@ describe("the schedule (§5.2: the laptop writes, versions only go up)", () => {
 	it("refuses a nudge without times, or too large", async () => {
 		const { call, pairId, laptopSecret } = await setup();
 		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [{ id: "x" }] })).status, 400);
-		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { body: "y".repeat(5000) })] })).status, 400);
+		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { body: "y".repeat(13_000) })] })).status, 400);
+		// A question with the rest of its round fits (v2.1): the limit is 12,000 characters, and the laptop is told so.
+		assert.equal(LIMITS.payloadChars, 12_000);
+		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { round: "y".repeat(10_000) })] })).status, 200);
 	});
 });
 

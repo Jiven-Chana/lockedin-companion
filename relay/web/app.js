@@ -1,14 +1,32 @@
 /* LockedIn phone app (v0.1 F-112, J2′, J9). Plain JS, no build.
- * Screens: pair · question → result → hand-off · this week (+ Sunday check-in) · settings-lite.
- * No other learning on the phone (R-8): sessions happen on the laptop.
+ * Screens: pair · question → result → hand-off, keep going here or save (v2.1) · this week (+ Sunday check-in) · settings-lite.
+ * The phone's question starts a Practise round that can carry on here (V-46). Learn stays on the laptop (R-8).
  * Wording: spec Appendix A.
  */
 
 const COPY = {
-	right: (exp) => `✓ Right. ${exp}`,
-	wrong: (opt, exp) => `It's ${opt}. ${exp}`,
+	app: "LockedIn",
+	// After a lecture (v2.1): the lo-fi's wording (prototype/lofi, task 1).
+	questionOf: (i, n) => `Question ${i} of ${n}`,
+	why: (w) => `Why now: ${w}`,
+	right: "✓ Right.",
+	wrong: (opt) => `Not quite: ${opt}.`,
+	slide: (unit, n) => (unit ? `${unit} · slide ${n}` : `Slide ${n}`),
 	more: (n) => `${n} more on your laptop`,
+	keepGoing: "Keep going here",
 	done: "Done for now",
+	finished: "Done",
+	doneOf: (d, n) => `${d} of ${n} done`,
+	upToYou: (d, n) => `${d} of ${n} done. Up to you.`,
+	another: "Another one",
+	saveRest: "Save the rest for later",
+	thatsAll: (n) => `That's all ${n}`,
+	saved: "Saved.",
+	savedLine: (k) => (k === 1 ? "The other question waits for your next free gap. Nothing is overdue." : `The other ${k} questions wait for your next free gap. Nothing is overdue.`),
+	savedCard: (k) => (k === 1 ? "1 question saved" : `${k} questions saved`),
+	carryOn: "Carry on",
+	onLaptop: "It's waiting on your laptop.",
+	onLaptopNote: "Open LockedIn on your laptop: your answers are already there.",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 	offline: "Can't reach LockedIn right now. Your answers are saved and will be sent when you're back online.",
 	// Pairing an iPhone (v1.0.3): add LockedIn to the Home Screen, then type the code the laptop shows.
@@ -171,7 +189,7 @@ function sampleQuestion() {
 	const box = h("details", { class: "card" }, h("summary", {}, COPY.install.tryTitle), h("p", { class: "eyebrow" }, SAMPLE.title), h("h2", {}, SAMPLE.stem));
 	const options = h("div", { class: "options", role: "group", "aria-label": "Answers" }, SAMPLE.options.map((o, i) => h("button", { class: "btn option", onclick: () => {
 		const right = i === SAMPLE.correct;
-		options.replaceWith(h("p", { class: right ? "result right" : "result" }, right ? COPY.right(SAMPLE.explanation) : COPY.wrong(SAMPLE.options[SAMPLE.correct], SAMPLE.explanation)), h("p", { class: "muted small" }, COPY.install.tried));
+		options.replaceWith(h("p", { class: right ? "result right" : "result" }, h("b", {}, right ? COPY.right : COPY.wrong(SAMPLE.options[SAMPLE.correct])), " ", SAMPLE.explanation), h("p", { class: "muted small" }, COPY.install.tried));
 	} }, o)));
 	box.append(options, h("p", { class: "muted small" }, COPY.install.tryNote));
 	return box;
@@ -260,39 +278,137 @@ async function pairScreen(byCode = false) {
 }
 
 // ─── the question (J2′) ─────────────────────────────────────────────────────
-function questionScreen(n, s) {
-	const q = n.question;
-	void event("opened", n.id, { kind: n.kind });
-	if (!q) {
-		// No question in this nudge (the v1 fallback): the laptop is where it continues.
-		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? `Why now: ${n.why}` : ""), handoff(n, null)));
+// ─── the question after a lecture, and its round on the phone (v2.1; lo-fi task 1, V-46) ──
+/** A round is five questions at most (the lo-fi's "Question 1 of 5"; the laptop's PHONE_RULES.roundSize). */
+const ROUND = 5;
+const ref = (q) => ({ lectureId: q.lectureId, questionId: q.id });
+const unitLabel = (q, n) => [q?.module || n?.module, q?.unit].filter(Boolean).join(" · ");
+const bar = (title, sub) => h("header", { class: "bar" }, h("b", {}, title), " ", sub ? h("span", { class: "muted small" }, sub) : null);
+
+/** The round a notification's question starts: its own question first, then what was saved on this phone, then the rest the laptop sent. */
+function roundOf(n) {
+	const saved = local.get("saved", null);
+	const seen = new Set();
+	const out = [];
+	for (const q of [n.question, ...(saved?.questions || []), ...(n.round || [])]) {
+		if (!q || seen.has(q.id) || out.length >= ROUND) continue;
+		seen.add(q.id);
+		out.push(q);
 	}
+	return out;
+}
+
+/** Questions no longer waiting on this phone: answered here, or taken over by the laptop. */
+function unsave(ids, done) {
+	const saved = local.get("saved", null);
+	if (!saved) return;
+	const questions = saved.questions.filter((q) => !ids.includes(q.id));
+	local.set("saved", questions.length ? { ...saved, questions, ...(done !== undefined ? { done } : {}) } : null);
+}
+
+const resultBox = (q, choice) => {
+	const right = choice === q.correct;
+	return h("p", { class: right ? "result right" : "result" },
+		h("b", {}, right ? COPY.right : COPY.wrong(q.options[q.correct])), " ", q.explanation,
+		q.slides?.length ? h("span", { class: "src" }, COPY.slide(q.unit, q.slides[0])) : null,
+	);
+};
+
+function questionScreen(n) {
+	void event("opened", n.id, { kind: n.kind });
+	if (!n.question) {
+		// No question in this nudge (the v1 fallback): the laptop is where it continues.
+		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
+	}
+	// A laptop from before v2.1 sends no round: one question here, the rest there, as it was.
+	const old = !Array.isArray(n.round);
+	const questions = old ? [n.question] : roundOf(n);
+	ask({ nudge: n, old, questions, answers: [], total: old ? 1 + (n.more ?? 4) : questions.length, base: 0 }, true);
+}
+
+/** "Carry on" from the home card: the saved questions, counted against the round they came from. */
+function carryOn() {
+	const saved = local.get("saved", null);
+	if (!saved?.questions?.length) return render();
+	ask({ nudge: null, old: false, questions: saved.questions, answers: [], total: saved.total, base: saved.done }, false);
+}
+
+/** One question of a round. `first`: the question the notification carried ("Question 1 of 5"); after it the header counts what is done. */
+function ask(r, first) {
+	const q = r.questions[r.answers.length];
+	const n = r.nudge;
+	const done = () => r.base + r.answers.length;
+	const left = () => r.questions.length - r.answers.length;
+	const head = () => (first ? [bar(COPY.app, unitLabel(q, n)), h("p", { class: "muted small" }, COPY.questionOf(1, r.total))] : [bar(COPY.app, COPY.doneOf(done(), r.total)), h("p", { class: "eyebrow" }, unitLabel(q, n))]);
+
 	const choose = (i) => {
-		const right = i === q.correct;
-		const exp = /\(Slides? \d/.test(q.explanation) ? q.explanation : `${q.explanation}${q.slides?.length ? ` (Slide ${q.slides[0]})` : ""}`;
-		void event("answered", n.id, { questionId: q.id, lectureId: q.lectureId, choice: i, correct: right });
-		const done = local.get("answered", []);
-		done.push(n.id);
-		local.set("answered", done.slice(-200));
-		show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, q.stem), h("p", { class: right ? "result right" : "result" }, right ? COPY.right(exp) : COPY.wrong(q.options[q.correct], exp)), handoff(n, { questionId: q.id, choice: i, correct: right })));
+		const answer = { questionId: q.id, lectureId: q.lectureId, choice: i, correct: i === q.correct };
+		void event("answered", n?.id ?? null, answer);
+		r.answers.push(answer);
+		if (n) {
+			const answered = local.get("answered", []);
+			answered.push(n.id);
+			local.set("answered", answered.slice(-200));
+		}
+		unsave([q.id], done());
+		const next = () => ask(r, false);
+		const ways = r.old
+			? handoffOld(n, answer)
+			: left() === 0
+				? h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => { unsave(r.questions.map((x) => x.id)); render(); } }, first ? COPY.finished : COPY.thatsAll(r.total)))
+				: first
+					? h("div", { class: "row" },
+							h("button", { class: "btn primary", onclick: () => handover(r) }, COPY.more(left())),
+							h("button", { class: "btn", onclick: next }, COPY.keepGoing),
+							h("button", { class: "btn", onclick: () => save(r) }, COPY.done),
+						)
+					: h("div", { class: "row" },
+							h("button", { class: "btn primary", onclick: next }, COPY.another),
+							h("button", { class: "btn", onclick: () => save(r) }, COPY.saveRest),
+						);
+		show(h("main", {}, ...head(), h("h1", {}, q.stem), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
 	};
+
 	show(
 		h("main", {},
-			h("p", { class: "eyebrow" }, n.title),
+			...head(),
 			h("h1", {}, q.stem),
 			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o))),
-			h("p", { class: "muted small" }, n.why ? `Why now: ${n.why}` : ""),
-			h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later"),
+			first && n?.why ? h("p", { class: "muted small" }, COPY.why(n.why)) : null,
+			first && n ? h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later") : null,
 		),
 	);
 }
 
-function handoff(n, answer) {
+/** "N more on your laptop": the laptop opens the same round, with every answer given here, at the next question. */
+async function handover(r) {
+	const first = r.answers[0];
+	await event("handover", r.nudge?.id ?? null, {
+		lectureId: r.nudge?.lectureId ?? r.questions[0].lectureId,
+		round: r.questions.map(ref),
+		answers: r.answers,
+		// Where a laptop from before v2.1 looks for the first answer.
+		...(first ? { questionId: first.questionId, choice: first.choice, correct: first.correct } : {}),
+	});
+	unsave(r.questions.map((q) => q.id));
+	show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("p", {}, COPY.onLaptopNote), h("button", { class: "btn", onclick: () => render() }, "OK")));
+}
+
+/** "Done for now" and "Save the rest for later": what is left waits, here and on the laptop. Nothing is overdue (R-6). */
+async function save(r) {
+	const rest = r.questions.slice(r.answers.length);
+	local.set("saved", rest.length ? { total: r.total, done: r.base + r.answers.length, label: unitLabel(rest[0], r.nudge), questions: rest } : null);
+	await event("done_for_now", r.nudge?.id ?? null, { saved: rest.map(ref) });
+	show(h("main", {}, h("h1", {}, COPY.saved), " ", h("p", {}, COPY.savedLine(rest.length)), h("button", { class: "btn", onclick: () => render() }, "OK")));
+}
+
+/** The hand-off as it was before v2.1: one answer, and the laptop builds the rest. */
+function handoffOld(n, answer) {
 	const more = n.more ?? 4;
 	return h("div", { class: "row" },
 		h("button", { class: "btn primary", onclick: async () => {
-			await event("handover", n.id, { ...(answer || {}), lectureId: n.lectureId });
-			show(h("main", {}, h("h1", {}, "It's waiting on your laptop."), h("p", {}, "Open LockedIn on your laptop: your answer is already there."), h("button", { class: "btn", onclick: () => render() }, "OK")));
+			await event("handover", n.id, { ...(answer ? { questionId: answer.questionId, choice: answer.choice, correct: answer.correct } : {}), lectureId: n.lectureId });
+			show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("p", {}, COPY.onLaptopNote), h("button", { class: "btn", onclick: () => render() }, "OK")));
 		} }, COPY.more(more)),
 		h("button", { class: "btn", onclick: async () => { await event("done_for_now", n.id); render(); } }, COPY.done),
 	);
@@ -350,11 +466,14 @@ async function home() {
 	const question = pending.find((n) => n.kind === "N-1" || n.opens === "question");
 	const checkin = pending.find((n) => n.kind === "N-5");
 	const blocks = (s.blocks || []).filter((b) => b.status !== "removed");
+	const saved = local.get("saved", null);
 	show(
 		h("main", {},
 			s.offline ? h("p", { class: "note" }, COPY.offline) : null,
 			h("h1", {}, "LockedIn"),
-			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question, s) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
+			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
 			h("section", { class: "card" }, h("h2", {}, "This week"), blocks.length ? h("ul", { class: "blocks" }, blocks.map(blockRow)) : h("p", { class: "muted" }, "No study blocks yet. Plan your week on your laptop.")),
 			h("details", { class: "card" },
@@ -399,7 +518,7 @@ async function render() {
 		history.replaceState(null, "", "/p");
 		const s = await schedule(false);
 		const n = (s.nudges || []).find((x) => x.id === id) || ((await schedule()).nudges || []).find((x) => x.id === id);
-		if (n) return n.kind === "N-5" ? home() : questionScreen(n, s);
+		if (n) return n.kind === "N-5" ? home() : questionScreen(n);
 	}
 	return home();
 }

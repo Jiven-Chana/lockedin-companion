@@ -30,14 +30,16 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { PHONE_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
 import { StudyPacks } from "./study-pack.ts";
+import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
 import { blockWhy, clampBlockMinutes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
 import { fadingAt, moduleShares, replayScore, scoreAt, scoreSeries, termFor, type ModuleShare, type PackIdea, type QuestionInfo, type ScorePoint, type ScoreRange } from "../../core/companion/score.ts";
@@ -1570,13 +1572,49 @@ export class CompanionService {
 	}
 
 	/**
+	 * "N more on your laptop" after any number of answers on the phone (v2.1,
+	 * V-46): the laptop opens the same round, with every phone answer already
+	 * on the record, at the next question.
+	 */
+	private handoffRound(h: { lectureId: string; round: RoundRef[]; answers: { questionId: string; choice: number; correct: boolean }[]; at: string }, key: string) {
+		const picks = h.round.filter((r) => this.packs?.bank(r.lectureId)?.some((q) => q.id === r.questionId));
+		const code = this.lectureById(h.lectureId)?.module;
+		if (picks.length === 0 || !code) return null;
+		const find = (id: string) => {
+			const r = picks.find((p) => p.questionId === id);
+			return r ? this.packs?.bank(r.lectureId)?.find((q) => q.id === id) : undefined;
+		};
+		const seedAnswers = h.answers.flatMap((a) => {
+			const q = find(a.questionId);
+			return q ? [{ questionId: a.questionId, choice: a.choice, correct: a.correct, at: h.at, stem: q.stem, choiceLabel: q.options[a.choice] ?? "" }] : [];
+		});
+		const spec: SessionSpec = {
+			kind: "practise", lectureId: h.lectureId, mode: "question-first", study: "practise",
+			budget: { questions: picks.length, minutes: PRACTISE_RULES.minutes },
+			practise: { module: code, picks },
+			...(seedAnswers.length ? { seedAnswers } : {}),
+		};
+		const { sessionId } = this.createSession(spec);
+		const more = picks.length - seedAnswers.length;
+		const text = seedAnswers.length > 1 ? HANDOFF_COPY.toastMany(seedAnswers.length, more) : HANDOFF_COPY.toast(more, seedAnswers[0]?.correct ?? true);
+		this.store.appendNudge({ id: this.id("n"), type: "N-1", key, firedAt: this.now().toISOString(), title: HANDOFF_COPY.title, text, lectureId: h.lectureId, sessionId, why: "you asked on your phone" });
+		// The laptop has the round now: none of it is waiting on the phone any more.
+		this.phoneSaved({ remove: picks.map((p) => p.questionId) });
+		return { sessionId };
+	}
+
+	/**
 	 * "4 more on your laptop" (J2′ step 4): a post-lecture session on that unit
 	 * with question 1 recorded from the phone, ready at question 2, and a toast:
 	 * "Question 1 answered on your phone ✓ 4 more ready."
 	 */
-	startHandoff(h: { lectureId: string; questionId?: string; choice?: number; correct?: boolean; at: string; phoneEventId: string }) {
+	startHandoff(h: { lectureId: string; questionId?: string; choice?: number; correct?: boolean; at: string; phoneEventId: string; round?: RoundRef[]; answers?: { questionId: string; choice: number; correct: boolean }[] }) {
 		const key = `handoff:${h.phoneEventId}`;
 		if (this.store.nudges().some((n) => n.key === key)) return null;
+		if (h.round?.length) {
+			const started = this.handoffRound({ lectureId: h.lectureId, round: h.round, answers: h.answers ?? [], at: h.at }, key);
+			if (started) return started;
+		}
 		// The phone's question is the first question of a Practise round; the laptop carries on with the rest (V-40).
 		const spec: SessionSpec = { ...specFor("post-lecture", h.lectureId, this.store.profile()?.prefs), study: "practise" };
 		const q = h.questionId ? this.packs?.bank(h.lectureId)?.find((x) => x.id === h.questionId) : undefined;
@@ -1686,7 +1724,36 @@ export class CompanionService {
 	questionFor(lectureId: string, used: ReadonlySet<string> = new Set()): NudgeQuestion | undefined {
 		const bank = this.packs?.bank(lectureId) ?? null;
 		const q = bank?.find((x) => !used.has(x.id)) ?? bank?.[0];
-		return q ? { id: q.id, lectureId, stem: q.stem, options: q.options, correct: q.correct, explanation: q.explanation, slides: q.slides } : undefined;
+		return q ? this.asNudgeQuestion(lectureId, q) : undefined;
+	}
+
+	private asNudgeQuestion(lectureId: string, q: BankQuestion): NudgeQuestion {
+		const unit = this.lectureById(lectureId);
+		return { id: q.id, lectureId, stem: q.stem, options: q.options, correct: q.correct, explanation: q.explanation, slides: q.slides, ...(unit ? { unit: unit.title, module: unit.module } : {}) };
+	}
+
+	/**
+	 * Questions 2 onwards of the round a notification's question starts
+	 * (v2.1, V-46). `lead`: this is the next notification to be sent, so what
+	 * was saved on the phone comes straight after its own question.
+	 */
+	phoneRound(first: NudgeQuestion, lead: boolean): NudgeQuestion[] {
+		const bank = (id: string) => this.packs?.bank(id) ?? [];
+		const saved = lead
+			? (this.store.runtime().phoneSaved ?? []).flatMap((r) => {
+					const q = bank(r.lectureId).find((x) => x.id === r.questionId);
+					return q ? [this.asNudgeQuestion(r.lectureId, q)] : [];
+				})
+			: [];
+		const own = bank(first.lectureId).map((q) => this.asNudgeQuestion(first.lectureId, q));
+		return buildRound({ first, saved, own, size: PHONE_RULES.roundSize });
+	}
+
+	/** The phone's saved questions after some are added ("Done for now") or dealt with (answered, or taken over by the laptop). */
+	phoneSaved(change: { add?: readonly RoundRef[]; remove?: readonly string[] }) {
+		const before = this.store.runtime().phoneSaved ?? [];
+		const after = savedAfter(before, change, PHONE_RULES.savedMax);
+		if (JSON.stringify(after) !== JSON.stringify(before)) this.store.saveRuntime({ phoneSaved: after });
 	}
 
 	/** The next 7 days of nudges for the phone relay (F-112, F-114): same rules as the live tick. */

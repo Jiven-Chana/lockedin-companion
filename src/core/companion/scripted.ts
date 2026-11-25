@@ -85,21 +85,23 @@ export function initialScriptedState(set: ScriptedSet, spec: SessionSpec, misses
 			if (!progressed) break;
 		}
 	}
-	// Hand-off (F-112): the phone's question is question 1, already answered; continue at question 2.
-	const seed = spec.seedAnswer ? byId(set, spec.seedAnswer.questionId) : undefined;
-	if (seed) add(seed);
+	// Hand-off (F-112): what was answered on the phone comes first, already answered; continue at the next question.
+	const seeds = (spec.seedAnswers ?? (spec.seedAnswer ? [spec.seedAnswer] : [])).flatMap((a) => {
+		const q = byId(set, a.questionId);
+		return q ? [{ a, q }] : [];
+	});
+	for (const s of seeds) add(s.q);
 	// A study block's first step (V-44) is its first question.
 	const first = spec.firstQuestionId ? byId(set, spec.firstQuestionId) : undefined;
 	if (first && queue.length < budget) add(first);
 	for (const q of set.questions.filter((q) => !q.retestOnly)) if (queue.length < budget) add(q);
 	for (const q of set.questions) if (queue.length < budget) add(q);
-	if (seed && spec.seedAnswer) {
-		const a = spec.seedAnswer;
-		const answer: AnswerRecord = {
-			questionId: seed.id, questionText: seed.stem, nodeId: seed.nodeId, graded: true, correct: a.correct, dontKnow: false, shown: false,
-			correctLabels: seed.correct.map((i) => seed.options[i]!).filter(Boolean), explanation: seed.explanation, answeredAt: a.at,
-		};
-		return { queue, position: 1, answers: [answer], examplesShown: [], hinted: [] };
+	if (seeds.length > 0) {
+		const answers: AnswerRecord[] = seeds.map(({ a, q }) => ({
+			questionId: q.id, questionText: q.stem, nodeId: q.nodeId, graded: true, correct: a.correct, dontKnow: false, shown: false,
+			correctLabels: q.correct.map((i) => q.options[i]!).filter(Boolean), explanation: q.explanation, answeredAt: a.at,
+		}));
+		return { queue, position: answers.length, answers, examplesShown: [], hinted: [] };
 	}
 	return { queue, position: 0, answers: [], examplesShown: [], hinted: [] };
 }

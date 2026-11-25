@@ -83,6 +83,8 @@ export const SCHEDULE_RULES = {
 export const HANDOFF_COPY = {
 	/** The laptop says how question 1 went on the phone (lo-fi task 1; AFF-H). */
 	toast: (more: number, correct = true) => (correct ? `Question 1 answered on your phone ✓ ${more} more ready.` : `Question 1: not quite. It comes back in your next Practise. ${more} more ready.`),
+	/** v2.1 (V-46): after "Keep going here", several questions were answered on the phone. */
+	toastMany: (answered: number, more: number) => `${answered} questions answered on your phone. ${more} more ready.`,
 	title: "From your phone",
 	/** Today's card for a session that is waiting: which question it opens on. */
 	ready: (question: number) => (question > 1 ? `Ready now · picks up at question ${question}` : "Ready now · question 1 is waiting"),
@@ -915,6 +917,12 @@ export const PHONE_RULES = {
 	/** Facilitator "send a question now": "Later" brings it back after 10 min; it expires after an hour. */
 	sendNowSnoozeMs: 10 * 60_000,
 	sendNowExpiresMs: 60 * 60_000,
+	/** The phone's round (lo-fi: "Question 1 of 5"): the notification's question and up to four more. */
+	roundSize: 5,
+	/** Questions kept by "Done for now" and "Save the rest for later": at most the rest of one round. */
+	savedMax: 4,
+	/** The largest notification a relay deployed before v2.1 accepts. A newer relay says its own limit when the week is uploaded. */
+	nudgeCharsBefore21: 4_000,
 } as const;
 
 export const TEACHER_RULES = {

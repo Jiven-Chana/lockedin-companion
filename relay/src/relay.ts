@@ -24,7 +24,8 @@ export interface RelayEnv {
 
 export const LIMITS = {
 	nudges: 300,
-	payloadChars: 4_000,
+	/** One notification, with its question and the rest of its round (v2.1; 4,000 before). The laptop is told this limit when it uploads. */
+	payloadChars: 12_000,
 	eventsPerPost: 50,
 	eventPayloadChars: 2_000,
 	blocksChars: 20_000,
@@ -172,7 +173,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 				if (blocks.length > LIMITS.blocksChars) return fail(400, "too many blocks");
 				// Versions only go up (§5.2): a stale or repeated upload changes nothing.
 				const cur = await env.DB.prepare("SELECT schedule_version FROM pairs WHERE id = ?").bind(pairId).first<{ schedule_version: number }>();
-				if ((body.version as number) <= (cur?.schedule_version ?? 0)) return json({ accepted: false, version: cur?.schedule_version ?? 0 });
+				if ((body.version as number) <= (cur?.schedule_version ?? 0)) return json({ accepted: false, version: cur?.schedule_version ?? 0, limits: { nudgeChars: LIMITS.payloadChars } });
 				const sent = new Map(
 					(await env.DB.prepare("SELECT id, sent_at FROM nudges WHERE pair_id = ? AND sent_at IS NOT NULL").bind(pairId).all<{ id: string; sent_at: string }>()).results.map((r) => [r.id, r.sent_at]),
 				);
@@ -184,7 +185,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					),
 				];
 				await env.DB.batch(stmts);
-				return json({ accepted: true, version: body.version });
+				return json({ accepted: true, version: body.version, limits: { nudgeChars: LIMITS.payloadChars } });
 			}
 
 			if (rest === "/schedule" && req.method === "GET") {

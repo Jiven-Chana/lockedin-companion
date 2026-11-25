@@ -8,6 +8,7 @@
 
 import QRCode from "qrcode";
 import { HANDOFF_COPY, PHONE_RULES, PHONE_TEST_COPY, PLAN_COPY } from "../../core/companion/policy.ts";
+import { fitNudge, type RoundRef } from "../../core/companion/phone-round.ts";
 import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type PhoneEvent, type PlanEdit, type RelaySchedule } from "../../core/companion/sync.ts";
 import { FEELINGS, proposeTarget } from "../../core/companion/checkin.ts";
 import type { ScheduledNudge } from "../../core/companion/nudges.ts";
@@ -46,11 +47,19 @@ export class RelayClient {
 	pair = () => this.call<Pairing>("POST", "/v1/pairs");
 	unpair = (p: Pairing) => this.call<void>("DELETE", `/v1/pairs/${p.pairId}`, p.laptopSecret);
 	status = (p: Pairing) => this.call<{ phoneSeenAt: string | null; pushReady: boolean; scheduleVersion: number }>("GET", `/v1/pairs/${p.pairId}/status`, p.laptopSecret);
-	putSchedule = (p: Pairing, s: RelaySchedule) => this.call<{ accepted: boolean; version: number }>("PUT", `/v1/pairs/${p.pairId}/schedule`, p.laptopSecret, s);
+	putSchedule = (p: Pairing, s: RelaySchedule) => this.call<{ accepted: boolean; version: number; limits?: { nudgeChars?: number } }>("PUT", `/v1/pairs/${p.pairId}/schedule`, p.laptopSecret, s);
 	events = (p: Pairing, after: number) => this.call<{ events: PhoneEvent[]; cursor: number }>("GET", `/v1/pairs/${p.pairId}/events?after=${after}`, p.laptopSecret);
 	ack = (p: Pairing, cursor: number) => this.call<void>("POST", `/v1/pairs/${p.pairId}/events/ack`, p.laptopSecret, { cursor });
 	/** The 6-digit code a phone types to pair (v1.0.3): the current one while it lasts, a fresh one after. */
 	code = (p: Pairing) => this.call<{ code: string; expiresAt: string }>("POST", `/v1/pairs/${p.pairId}/code`, p.laptopSecret);
+}
+
+/** What a phone event says about a round, cleaned: only well-formed { lectureId, questionId } entries. */
+function roundRefs(raw: unknown[]): RoundRef[] {
+	return raw.flatMap((r) => {
+		const x = r as { lectureId?: unknown; questionId?: unknown } | null;
+		return x && typeof x.lectureId === "string" && typeof x.questionId === "string" ? [{ lectureId: x.lectureId, questionId: x.questionId }] : [];
+	});
 }
 
 export class PhoneLink {
@@ -212,13 +221,24 @@ export class PhoneLink {
 		const checkin = this.checkinPreview();
 		const plan = this.svc.plan();
 		const next = this.svc.plan(nextWeekOf(plan.week));
+		const all = nudges.map((n: ScheduledNudge) => ({
+			...n,
+			...(n.kind === "N-1" ? { more: HANDOFF_COPY.more() } : {}),
+			...(n.kind === "N-5" && checkin ? { checkin } : {}),
+		})).concat(extra);
+		// The rest of each question's round travels with it (v2.1, V-46). What was saved on the phone follows the own
+		// question of the next notification to be sent, and only that one.
+		const maxChars = this.store.runtime().relayNudgeChars ?? PHONE_RULES.nudgeCharsBefore21;
+		const leadId = all.filter((n) => n.question).sort((a, b) => a.fireAt.localeCompare(b.fireAt))[0]?.id;
+		const withRounds = all.map((n) => {
+			if (!n.question) return n;
+			const round = this.svc.phoneRound(n.question, n.id === leadId);
+			const fitted = fitNudge({ ...n, round, more: round.length }, maxChars);
+			return { ...fitted, more: fitted.round.length };
+		});
 		return {
 			timeZone: this.svc.timeZone(),
-			nudges: nudges.map((n: ScheduledNudge) => ({
-				...n,
-				...(n.kind === "N-1" ? { more: HANDOFF_COPY.more() } : {}),
-				...(n.kind === "N-5" && checkin ? { checkin } : {}),
-			})).concat(extra),
+			nudges: withRounds,
 			blocks: [...plan.blocks, ...next.blocks].map((b) => ({ id: b.id, date: b.date, start: b.start, minutes: b.minutes, status: b.status, focus: b.focus })),
 		};
 	}
@@ -243,7 +263,8 @@ export class PhoneLink {
 		if (!force && !stale && fp === r.scheduleFingerprint) return false;
 		const version = nextVersion(r.scheduleVersion ?? 0, Date.now());
 		const res = await this.relay.putSchedule(p, { version, ...body });
-		this.store.saveRuntime({ scheduleVersion: Math.max(version, res.version), scheduleFingerprint: fp, scheduleUploadedAt: new Date().toISOString() });
+		const relayNudgeChars = res.limits?.nudgeChars;
+		this.store.saveRuntime({ scheduleVersion: Math.max(version, res.version), scheduleFingerprint: fp, scheduleUploadedAt: new Date().toISOString(), ...(typeof relayNudgeChars === "number" ? { relayNudgeChars } : {}) });
 		this.svc.log("schedule_uploaded", { version, nudges: body.nudges.length, blocks: body.blocks.length, accepted: res.accepted });
 		return true;
 	}
@@ -288,10 +309,29 @@ export class PhoneLink {
 		const p = e.payload as Record<string, unknown>;
 		switch (e.type) {
 			case "answered":
-				if (typeof p.lectureId === "string" && typeof p.questionId === "string") this.svc.phoneAnswer({ lectureId: p.lectureId, questionId: p.questionId, choice: Number(p.choice), correct: p.correct === true, at: e.at });
+				if (typeof p.lectureId === "string" && typeof p.questionId === "string") {
+					this.svc.phoneAnswer({ lectureId: p.lectureId, questionId: p.questionId, choice: Number(p.choice), correct: p.correct === true, at: e.at });
+					// Answered on the phone ("Carry on", "Keep going here"): no longer waiting.
+					this.svc.phoneSaved({ remove: [p.questionId] });
+				}
+				break;
+			case "done_for_now":
+				// "Done for now" and "Save the rest for later" (v2.1, V-46): the rest of the round waits.
+				if (Array.isArray(p.saved)) this.svc.phoneSaved({ add: roundRefs(p.saved) });
 				break;
 			case "handover":
-				if (typeof p.lectureId === "string") this.svc.startHandoff({ lectureId: p.lectureId, ...(typeof p.questionId === "string" ? { questionId: p.questionId, choice: Number(p.choice), correct: p.correct === true } : {}), at: e.at, phoneEventId: e.id });
+				if (typeof p.lectureId === "string") {
+					const answers = Array.isArray(p.answers)
+						? (p.answers as Record<string, unknown>[]).filter((a) => a && typeof a.questionId === "string").map((a) => ({ questionId: a.questionId as string, choice: Number(a.choice), correct: a.correct === true }))
+						: [];
+					this.svc.startHandoff({
+						lectureId: p.lectureId,
+						...(typeof p.questionId === "string" ? { questionId: p.questionId, choice: Number(p.choice), correct: p.correct === true } : {}),
+						...(Array.isArray(p.round) ? { round: roundRefs(p.round), answers } : {}),
+						at: e.at,
+						phoneEventId: e.id,
+					});
+				}
 				break;
 			case "plan_tick":
 			case "plan_remove":
