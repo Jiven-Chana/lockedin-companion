@@ -15,8 +15,9 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.0.4** | 24 Nov 2026 | tag `lockedin-v1.0.4` on `main` | "Send a test question to my phone" in Me → Phone; a retest no longer spends the day's notification before a lecture whose material is in course units | [`v1.0-release.md`](v1.0-release.md) section 9 |
 | **v1.1** | 24 Nov 2026 | tag `lockedin-v1.1` on `main` | Progress as a learning score over time with module attribution, attention on gaps and milestones; the Week page as a timetable whose study blocks can be dragged (V-34 to V-38). The first slice of the v2.0 polish | [`v1.1-release.md`](v1.1-release.md), [`v1.1-plan.md`](v1.1-plan.md), [`v1.1-research.md`](v1.1-research.md) |
 | **v1.1.1** | 24 Nov 2026 | tag `lockedin-v1.1.1` on `main` | Four defects in v1.1: a study block can be started (Start, or its notification), a stopped session is offered again on Today, confidence is four taps with none preselected, and a block names its first step (V-44) | [`v1.1-release.md`](v1.1-release.md) section 6 |
-| **v2.0** | planned | branch `feat/v2.0` | Learn and Practise as two modes, gaps by idea with new questions written around them, a first run on the student's own material, the session finished to the lo-fi, Today as one next step (V-39 to V-54) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md) |
-| **v3.0** | after v2.0 | — | Not specified yet: the desktop app, code clean-up, remaining flow polish, bugs found in v2.0 | — |
+| **v2.0** | 25 Nov 2026 | tag `lockedin-v2.0` on `main` | Shipped: Learn and Practise as two modes, gaps by idea with new questions written around them, three notes per module that the tutor reads and the student can edit, and a first run on the student's own material (V-39 to V-67). The phone, diagrams, Me and motion moved to v2.1 (V-67) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md), [`DECISIONS.md`](DECISIONS.md) V-39 to V-67 |
+| **v2.1** | planned | branch to be cut from `main` | In this order (V-67): the phone brought closer to the lo-fi, diagrams drawn by LockedIn (V-33), Me in a few lines with "Advanced" and the clutter list, motion. Not planned in detail yet | [`v2.0-direction.md`](v2.0-direction.md) sections 9, 10, 12, 13 and 14 |
+| **v3.0** | later | — | Not specified yet: the desktop app, a native phone app, code clean-up | — |
 
 ---
 
@@ -182,3 +183,40 @@ Progress stops being a second copy of the Library. It is now the history of what
 - **v2.0:** Teach and Practice as modes, teaching by idea, LockedIn-drawn visuals (V-33), a short Me ([`v2.0-direction.md`](v2.0-direction.md)).
 - **v3.0:** the desktop app, the relay on a team account, code clean-up.
 - **Owed to the group:** the design-log entry for the score and milestones, and `LIT` ids for the eleven sources in the research note.
+
+---
+
+## v2.0: two ways to study, and a first run on your own slides (25 Nov 2026)
+
+Tag `lockedin-v2.0`. The plan is [`v2.0-plan.md`](v2.0-plan.md) (steps 1 to 7 of it), the design and its reasons [`v2.0-direction.md`](v2.0-direction.md), the decisions [`DECISIONS.md`](DECISIONS.md) V-39 to V-67.
+
+### In one paragraph
+A session is now one of two things, and says which. **Learn** is the AI tutor: it asks a guess or two, shows a plan of ideas, teaches each one on one calm screen a step at a time, takes typed or spoken questions at any point, draws a picture when one helps, never ends by itself and is picked up where it stopped. **Practise** is a quick round from the question bank, mixed across a module's ideas and difficulties and weighted to gaps. What a student got wrong is kept by idea, an idea closes after two sure right answers on different days, and "Practise this idea" writes new questions around the gap. LockedIn keeps three short notes per module (how you learn it, where you are, the last plan), hands them to the tutor and shows them to the student. A new student signs in with one button, pastes a timetable link or adds modules by hand, drops slides in, picks when they have energy and one weekly total, and ends on Learn on their own first unit. The release was cut here, after step 7 of 14, at Jiven's decision (V-67).
+
+### What changed in how it works
+- **A session has a mode** (`SessionSpec.study`, `spec.learn`). Anything the tutor runs is Learn; anything on the bank is Practise. The short AI quiz of v1 is gone (V-55).
+- **Learn** is `src/core/companion/learn.ts` (the opening message, the chat record as steps, the plan) over the LearnHarness engine, with LockedIn's own prober and teacher instructions (`companion/seed/prompts`). The tutor's picture, demo and look-up tools are on.
+- **Gaps** are `gaps.ts`: per idea, closed by `closeGaps` (V-43). `StudyPacks.writeForIdea` writes new questions for one idea.
+- **Notes** are `notes.json` per data folder (`notes.ts`), rewritten after each Learn session on the cheap model, capped, editable, removed by "Delete all my data".
+- **The first run** is `SetupView` (`GET /setup` and `/setup/*`): a profile made by setup is not `onboarded` until its end. Modules can be added by name, slides are saved without the checklist, each planned block records what put it there (`StudyBlock.placed`), and a module has a share of the week (`ModuleInfo.share`).
+- **New and changed calls** are in [`API.md`](API.md): `/learn`, `/sessions/:id/say|finish|steps|how`, `/modules/:code/notes|share|materials/quick`, `/modules`, `/setup/*`, `/gaps`, `/practise`.
+- **The phone relay is unchanged** from v1.1.1: no deploy is needed for this release.
+
+### How it was checked
+- 985 companion tests, the type check and lint, and the full suite in CI.
+- Each screen in Chrome with real clicks and typing, on a copy of Jiven's data or an empty data folder.
+- Learn, the notes, "Practise this idea" and the first run against the real AI on Jiven's ChatGPT sign-in.
+- Jiven's own run on his six modules on 25 Nov, which found two faults, both fixed before release: a finished picture did not show while a question was open, and the tutor's next question took the keyboard mid-sentence.
+
+### What was not checked
+- Speaking to the tutor (no voice key on the test copies), an interactive demo and a web look-up (the tutor did not choose to make either), and a session long enough to be summarised.
+- Signing in to ChatGPT from a signed-out state, pasting a real timetable link, and the phone step of setup with a real phone.
+- "Same as my other modules" with the real AI.
+- Whether students like any of it: that is the hi-fi test.
+
+### What is still missing
+- **Moved to v2.1 (V-67), in this order:** the phone (the Practise round continuing on the phone, "why now" in the notification, four confidence taps, the block notification naming its first step, "next free gap"); diagrams drawn by LockedIn (the concept map, the session plan, explainers); Me in a few lines with "Advanced", and the clutter list; motion.
+- **Later, not in v2.1:** Today as one next step, the Week screen's Undo, add and calendar export, and Your courses (one drop for everything, chapters that span weeks, real week numbers).
+- **Known and small:** the planner fills the earliest days first; the session plan is a plain list until it is drawn; `/api/stt/token` is asked for even with no voice key; Today's card for a week-long session shows its first lecture's title; Practise's done screen has no "Learn this".
+- **Owed to the group:** design-log rows for V-41, V-45, V-46, V-48 and V-49, and a `LIT` id for interleaving.
+
