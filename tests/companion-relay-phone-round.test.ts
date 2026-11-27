@@ -67,6 +67,13 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unkno
 			b.dispatchEvent(new DomEvent("click"));
 			await settle();
 		},
+		/** A study block in the week's timeline (v3.0), found by part of what it says. */
+		tapBlock: async (part: string) => {
+			const b = [...app.querySelectorAll("button.tl-block")].find((x) => (x.textContent ?? "").includes(part));
+			assert.ok(b, `no study block with "${part}" among: ${[...app.querySelectorAll("button.tl-block")].map((x) => x.textContent).join(" | ")}`);
+			b.dispatchEvent(new DomEvent("click"));
+			await settle();
+		},
 		tap: async (label: string) => {
 			const b = [...app.querySelectorAll("button")].find((x) => (x.textContent ?? "").trim() === label);
 			assert.ok(b, `no button "${label}" among: ${buttons().join(" | ")}`);
@@ -475,11 +482,11 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.deepEqual(p.buttons(), [...PLACES, "Just move the block", "Back"]);
 	});
 
-	it("today's block opens from the week too (v2.3), exactly as from its notification", async () => {
+	it("today's block opens from the week too, as from its notification, with a way to remove it", async () => {
 		const p = await open({ nudges: [], blocks: [withRound()], week: { lectures: [], free: [], nudgesPerDay: 1, blockMinutes: 50 } });
-		await p.tap(`${new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" })} Study ${start} · Lecture 7`);
+		await p.tapBlock("Lecture 7");
 		assert.match(p.text(), /Where are you\? \(optional\)/);
-		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Remove", "Back"]);
 	});
 
 	it("a block from a laptop before v2.1 (no goal or first step) still opens, on the laptop as before", async () => {
@@ -502,89 +509,132 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	const week = (over: Record<string, unknown> = {}) => ({ lectures: [{ date: d1, start: "11:00", title: "HCI lecture" }], free: [{ date: d2, start: "16:00" }, { date: d3, start: "09:00" }], nudgesPerDay: 1, blockMinutes: 50, ...over });
 	const home = (over: { blocks?: unknown[]; week?: unknown } = {}) => open({ nudges: [], blocks: over.blocks ?? blocks(), week: over.week ?? week() });
 
-	it("lists lectures and blocks in order, says how many blocks, and why a block is where it is", async () => {
-		const p = await home();
+	const dayLabel = (date: string) => `${short(date)} ${Number(date.slice(8))}`;
+	const picked = (p: Awaited<ReturnType<typeof home>>) => (p.app.querySelector('.day[aria-pressed="true"]')?.textContent ?? "").replace(/\s+/g, " ").trim();
+
+	it("is seven days across the top; it opens on the first day with something on it, as a timeline", async () => {
+		const p = await home({ week: week({ targetMinutes: 300, keptMinutes: 50 }) });
 		assert.match(p.text(), /Your week/);
-		assert.match(p.text(), /2 suggested blocks in your free gaps\. Move or remove any of them\./);
-		assert.match(p.text(), new RegExp(`${short(d1)} HCI lecture 11:00`));
-		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00 · Nash equilibrium`));
-		assert.match(p.text(), /because you have energy in the afternoon/);
-		assert.ok(p.text().indexOf("HCI lecture 11:00") < p.text().indexOf("Study 14:00"), "in time order");
+		assert.match(p.text(), /50 min of 5 h kept/);
+		assert.match(p.text(), /2 suggested blocks in your free gaps\. Tap one to open, move or remove it\./);
+		assert.equal(p.app.querySelectorAll(".day").length, 7);
+		assert.equal(picked(p), dayLabel(d1), "today has nothing on it, so tomorrow is shown");
+		// That day in time order: the lecture, soft and flat, then the study block with why it is there.
+		assert.match(p.text(), /11:00 HCI lecture 11:00–12:00/);
+		assert.match(p.text(), /14:00 Study · Nash equilibrium 50 min because you have energy in the afternoon/);
+		assert.ok(p.text().indexOf("HCI lecture") < p.text().indexOf("Study · Nash equilibrium"), "in time order");
+		assert.equal(p.app.querySelectorAll(".tl-fixed").length, 1);
+		assert.equal(p.app.querySelectorAll("button.tl-block").length, 1);
 		for (const label of ["Add a block", "Settings", "Looks good"]) assert.ok(p.buttons().includes(label), label);
 		assert.doesNotMatch(p.text(), /null|undefined/, "nothing missing is written out");
 	});
 
-	it("a block's line opens the block (v2.3): on another day it shows the block and offers to move it, with no way to start it early", async () => {
-		const moves = [{ kind: "tomorrow", date: d2, start: "08:00", label: "Tomorrow 08:00" }];
-		const p = await home({ blocks: [{ ...blocks()[0]!, firstStep: "open slide 3, answer one question", moves }] });
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+	it("another day is one tap away, and a day with nothing on it says so", async () => {
+		const p = await home();
+		await p.tap(dayLabel(d2));
+		assert.equal(picked(p), dayLabel(d2));
+		assert.match(p.text(), /10:00 Study 50 min/);
+		assert.doesNotMatch(p.text(), /HCI lecture/);
+		await p.tap(dayLabel(day(5)));
+		assert.match(p.text(), new RegExp(`Nothing on ${short(day(5))}\\. A free day\\.`));
+	});
+
+	it("a block and a lecture take their module's colour; a suggested block is dashed, and free study has no colour", async () => {
+		const p = await home({ blocks: [{ ...blocks()[0]!, colour: "sky" }], week: week({ lectures: [{ date: d1, start: "11:00", title: "HCI lecture", minutes: 120, colour: "rose" }] }) });
+		assert.ok(p.app.querySelector(".tl-fixed.mod-rose"));
+		assert.match(p.text(), /HCI lecture 11:00–13:00/, "a lecture is as long as it is");
+		assert.ok(p.app.querySelector("button.tl-block.mod-sky"));
+		const q = await home();
+		await q.tap(dayLabel(d2));
+		assert.ok(q.app.querySelector("button.tl-block.proposed"));
+		const free = await home({ blocks: [{ ...blocks()[0]!, status: "accepted" }] });
+		assert.ok(free.app.querySelector("button.tl-block.free"));
+		// A colour that is not a plain word is not used as a class.
+		const odd = await home({ blocks: [{ ...blocks()[0]!, colour: "x y<" }] });
+		assert.ok(odd.app.querySelector("button.tl-block.free"));
+	});
+
+	it("counts in the lo-fi's words", async () => {
+		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Tap it to open, move or remove it\./);
+		assert.match((await home({ blocks: [] })).text(), /No study blocks this week\. That's fine too\./);
+	});
+
+	it("a block opens to its own screen: on another day it can be moved or removed, never started early", async () => {
+		const p = await home({ blocks: [{ ...blocks()[0]!, firstStep: "open slide 3, answer one question" }, blocks()[1]] });
+		await p.tapBlock("Nash equilibrium");
 		assert.match(p.text(), /^Study block /);
 		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
 		assert.match(p.text(), /First step: open slide 3, answer one question/);
 		assert.match(p.text(), /because you have energy in the afternoon/);
 		assert.match(p.text(), new RegExp(`This block is on ${short(d1)} at 14:00\\.`));
-		assert.deepEqual(p.buttons(), ["Move it", "Back"]);
+		assert.deepEqual(p.buttons(), ["Move it", "Remove", "Back"]);
 		assert.doesNotMatch(p.text(), /Where are you\?/);
+	});
+
+	it("\"Move it\" offers the week's free gaps; the block moves, is marked, and the week opens on its new day", async () => {
+		const p = await home();
+		await p.tapBlock("Nash equilibrium");
 		await p.tap("Move it");
-		assert.match(p.text(), /When suits you better\?/);
+		assert.match(p.text(), /Move to a free gap:/);
+		assert.deepEqual(p.buttons(), [`${short(d2)} 16:00`, `${short(d3)} 09:00`, "Cancel"]);
+		await p.tap(`${short(d3)} 09:00`);
+		const [m] = of(p.events, "plan_move");
+		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start, m?.payload.fireAt], ["blk-a", d3, "09:00", new Date(`${d3}T09:00:00`).toISOString()]);
+		assert.equal(picked(p), dayLabel(d3));
+		assert.match(p.text(), /09:00 Study · Nash equilibrium moved 50 min/);
+		// The time it took is not offered again.
+		await p.tap(dayLabel(d2));
+		await p.tapBlock("Study");
+		await p.tap("Move it");
+		assert.deepEqual(p.buttons(), [`${short(d2)} 16:00`, "Cancel"]);
+		await p.tap("Cancel");
+		assert.deepEqual(p.buttons(), ["Move it", "Remove", "Back"]);
+		assert.equal(of(p.events, "plan_move").length, 1);
 	});
 
 	it("\"Back\" from a block returns to the week, and nothing was sent", async () => {
 		const p = await home();
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+		await p.tapBlock("Nash equilibrium");
 		await p.tap("Back");
 		assert.match(p.text(), /Your week/);
+		assert.equal(picked(p), dayLabel(d1));
 		assert.equal(p.events.length, 0);
-	});
-
-	it("a block from a laptop before v2.1 (nothing to show) has no line to tap", async () => {
-		const p = await home({ blocks: [{ id: "old", date: d1, start: "14:00", minutes: 50, status: "accepted", focus: null }] });
-		assert.ok(!p.buttons().some((b) => b.includes("Study 14:00")));
-		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00`));
-	});
-
-	it("counts in the lo-fi's words", async () => {
-		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Move or remove it\./);
-		assert.match((await home({ blocks: [] })).text(), /No study blocks this week\. That's fine too\./);
-	});
-
-	it("every block shows \"Move\" and \"Remove\" without being opened (v2.2, LF-10); moving offers the free times and leaves a \"moved\" tag", async () => {
-		const p = await home();
-		assert.deepEqual([p.buttons().filter((b) => b === "Move").length, p.buttons().filter((b) => b === "Remove").length], [2, 2]);
-		await p.tapIn("Study 14:00 · Nash equilibrium", "Move");
-		assert.match(p.text(), /Move to a free gap:/);
-		assert.ok(p.buttons().includes(`${short(d2)} 16:00`) && p.buttons().includes(`${short(d3)} 09:00`) && p.buttons().includes("Cancel"));
-		await p.tap(`${short(d3)} 09:00`);
-		const [m] = of(p.events, "plan_move");
-		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start, m?.payload.fireAt], ["blk-a", d3, "09:00", new Date(`${d3}T09:00:00`).toISOString()]);
-		assert.match(p.text(), new RegExp(`${short(d3)} Study 09:00 · Nash equilibrium moved`));
-		// The time it took is not offered again.
-		await p.tapIn(`${short(d2)} Study 10:00`, "Move");
-		assert.ok(!p.buttons().includes(`${short(d3)} 09:00`));
-		await p.tap("Cancel");
-		assert.equal(of(p.events, "plan_move").length, 1);
 	});
 
 	it("\"Remove\" can be undone, once", async () => {
 		const p = await home();
-		await p.tapIn("Study 14:00 · Nash equilibrium", "Remove");
+		await p.tapBlock("Nash equilibrium");
+		await p.tap("Remove");
 		assert.deepEqual(of(p.events, "plan_remove")[0]?.payload, { blockId: "blk-a" });
 		assert.match(p.text(), new RegExp(`Removed ${short(d1)} block ·`));
 		assert.match(p.text(), /One suggested block/);
 		await p.tap("Undo");
 		assert.deepEqual(of(p.events, "plan_tick")[0]?.payload, { blockId: "blk-a", restore: true });
 		assert.match(p.text(), /2 suggested blocks/);
+		assert.match(p.text(), /14:00 Study · Nash equilibrium/);
 		assert.ok(!p.buttons().includes("Undo"));
 	});
 
-	it("\"Add a block\" takes the first free time", async () => {
+	it("\"Add a block\" takes a free time on the day being looked at, else the first there is", async () => {
 		const p = await home();
+		// Tomorrow (d1) has no free time on offer: the first free time is taken, and the week goes to that day.
 		await p.tap("Add a block");
 		const [a] = of(p.events, "plan_add");
 		assert.deepEqual([a?.payload.date, a?.payload.start, a?.payload.minutes, a?.payload.fireAt], [d2, "16:00", 50, new Date(`${d2}T16:00:00`).toISOString()]);
 		assert.match(String(a?.payload.blockId), /^phone-[0-9a-f]{12}$/);
-		assert.match(p.text(), new RegExp(`${short(d2)} Study 16:00 moved`));
+		assert.equal(picked(p), dayLabel(d2));
+		assert.match(p.text(), /16:00 Study moved 50 min/);
 		assert.match(p.text(), /3 suggested blocks/);
+		// Looking at d3, its own free time is the one taken.
+		await p.tap(dayLabel(d3));
+		await p.tap("Add a block");
+		assert.deepEqual([of(p.events, "plan_add")[1]?.payload.date, of(p.events, "plan_add")[1]?.payload.start], [d3, "09:00"]);
+	});
+
+	it("a block from a laptop before v2.1 has nothing to open: it shows, flat", async () => {
+		const p = await home({ blocks: [{ id: "old", date: d1, start: "14:00", minutes: 50, status: "accepted", focus: null }] });
+		assert.equal(p.app.querySelectorAll("button.tl-block").length, 0);
+		assert.match(p.text(), /14:00 Study 50 min/);
 	});
 
 	it("\"Looks good\" keeps the suggestions and says the week is set", async () => {

@@ -166,3 +166,30 @@ export function lookCss(selector: string, appearance: Pick<FocusAppearance, "the
 	if (appearance.theme === "system") return `${block(selector, "light")}@media (prefers-color-scheme: dark){${block(selector, "dark")}}`;
 	return block(selector, appearance.theme);
 }
+
+// ─── the phone ───────────────────────────────────────────────────────────────
+
+/** The marks round the phone stylesheet's colours (relay/web/styles.css). What lies between them is written by `phoneLookCss`, never by hand. */
+export const PHONE_LOOK_MARKS = ["/* look:start (written from src/core/companion/look.ts by relay/scripts/look.ts; do not edit) */", "/* look:end */"] as const;
+
+/**
+ * The phone app's colours: the same look, as plain custom properties
+ * (`--paper`, `--mod`, …) for a stylesheet that is served as a static file.
+ * The phone follows the system for light and dark. tests/companion-look.test.ts
+ * fails when the phone's stylesheet does not hold exactly this.
+ */
+export function phoneLookCss(): string {
+	const names: LookToken[] = ["paper", "card", "sand", "ink", "quiet", "edge", "bar", "bar-ink", "bar-quiet", "on", "on-card", "mint", "lilac"];
+	const root = (mode: LookMode) => { const t = lookTokens(mode); return names.map((n) => `--${n}: ${t[n]};`).join(" ") + ` --mod: ${t.sand}; --mod-soft: ${t.sand}; --mod-soft-ink: ${t.ink};`; };
+	const mods = (mode: LookMode) => MODULE_COLOUR_CHOICES.map((name) => { const t = moduleTint(name, mode); return `.mod-${name} { --mod: ${t.bright}; --mod-soft: ${t.soft}; --mod-soft-ink: ${t.softInk}; }`; });
+	return [
+		PHONE_LOOK_MARKS[0],
+		`:root { ${root("light")} color-scheme: light dark; }`,
+		...mods("light"),
+		"@media (prefers-color-scheme: dark) {",
+		`\t:root { ${root("dark")} }`,
+		...mods("dark").map((l) => `\t${l}`),
+		"}",
+		PHONE_LOOK_MARKS[1],
+	].join("\n");
+}

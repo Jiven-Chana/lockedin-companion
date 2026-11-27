@@ -20,6 +20,8 @@ import {
 	MODULE_SHAPES,
 	moduleLook,
 	moduleTint,
+	PHONE_LOOK_MARKS,
+	phoneLookCss,
 	readAppearance,
 	type LookMode,
 } from "../src/core/companion/index.ts";
@@ -135,5 +137,38 @@ describe("colours are written in one place", () => {
 			});
 		}
 		assert.deepEqual(found, []);
+	});
+});
+
+describe("the phone has the same colours as the laptop", () => {
+	const ROOT = path.join(import.meta.dirname, "..");
+	const css = fs.readFileSync(path.join(ROOT, "relay/web/styles.css"), "utf-8");
+	const COLOUR = /#[0-9a-f]{3,8}\b|\brgba?\(|\boklch\(|\bhsla?\(/gi;
+
+	it("its stylesheet holds exactly the look's colours (run `npx tsx relay/scripts/look.ts` after changing one)", () => {
+		assert.ok(css.includes(phoneLookCss()), "relay/web/styles.css does not match src/core/companion/look.ts");
+	});
+
+	it("light and dark use the look's page, ink, mint and lilac, and every module colour", () => {
+		const block = phoneLookCss();
+		for (const mode of ["light", "dark"] as const) {
+			const t = lookTokens(mode);
+			for (const name of ["paper", "card", "ink", "edge", "mint", "lilac", "on"] as const) assert.ok(block.includes(`--${name}: ${t[name]};`), `${mode} ${name}`);
+		}
+		for (const name of MODULE_COLOUR_CHOICES) assert.equal(block.split(`.mod-${name} { --mod: ${MODULE_COLOURS[name]};`).length - 1, 2, name);
+	});
+
+	it("the colour the phone's own frame takes (its status bar) is the look's bar", () => {
+		const html = fs.readFileSync(path.join(ROOT, "relay/web/index.html"), "utf-8");
+		assert.match(html, new RegExp(`<meta name="theme-color" content="${LOOK.light.bar}"`));
+	});
+
+	it("no colour is written anywhere else in the phone app", () => {
+		const [start, end] = PHONE_LOOK_MARKS;
+		const outside = css.slice(0, css.indexOf(start)) + css.slice(css.indexOf(end) + end.length);
+		assert.deepEqual(outside.replace(/\/\*[\s\S]*?\*\//g, "").match(COLOUR) ?? [], [], "styles.css, outside the look's block");
+		const js = fs.readFileSync(path.join(ROOT, "relay/web/app.js"), "utf-8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+		// The install pictures are drawn with the text colour; "#" followed by hex digits there would be a colour.
+		assert.deepEqual((js.match(COLOUR) ?? []).filter((h) => !/^#\d{1,2}$/.test(h)), [], "app.js");
 	});
 });

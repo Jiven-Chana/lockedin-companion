@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
-import { applyPlanEdits, eventsToReplay, fitBlocks, fitPractise, nextVersion, PHONE_RULES, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
+import { applyPlanEdits, eventsToReplay, fitBlocks, fitPractise, MODULE_COLOUR_CHOICES, moduleLook, nextVersion, PHONE_RULES, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
 import type { Db, Stmt } from "../relay/src/db.ts";
 import { handle, type RelayEnv } from "../relay/src/relay.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
@@ -442,6 +442,50 @@ describe("Practise from the phone's home screen (v2.3 part B)", () => {
 		await svc.requirePhone().sync({ force: true });
 		assert.ok(!events().includes("relay_error" as never));
 		assert.ok((svc.requirePhone().buildSchedule() as { practise?: Pool[] }).practise!.length > 0);
+	});
+});
+
+describe("the phone gets the look (v3.0): a module's colour, and the week's times", () => {
+	type Q = { id: string; module?: string; colour?: string };
+	async function withColour() {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 6);
+		const mods = s.svc.profile()!.modules;
+		const want = moduleLook("GT", mods).colour;
+		s.store.saveBlocks([
+			{ id: "blk-gt", date: "2026-11-17", start: "14:00", minutes: 50, status: "accepted", source: "student", lectureId: "gt-nash", module: "GT", firstTaskQuestionId: "gt-nash-q1" },
+			{ id: "blk-free", date: "2026-11-18", start: "10:00", minutes: 50, status: "accepted", source: "student" },
+		]);
+		await s.svc.requirePhone().pair();
+		const built = () => s.svc.requirePhone().buildSchedule() as { blocks: { id: string; colour?: string | null; round?: Q[] }[]; practise?: { module: string; colour?: string; questions: Q[] }[]; week?: { lectures: { date: string; start: string; title: string; minutes?: number; colour?: string | null }[]; targetMinutes?: number | null; keptMinutes?: number } };
+		return { ...s, want, built };
+	}
+
+	it("a block, its questions and a module's Practise pool carry the module's colour by name; a free-study block carries none", async () => {
+		const { built, want } = await withColour();
+		const b = built();
+		assert.equal(b.blocks.find((x) => x.id === "blk-gt")!.colour, want);
+		assert.equal(b.blocks.find((x) => x.id === "blk-free")!.colour ?? null, null);
+		assert.ok(b.blocks.find((x) => x.id === "blk-gt")!.round!.every((q) => q.colour === want));
+		const pool = b.practise!.find((p) => p.module === "GT")!;
+		assert.equal(pool.colour, want);
+		assert.ok(pool.questions.every((q) => q.colour === want));
+	});
+
+	it("a colour the student picks in Me reaches the phone", async () => {
+		const { svc, built } = await withColour();
+		svc.setModuleColour("GT", { colour: "sunflower" });
+		assert.equal(built().blocks.find((x) => x.id === "blk-gt")!.colour, "sunflower");
+	});
+
+	it("the week has each lecture's length and colour, and how much is kept of the target", async () => {
+		const { svc, built } = await withColour();
+		const w = built().week!;
+		assert.ok(w.lectures.length > 0);
+		assert.ok(w.lectures.every((l) => typeof l.minutes === "number" && l.minutes > 0), "every lecture has a length");
+		assert.ok(w.lectures.some((l) => (MODULE_COLOUR_CHOICES as readonly string[]).includes(l.colour ?? "")), "lectures carry their module's colour");
+		assert.equal(w.keptMinutes, 100);
+		assert.ok(w.targetMinutes === null || typeof w.targetMinutes === "number");
 	});
 });
 
