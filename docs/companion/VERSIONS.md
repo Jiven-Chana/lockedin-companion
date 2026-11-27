@@ -17,7 +17,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.1.1** | 24 Nov 2026 | tag `lockedin-v1.1.1` on `main` | Four defects in v1.1: a study block can be started (Start, or its notification), a stopped session is offered again on Today, confidence is four taps with none preselected, and a block names its first step (V-44) | [`v1.1-release.md`](v1.1-release.md) section 6 |
 | **v2.0** | 25 Nov 2026 | tag `lockedin-v2.0` on `main` | Shipped: Learn and Practise as two modes, gaps by idea with new questions written around them, three notes per module that the tutor reads and the student can edit, and a first run on the student's own material (V-39 to V-67). The phone, diagrams, Me and motion moved to v2.1 (V-67) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md), [`DECISIONS.md`](DECISIONS.md) V-39 to V-67 |
 | **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
-| **v2.2** | 27 Nov 2026 | branch `feat/v2.2`, tag `lockedin-v2.2` once merged | Built: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). The relay is deployed; not yet checked on a real phone | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
+| **v2.2** | 27 Nov 2026 | tag `lockedin-v2.2` on `main` (PR #16) | Shipped: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Jiven ran the checklist on his iPhone on 27 Nov | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
 | **v3.0** | later | — | The look chosen by the look test (four designs made in parallel), on the laptop and the phone, with what v2.1 left: Me in a few lines, the clutter list, icons, motion, diagrams drawn by LockedIn (V-70) | — |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
@@ -273,7 +273,7 @@ The lo-fi test (T18, four testers, 25 Nov) reported on 27 Nov, and v2.2 makes th
 - The Week screen in Chrome on a copy of Jiven's own data: seven unstarted blocks moved (three into next week), the line still there after a reload, and Undo putting all seven back. Progress's link opens the week.
 
 ### What was not checked
-- Nothing here has run on a real phone. The relay was deployed on 27 Nov and the live phone app contains the new screens; the iPhone checklist in the plan had not been run when this was written.
+- Jiven ran the plan's ten-step checklist on his iPhone on 27 Nov, after the relay deploy, and reported that it "looks good". Step 6 as written was wrong: a block cannot be opened from the phone's week, only from its notification.
 - The notification's new wording was checked in the simulated service worker only, not as a real notification.
 - The reasoning box's new wording and Me's renamed settings were not opened in Chrome; they are text changes covered by the type check.
 - Whether students want any of it: that is the hi-fi test.
@@ -281,6 +281,7 @@ The lo-fi test (T18, four testers, 25 Nov) reported on 27 Nov, and v2.2 makes th
 ### What is still missing
 - **Declared, needing a native app:** answer buttons on the lock screen (LF-1), focus levels and the shield (LF-5 to LF-7).
 - **Asked for and not built:** a study circle or leaderboard (LF-15), a question in any free gap for courses without lectures (LF-17).
+- **Raised by Jiven after the checklist (27 Nov):** a block on the phone's week cannot be opened, only moved or removed; the week is a long list, not a calendar; the phone has no way to start questions by itself; and the phone shows maths markup as raw text.
 - **v3.0:** the look, on the laptop and the phone. **v4.0:** the desktop app.
 - **Owed to the group:** design-log rows for V-71 to V-75, each of which acts on a finding before T19 has agreed it.
 
