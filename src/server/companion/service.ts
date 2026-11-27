@@ -1422,6 +1422,20 @@ export class CompanionService {
 	}
 
 	/**
+	 * "On the move" (v2.2 part C; lo-fi task 2, version A): the block's unit's
+	 * bank questions the phone can ask with the laptop closed, the first
+	 * step's question first. The same rule as "Keep going here" (V-46): the
+	 * phone has no AI, so the bank is what it asks. Empty with no bank.
+	 */
+	phoneBlockRound(block: StudyBlock): NudgeQuestion[] {
+		const focus = this.blockMode(block)?.focus;
+		const bank = focus ? (this.packs?.bank(focus) ?? []) : [];
+		const first = bank.findIndex((q) => q.id === block.firstTaskQuestionId);
+		const ordered = first > 0 ? [...bank.slice(first), ...bank.slice(0, first)] : bank;
+		return ordered.slice(0, PHONE_RULES.roundSize).map((q) => this.asNudgeQuestion(focus!, q));
+	}
+
+	/**
 	 * The week on the phone (v2.1 part C; lo-fi task 3): the lectures shown
 	 * between the blocks, one free time for each day ahead ("Move to a free
 	 * gap", "Add a block") and the nudges setting.

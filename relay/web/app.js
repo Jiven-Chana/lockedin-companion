@@ -45,6 +45,31 @@ const COPY = {
 		movedLine: "LockedIn will notify you then, and not before.",
 		noGap: "No free gap is left this week.",
 		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
+		// v2.2 part C: questions already answered on the move, said on the move screen and after a move (lo-fi "blklater", "blkmoved").
+		doneSoFar: (d, n) => `${d} of ${n} done. `,
+		already: (d, n) => `You've already done ${d} of ${n}. `,
+	},
+	// "Where are you?" on a block's start (v2.2 part C): the lo-fi's wording (task 2, version A), made optional. Never location: the student says.
+	where: {
+		ask: "Where are you?",
+		optional: "(optional)",
+		places: ["Library", "Desk", "Bed", "Café", "On the move"],
+		note: "You tell us. We never track your location.",
+		nowOrLater: "Do you want to study now, or later?",
+		now: "Study now",
+		later: "Later",
+		// Bed and café ask "now or later?" first; after "Study now" comes one tip.
+		askFirst: ["Bed", "Café"],
+		tipStart: { Bed: "Sitting up, phone out of reach, makes starting easier.", "Café": "Headphones help if it's busy." },
+		tipRunning: { Desk: "At your desk. Phone face down, out of reach if you can.", Bed: "Phone across the room, if you can.", "Café": "Headphones on, phone face down." },
+		onTheMove: "On the move",
+		moveLine: "Not a good moment for a full block. One question now, and the rest when you sit down?",
+		moveNoQuestions: "Not a good moment for a full block.",
+		oneNow: "Answer one question now",
+		justMove: "Just move the block",
+		allDone: (n) => `All ${n} done, on the move.`,
+		// The lo-fi says "Anything you missed comes back in Friday's review"; LockedIn never says "missed" (R-6) and fixes no review day.
+		allDoneLine: "Nothing left for this block. Anything you got wrong comes back in a later review.",
 	},
 	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3), with "notification" for "nudge" (v2.2, LF-11).
 	week: {
@@ -473,20 +498,97 @@ const line = (label, text) => h("p", {}, h("b", {}, label), " ", text);
 /** The block's start: its goal and first step, then "Take the first step" or "Not now". */
 function blockScreen(b) {
 	const start = blockStart(b);
-	show(
+	const W = COPY.where;
+	// The place (v2.2 part C) is optional and lives on this screen only: it shapes what comes next, and is never kept.
+	const st = { where: null, intent: null };
+	const pick = (place) => {
+		const on = st.where !== place;
+		Object.assign(st, { where: on ? place : null, intent: null });
+		if (on) void event("block_where", null, { blockId: b.id, place });
+		draw();
+	};
+	const startButtons = () => h("div", { class: "row" },
+		h("button", { class: "btn primary", onclick: () => { void event("focus_start", null, { blockId: b.id }); blockRunning(b, st.where); } }, COPY.block.take),
+		h("button", { class: "btn", onclick: () => blockLater(b) }, COPY.block.notNow),
+	);
+	const rest = () => {
+		if (st.where === W.onTheMove) {
+			const left = moveLeft(b).length;
+			return [
+				h("p", { class: "muted" }, left ? W.moveLine : W.moveNoQuestions),
+				h("div", { class: "row" },
+					left ? h("button", { class: "btn primary", onclick: () => onTheMove(b) }, W.oneNow) : null,
+					h("button", { class: "btn", onclick: () => blockLater(b, moveDone(b)) }, W.justMove),
+				),
+			];
+		}
+		if (W.askFirst.includes(st.where) && !st.intent) {
+			return [
+				h("p", {}, h("b", {}, W.nowOrLater)),
+				h("div", { class: "row" },
+					h("button", { class: "btn primary", onclick: () => { st.intent = "now"; draw(); } }, W.now),
+					h("button", { class: "btn", onclick: () => blockLater(b) }, W.later),
+				),
+			];
+		}
+		return [W.tipStart[st.where] ? h("p", { class: "muted" }, W.tipStart[st.where]) : null, startButtons()];
+	};
+	const draw = () => show(
 		h("main", {},
 			bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
 			box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
-			h("div", { class: "row" },
-				h("button", { class: "btn primary", onclick: () => { void event("focus_start", null, { blockId: b.id }); blockRunning(b); } }, COPY.block.take),
-				h("button", { class: "btn", onclick: () => blockLater(b) }, COPY.block.notNow),
+			h("div", { class: "stack where" },
+				h("p", {}, h("b", {}, W.ask), " ", h("span", { class: "muted small" }, W.optional)),
+				h("div", { class: "row", role: "group", "aria-label": W.ask }, W.places.map((p) => h("button", { class: "btn small chip", "aria-pressed": st.where === p ? "true" : "false", onclick: () => pick(p) }, p))),
+				h("p", { class: "muted small" }, W.note),
 			),
+			...rest().filter((x) => x != null),
 		),
 	);
+	draw();
+}
+
+// ─── on the move (v2.2 part C; lo-fi task 2, version A: "qm") ───────────────
+/** What this phone has already answered of a block's questions, so a block opened again carries on. Kept for the last few blocks only. */
+const moveAnswered = (b) => (local.get("onMove", {})[b.id] || []);
+const moveLeft = (b) => (b.round || []).filter((q) => !moveAnswered(b).includes(q.id));
+const moveDone = (b) => (b.round || []).length - moveLeft(b).length;
+function moveRemember(b, questionId) {
+	const all = local.get("onMove", {});
+	all[b.id] = [...(all[b.id] || []), questionId];
+	local.set("onMove", Object.fromEntries(Object.entries(all).slice(-20)));
+}
+
+/** One question at a time, as "Keep going here" does: another one, or the rest of the block moves. All of them done finishes the block. */
+function onTheMove(b) {
+	const W = COPY.where;
+	const total = b.round.length;
+	const q = moveLeft(b)[0];
+	if (!q) return moveAllDone(b);
+	const head = () => bar(W.onTheMove, COPY.doneOf(moveDone(b), total));
+	const choose = (i) => {
+		void event("answered", null, { blockId: b.id, onTheMove: true, lectureId: q.lectureId, questionId: q.id, choice: i, correct: i === q.correct });
+		moveRemember(b, q.id);
+		const done = moveDone(b);
+		const ways = done < total
+			? h("div", { class: "row" },
+					h("button", { class: "btn primary", onclick: () => onTheMove(b) }, COPY.another),
+					h("button", { class: "btn", onclick: () => blockLater(b, done) }, COPY.saveRest),
+				)
+			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => moveAllDone(b) }, COPY.thatsAll(total)));
+		show(h("main", {}, head(), h("h1", {}, q.stem), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
+	};
+	show(h("main", {}, head(), h("h1", {}, q.stem), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o)))));
+}
+
+/** Every question of the block answered on the move: the block is done, and the laptop is told it was started. */
+function moveAllDone(b) {
+	void event("focus_start", null, { blockId: b.id });
+	show(h("main", {}, bar(COPY.block.title, "done"), box(h("b", {}, COPY.where.allDone(b.round.length)), " ", COPY.where.allDoneLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
 }
 
 /** The block running: how long is left, the step that happens on the laptop, and the phone put down. */
-function blockRunning(b) {
+function blockRunning(b, place) {
 	const end = blockStart(b).getTime() + b.minutes * 60_000;
 	const left = Math.max(0, Math.min(b.minutes, Math.round((end - Date.now()) / 60_000)));
 	show(
@@ -494,7 +596,7 @@ function blockRunning(b) {
 			bar(COPY.block.title),
 			h("h1", {}, COPY.block.left(left)),
 			b.onLaptop ? box(line(COPY.block.firstStep, b.onLaptop)) : null,
-			h("p", { class: "muted" }, COPY.block.phoneDown),
+			h("p", { class: "muted" }, COPY.where.tipRunning[place] || COPY.block.phoneDown),
 			h("div", { class: "row" },
 				h("button", { class: "btn primary", onclick: async () => {
 					await event("handover", null, { blockId: b.id });
@@ -510,21 +612,22 @@ function blockRunning(b) {
 }
 
 /** "Not now": the times the laptop found free. The relay moves the block's notification, laptop open or not. */
-function blockLater(b) {
+function blockLater(b, done = 0) {
 	const moves = b.moves || [];
+	const total = (b.round || []).length;
 	if (!moves.length) return show(h("main", {}, bar(COPY.block.title, "move it"), h("p", {}, COPY.block.noGap), h("button", { class: "btn", onclick: () => render() }, "OK")));
 	const move = async (m) => {
 		await event("plan_move", null, { blockId: b.id, date: m.date, start: m.start, fireAt: new Date(`${m.date}T${m.start}:00`).toISOString(), title: COPY.block.nudgeTitle(shortDay(m.date), m.start) });
 		// The schedule this phone holds shows the move at once.
 		const s = await kv("schedule");
 		if (s?.blocks) await kv("schedule", { ...s, blocks: s.blocks.map((x) => (x.id === b.id ? { ...x, date: m.date, start: m.start, moved: true } : x)) });
-		show(h("main", {}, bar(COPY.block.title, "moved"), box(h("b", {}, COPY.block.moved(m.label)), " ", COPY.block.movedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
+		show(h("main", {}, bar(COPY.block.title, "moved"), box(h("b", {}, COPY.block.moved(m.label)), " ", done ? COPY.block.already(done, total) : "", COPY.block.movedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
 	};
 	show(
 		h("main", {},
 			bar(COPY.block.title, "move it"),
 			h("h1", {}, COPY.block.when), " ",
-			h("p", { class: "muted" }, COPY.block.whenLine),
+			h("p", { class: "muted" }, done ? COPY.block.doneSoFar(done, total) : "", COPY.block.whenLine),
 			h("div", { class: "options" }, moves.map((m) => h("button", { class: m.kind === "next" ? "btn ghost" : "btn option", onclick: () => move(m) }, m.kind === "next" ? COPY.block.pickForMe : m.label))),
 		),
 	);

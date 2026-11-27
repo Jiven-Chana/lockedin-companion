@@ -7,7 +7,7 @@
  * has since removed is ignored and logged.
  */
 
-import type { ScheduledNudge } from "./nudges.ts";
+import type { NudgeQuestion, ScheduledNudge } from "./nudges.ts";
 import type { StudyBlock } from "./types.ts";
 
 export interface PhoneEvent {
@@ -29,6 +29,8 @@ export interface PhoneBlockLines {
 	why: string | null;
 	/** Where "Not now" can move it: later today, this evening, tomorrow, and the next free gap. */
 	moves: { kind: "today" | "evening" | "tomorrow" | "next"; date: string; start: string; label: string }[];
+	/** "On the move" (v2.2 part C): up to five questions from the block's unit, so they can be answered on the phone with the laptop closed. Only on blocks that are near. */
+	round?: NudgeQuestion[];
 }
 
 /** The week on the phone (v2.1 part C; lo-fi task 3): the lectures shown between the blocks, the free times a block can move to, and the nudges setting. */

@@ -51,3 +51,19 @@ export function fitNudge<T extends { round?: unknown[] }>(nudge: T, maxChars: nu
 	while (round.length > 0 && JSON.stringify({ ...nudge, round }).length > maxChars) round = round.slice(0, -1);
 	return round.length === nudge.round.length ? nudge : { ...nudge, round };
 }
+
+/**
+ * The week's blocks small enough for the relay (v2.2 part C): a block's
+ * on-the-move questions come off the furthest block first until everything
+ * fits. A block's own lines are never touched, so the worst case is v2.1's
+ * week. `besideChars` is what is stored beside the blocks (the week).
+ */
+export function fitBlocks<T extends { round?: unknown[] }>(blocks: readonly T[], besideChars: number, maxChars: number): T[] {
+	const out = [...blocks];
+	for (let i = out.length - 1; i >= 0 && JSON.stringify(out).length + besideChars > maxChars; i--) {
+		if (!out[i]!.round) continue;
+		const { round: _round, ...rest } = out[i]!;
+		out[i] = rest as T;
+	}
+	return out;
+}

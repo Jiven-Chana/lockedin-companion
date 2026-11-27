@@ -969,6 +969,12 @@ export const PHONE_RULES = {
 	roundSize: 5,
 	/** Questions kept by "Done for now" and "Save the rest for later": at most the rest of one round. */
 	savedMax: 4,
+	/** A block's questions for "On the move" (v2.2) are sent for today's blocks and this many days ahead; later blocks get theirs nearer the day. */
+	blockRoundDaysAhead: 1,
+	/** The week's size limit on a relay that has not said its own (v2.1's relay: 60,000). */
+	blocksChars: 60_000,
+	/** Room left for how the relay wraps the blocks and the week together when it stores them. */
+	blocksSlackChars: 200,
 	/** The largest notification a relay deployed before v2.1 accepts. A newer relay says its own limit when the week is uploaded. */
 	nudgeCharsBefore21: 4_000,
 } as const;

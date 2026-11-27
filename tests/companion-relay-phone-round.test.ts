@@ -284,7 +284,11 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		...over,
 	});
 	const blockNudge = { id: `block:blk1:${date}`, kind: "block", blockId: "blk1", title: "Thu 14:00 · your study block", body: "Lecture 7. First step: slide 12, one question.", opens: "session", fireAt: started.toISOString(), sentAt: started.toISOString(), expiresAt: "2099-01-01T00:00:00.000Z" };
-	const opened = (b = block()) => open({ nudges: [blockNudge], blocks: [b], open: blockNudge.id });
+	const opened = (b = block(), local: Record<string, unknown> = {}) => open({ nudges: [blockNudge], blocks: [b], open: blockNudge.id, local });
+	const PLACES = ["Library", "Desk", "Bed", "Café", "On the move"];
+	// v2.2 part C: a block that is near arrives with its unit's questions, for "On the move".
+	const rq = (n: number) => ({ id: `l7-q${n}`, lectureId: "hci-l7", stem: `Lecture 7: question ${n}?`, options: ["Right", "Wrong A", "Wrong B"], correct: 0, explanation: `Because ${n}.`, slides: [12], unit: "Lecture 7", module: "HCI" });
+	const withRound = (n = 5) => block({ round: Array.from({ length: n }, (_, i) => rq(i + 1)) });
 
 	it("the notification opens the block: its goal, its first step, and two ways on", async () => {
 		const p = await opened();
@@ -292,7 +296,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.match(p.text(), new RegExp(`${start}-\\d\\d:\\d\\d`));
 		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
 		assert.match(p.text(), /First step: open slide 12, answer one question/);
-		assert.deepEqual(p.buttons(), ["Take the first step", "Not now"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
 		assert.equal(p.app.querySelector("button.primary")?.textContent, "Take the first step");
 	});
 
@@ -343,6 +347,126 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		await p.tap("Not now");
 		assert.match(p.text(), /No free gap is left this week\./);
 		assert.equal(of(p.events, "plan_move").length, 0);
+	});
+
+	it("asks where you are as an option (v2.2): the start buttons work with nothing picked, and nothing is sent", async () => {
+		const p = await opened();
+		assert.match(p.text(), /Where are you\? \(optional\)/);
+		assert.match(p.text(), /You tell us\. We never track your location\./);
+		await p.tap("Take the first step");
+		assert.match(p.text(), /Put your phone face down\./);
+		assert.equal(of(p.events, "block_where").length, 0);
+	});
+
+	it("Library and Desk go straight on; the place is told to the laptop's log, and the desk has its own tip", async () => {
+		const p = await opened();
+		await p.tap("Desk");
+		assert.deepEqual(of(p.events, "block_where").map((e) => e.payload), [{ blockId: "blk1", place: "Desk" }]);
+		assert.equal(p.app.querySelector("button[aria-pressed=true]")?.textContent, "Desk");
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		await p.tap("Take the first step");
+		assert.match(p.text(), /At your desk\. Phone face down, out of reach if you can\./);
+		assert.doesNotMatch(p.text(), /Put your phone face down\./);
+	});
+
+	const askFirst: { place: string; tip: RegExp; running: RegExp }[] = [
+		{ place: "Bed", tip: /Sitting up, phone out of reach, makes starting easier\./, running: /Phone across the room, if you can\./ },
+		{ place: "Café", tip: /Headphones help if it's busy\./, running: /Headphones on, phone face down\./ },
+	];
+	for (const c of askFirst) {
+		it(`${c.place} asks "study now, or later?" before anything else`, async () => {
+			const p = await opened();
+			await p.tap(c.place);
+			assert.match(p.text(), /Do you want to study now, or later\?/);
+			assert.deepEqual(p.buttons(), [...PLACES, "Study now", "Later"]);
+			await p.tap("Study now");
+			assert.match(p.text(), c.tip);
+			assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+			await p.tap("Take the first step");
+			assert.match(p.text(), c.running);
+		});
+	}
+
+	it("\"Later\" from bed goes straight to moving the block", async () => {
+		const p = await opened();
+		await p.tap("Bed");
+		await p.tap("Later");
+		assert.match(p.text(), /When suits you better\? The rest of the block moves there\. Nothing is marked missed\./);
+	});
+
+	it("tapping the picked place again un-picks it", async () => {
+		const p = await opened();
+		await p.tap("Bed");
+		await p.tap("Bed");
+		assert.equal(p.app.querySelector("button[aria-pressed=true]"), null);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		assert.equal(of(p.events, "block_where").length, 1, "un-picking sends nothing");
+	});
+
+	it("On the move: one question now, then another one or the rest later", async () => {
+		const p = await opened(withRound());
+		await p.tap("On the move");
+		assert.match(p.text(), /Not a good moment for a full block\. One question now, and the rest when you sit down\?/);
+		assert.deepEqual(p.buttons(), [...PLACES, "Answer one question now", "Just move the block"]);
+		assert.equal(p.app.querySelector("button.primary")?.textContent, "Answer one question now");
+		await p.tap("Answer one question now");
+		assert.match(p.text(), /^On the move 0 of 5 done ?Lecture 7: question 1\?/);
+		await p.tap("Right");
+		assert.match(p.text(), /✓ Right\. Because 1\./);
+		assert.match(p.text(), /1 of 5 done\. Up to you\./);
+		assert.deepEqual(p.buttons(), ["Another one", "Save the rest for later"]);
+		assert.deepEqual(of(p.events, "answered")[0]?.payload, { blockId: "blk1", onTheMove: true, lectureId: "hci-l7", questionId: "l7-q1", choice: 0, correct: true });
+		await p.tap("Another one");
+		assert.match(p.text(), /^On the move 1 of 5 done ?Lecture 7: question 2\?/);
+		await p.tap("Wrong A");
+		assert.match(p.text(), /Not quite: Right\./);
+		await p.tap("Save the rest for later");
+		assert.match(p.text(), /When suits you better\? 2 of 5 done\. The rest of the block moves there\. Nothing is marked missed\./);
+		await p.tap("Tomorrow 08:00");
+		assert.match(p.text(), /Moved to Tomorrow 08:00\. You've already done 2 of 5\. LockedIn will notify you then, and not before\./);
+		assert.equal(of(p.events, "focus_start").length, 0, "the block is not started: the rest of it moved");
+	});
+
+	it("all five on the move finishes the block", async () => {
+		const p = await opened(withRound());
+		await p.tap("On the move");
+		await p.tap("Answer one question now");
+		for (let i = 1; i <= 5; i++) {
+			await p.tap("Right");
+			if (i < 5) await p.tap("Another one");
+		}
+		assert.deepEqual(p.buttons(), ["That's all 5"]);
+		await p.tap("That's all 5");
+		assert.match(p.text(), /All 5 done, on the move\. Nothing left for this block\. Anything you got wrong comes back in a later review\./);
+		assert.doesNotMatch(p.text(), /missed/);
+		assert.deepEqual(of(p.events, "focus_start").map((e) => e.payload), [{ blockId: "blk1" }]);
+		assert.equal(of(p.events, "answered").length, 5);
+	});
+
+	it("a block opened again after some answers carries on where it stopped", async () => {
+		const p = await opened(withRound(), { onMove: { blk1: ["l7-q1", "l7-q2"] } });
+		await p.tap("On the move");
+		await p.tap("Answer one question now");
+		assert.match(p.text(), /^On the move 2 of 5 done ?Lecture 7: question 3\?/);
+	});
+
+	it("\"Just move the block\" opens the move screen; a short bank counts what is really there", async () => {
+		const p = await opened(withRound(2));
+		await p.tap("On the move");
+		await p.tap("Just move the block");
+		assert.match(p.text(), /When suits you better\? The rest of the block moves there\./);
+		const q = await opened(withRound(2));
+		await q.tap("On the move");
+		await q.tap("Answer one question now");
+		assert.match(q.text(), /^On the move 0 of 2 done/);
+	});
+
+	it("a block with no questions to ask offers only to move it", async () => {
+		const p = await opened();
+		await p.tap("On the move");
+		assert.match(p.text(), /Not a good moment for a full block\./);
+		assert.doesNotMatch(p.text(), /One question now/);
+		assert.deepEqual(p.buttons(), [...PLACES, "Just move the block"]);
 	});
 
 	it("a block from a laptop before v2.1 (no goal or first step) still opens, on the laptop as before", async () => {

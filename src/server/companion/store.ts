@@ -65,6 +65,8 @@ export interface RuntimeState {
 	phoneSaved?: { lectureId: string; questionId: string }[];
 	/** The largest notification the relay accepts, from its last answer. Unset for a relay deployed before v2.1. */
 	relayNudgeChars?: number;
+	/** The week's size limit the relay last reported (v2.2: a block's on-the-move questions must fit inside it). */
+	relayBlocksChars?: number;
 }
 
 const FILES = {
