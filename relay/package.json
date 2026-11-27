@@ -8,7 +8,8 @@
 		"db:local": "wrangler d1 execute lockedin-relay --local --file schema.sql",
 		"db:remote": "wrangler d1 execute lockedin-relay --remote --file schema.sql",
 		"vapid": "node scripts/vapid.mjs",
-		"deploy": "wrangler deploy"
+		"vendor": "node scripts/vendor.mjs",
+		"deploy": "node scripts/vendor.mjs && wrangler deploy"
 	},
 	"devDependencies": {
 		"wrangler": "^4"

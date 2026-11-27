@@ -192,6 +192,8 @@ Phone events are replayed exactly once each, in order, logged under their own ty
 
 **v2.2:** a block that is today or tomorrow is uploaded with `round`, up to five questions from its unit's bank, for "On the move". An answer given there is an `answered` event with `blockId` and `onTheMove: true`, saved like any phone answer. The place picked on a block's start is a `block_where` event, `{ blockId, place }`, which is logged and nothing more.
 
+**v2.3:** the upload also carries `practise`, a pool per module of `{ module, name, questions }` (up to ten questions, chosen by the laptop's Practise rule), for "Practise" on the phone's home screen. The relay stores and returns it untouched, and its limit for the week is 200,000 characters. An answer given there is an `answered` event with `practise: true` and `module`. `GET /today` gains `onPhone`: "On your phone today: 4 questions, HCI and Game Theory.", or null. A unit with a phone answer has status `answered`, not `not-started`.
+
 Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", correct?: boolean }` plays the phone's events on the laptop without a phone or relay.
 
 ## Study blocks and the simulated lock

@@ -45,9 +45,19 @@ const COPY = {
 		movedLine: "LockedIn will notify you then, and not before.",
 		noGap: "No free gap is left this week.",
 		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
+		// v2.3: a block opened from the week. One on another day can be looked at and moved, not started (a block starts on its own day).
+		onDay: (day, start) => `This block is on ${day} at ${start}.`,
+		moveIt: "Move it",
+		back: "Back",
 		// v2.2 part C: questions already answered on the move, said on the move screen and after a move (lo-fi "blklater", "blkmoved").
 		doneSoFar: (d, n) => `${d} of ${n} done. `,
 		already: (d, n) => `You've already done ${d} of ${n}. `,
+	},
+	// "Practise" on the home screen (v2.3 part B): questions the laptop left on this phone, a round at a time.
+	practise: {
+		title: "Practise",
+		lead: "Five questions, any time.",
+		none: "You've answered every question on this phone. More arrive when LockedIn is next open on your laptop.",
 	},
 	// "Where are you?" on a block's start (v2.2 part C): the lo-fi's wording (task 2, version A), made optional. Never location: the student says.
 	where: {
@@ -161,6 +171,40 @@ const h = (tag, attrs = {}, ...kids) => {
 	return el;
 };
 const show = (...nodes) => $app.replaceChildren(...nodes);
+
+// ─── maths (v2.3 part C) ────────────────────────────────────────────────────
+// $$…$$ and \[…\] on their own line, \(…\) and $…$ in a sentence. Inline $…$ follows the laptop's rule
+// (src/core/companion/prose.ts, pandoc's), so prices ("$5 and $10") stay words.
+const MATHS = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\((.+?)\\\)|(\$(?=[^\s$])(?:[^$\n\\]|\\.)*?[^\s$\\]\$(?!\d)|\$[^\s$]\$(?!\d))/g;
+/**
+ * A question's text with its maths drawn: words as they are, each piece of maths as an element.
+ * Without the library (it is copied in at deploy), or for markup it can't draw, the text shows as typed.
+ * The library runs with trust off, so what it returns holds no links and no HTML of the question's own.
+ */
+function rich(text) {
+	const s = String(text ?? "");
+	const K = globalThis.katex;
+	if (!K) return [s];
+	const out = [];
+	let last = 0;
+	for (const m of s.matchAll(MATHS)) {
+		const display = m[1] !== undefined || m[2] !== undefined;
+		let html;
+		try {
+			html = K.renderToString(m[1] ?? m[2] ?? m[3] ?? m[4].slice(1, -1), { displayMode: display, throwOnError: true, trust: false, strict: "ignore", output: "html" });
+		} catch {
+			continue;
+		}
+		if (m.index > last) out.push(s.slice(last, m.index));
+		const el = document.createElement("span");
+		el.className = display ? "math math-block" : "math";
+		el.innerHTML = html;
+		out.push(el);
+		last = m.index + m[0].length;
+	}
+	if (last < s.length) out.push(s.slice(last));
+	return out;
+}
 /** A static SVG from ICONS as a node. Never called with anything a server sent. */
 const icon = (name) => {
 	const t = document.createElement("template");
@@ -383,7 +427,7 @@ function unsave(ids, done) {
 const resultBox = (q, choice) => {
 	const right = choice === q.correct;
 	return h("p", { class: right ? "result right" : "result" },
-		h("b", {}, right ? COPY.right : COPY.wrong(q.options[q.correct])), " ", q.explanation,
+		h("b", {}, right ? COPY.right : rich(COPY.wrong(q.options[q.correct]))), " ", rich(q.explanation),
 		q.slides?.length ? h("span", { class: "src" }, COPY.slide(q.unit, q.slides[0])) : null,
 	);
 };
@@ -392,7 +436,7 @@ function questionScreen(n) {
 	void event("opened", n.id, { kind: n.kind });
 	if (!n.question) {
 		// No question in this nudge (the v1 fallback): the laptop is where it continues.
-		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
+		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, rich(n.body)), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
 	}
 	// A laptop from before v2.1 sends no round: one question here, the rest there, as it was.
 	const old = !Array.isArray(n.round);
@@ -440,14 +484,14 @@ function ask(r, first) {
 							h("button", { class: "btn primary", onclick: next }, COPY.another),
 							h("button", { class: "btn", onclick: () => save(r) }, COPY.saveRest),
 						);
-		show(h("main", {}, ...head(), h("h1", {}, q.stem), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
+		show(h("main", {}, ...head(), h("h1", {}, rich(q.stem)), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
 	};
 
 	show(
 		h("main", {},
 			...head(),
-			h("h1", {}, q.stem),
-			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o))),
+			h("h1", {}, rich(q.stem)),
+			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))),
 			first && n?.why ? h("p", { class: "muted small" }, COPY.why(n.why)) : null,
 			first && n ? h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later") : null,
 		),
@@ -501,6 +545,19 @@ function blockScreen(b) {
 	const W = COPY.where;
 	// The place (v2.2 part C) is optional and lives on this screen only: it shapes what comes next, and is never kept.
 	const st = { where: null, intent: null };
+	const back = () => h("button", { class: "btn ghost", onclick: () => render() }, COPY.block.back);
+	const head = () => [
+		bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
+		box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+	];
+	// Opened from the week on another day (v2.3): what it is, why it is there, and a way to move it.
+	if (b.date !== todayKey()) {
+		return show(h("main", {}, ...head(), ...[
+			b.why ? h("p", { class: "muted" }, b.why) : null,
+			h("p", {}, COPY.block.onDay(shortDay(b.date), b.start)),
+			h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => blockLater(b) }, COPY.block.moveIt), back()),
+		].filter((x) => x != null)));
+	}
 	const pick = (place) => {
 		const on = st.where !== place;
 		Object.assign(st, { where: on ? place : null, intent: null });
@@ -535,14 +592,14 @@ function blockScreen(b) {
 	};
 	const draw = () => show(
 		h("main", {},
-			bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
-			box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+			...head(),
 			h("div", { class: "stack where" },
 				h("p", {}, h("b", {}, W.ask), " ", h("span", { class: "muted small" }, W.optional)),
 				h("div", { class: "row", role: "group", "aria-label": W.ask }, W.places.map((p) => h("button", { class: "btn small chip", "aria-pressed": st.where === p ? "true" : "false", onclick: () => pick(p) }, p))),
 				h("p", { class: "muted small" }, W.note),
 			),
 			...rest().filter((x) => x != null),
+			back(),
 		),
 	);
 	draw();
@@ -576,9 +633,9 @@ function onTheMove(b) {
 					h("button", { class: "btn", onclick: () => blockLater(b, done) }, COPY.saveRest),
 				)
 			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => moveAllDone(b) }, COPY.thatsAll(total)));
-		show(h("main", {}, head(), h("h1", {}, q.stem), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
+		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
 	};
-	show(h("main", {}, head(), h("h1", {}, q.stem), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o)))));
+	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
 }
 
 /** Every question of the block answered on the move: the block is done, and the laptop is told it was started. */
@@ -672,6 +729,52 @@ function blockRow(b) {
 	return row;
 }
 
+// ─── Practise from the home screen (v2.3 part B) ───────────────────────────
+/** A round's length: the laptop's own (PHONE_RULES.roundSize, "Question 1 of 5"). */
+const PRACTISE_ROUND = 5;
+// What this phone has asked from a module's pool. A different pool from the laptop starts fresh:
+// the laptop decides what comes back, by the same rule as Practise there.
+const poolKey = (p) => p.questions.map((q) => q.id).join("|");
+const practiseAsked = (p) => { const m = local.get("practised", {})[p.module]; return m && m.key === poolKey(p) ? m.ids : []; };
+const practiseLeft = (p) => p.questions.filter((q) => !practiseAsked(p).includes(q.id));
+function practiseRemember(p, questionId) {
+	const all = local.get("practised", {});
+	all[p.module] = { key: poolKey(p), ids: [...practiseAsked(p), questionId] };
+	local.set("practised", all);
+}
+
+/** The card on the home screen: a button per module with questions left; none at all when the laptop sent no questions. */
+function practiseCard(s) {
+	const pools = (s.practise || []).filter((p) => p.questions?.length);
+	if (!pools.length) return null;
+	const open = pools.filter((p) => practiseLeft(p).length > 0);
+	return h("section", { class: "card" },
+		h("h2", {}, COPY.practise.title), " ",
+		h("p", { class: "muted small" }, open.length ? COPY.practise.lead : COPY.practise.none),
+		open.length ? h("div", { class: "row" }, open.map((p) => h("button", { class: "btn", onclick: () => practiseRound(p) }, p.name))) : null,
+	);
+}
+
+/** One question at a time: the result, then "Another one" or "Done for now". Nothing is saved for later: the pool is still there. */
+function practiseRound(p, round = { total: Math.min(PRACTISE_ROUND, practiseLeft(p).length), done: 0 }) {
+	const q = practiseLeft(p)[0];
+	if (!q || round.done >= round.total) return render();
+	const head = () => bar(COPY.practise.title, `${p.name} · ${COPY.doneOf(round.done, round.total)}`);
+	const choose = (i) => {
+		void event("answered", null, { practise: true, module: p.module, lectureId: q.lectureId, questionId: q.id, choice: i, correct: i === q.correct });
+		practiseRemember(p, q.id);
+		round.done++;
+		const ways = round.done < round.total
+			? h("div", { class: "row" },
+					h("button", { class: "btn primary", onclick: () => practiseRound(p, round) }, COPY.another),
+					h("button", { class: "btn", onclick: () => render() }, COPY.done),
+				)
+			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => render() }, COPY.thatsAll(round.total)));
+		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), ways));
+	};
+	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
+}
+
 // ─── your week and Settings (v2.1 part C; lo-fi task 3) ────────────────────
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const when = (x) => `${x.date} ${x.start}`;
@@ -736,7 +839,8 @@ function weekSection(s) {
 		const moving = st.open === x.id && st.moving;
 		const name = `${shortDay(x.date)} ${x.start}`;
 		return h("li", { class: "wk block-row" },
-			h("p", { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
+			// The block's line opens the block (v2.3), when the laptop sent what its screen shows.
+			h(x.goal ? "button" : "p", x.goal ? { class: "btn wkrow", onclick: () => blockScreen(x) } : { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
 			x.why ? h("p", { class: "muted small" }, x.why) : null,
 			!moving ? h("div", { class: "row" },
 				h("button", { class: "btn small", "aria-label": `${COPY.week.move} ${name}`, onclick: () => { Object.assign(st, { open: x.id, moving: true }); draw(); } }, COPY.week.move),
@@ -845,10 +949,11 @@ async function home() {
 		h("main", {},
 			s.offline ? h("p", { class: "note" }, COPY.offline) : null,
 			h("h1", {}, "LockedIn"),
-			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, rich(question.body)), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
 			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
 			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
+			practiseCard(s),
 			// Your week (v2.1 part C). A laptop or relay from before v2.1 sends no week: the blocks are listed as they were.
 			...(s.week ? [weekSection(s)] : oldWeek(blocks)),
 		),

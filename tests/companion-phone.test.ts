@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
-import { applyPlanEdits, eventsToReplay, fitBlocks, nextVersion, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
+import { applyPlanEdits, eventsToReplay, fitBlocks, fitPractise, nextVersion, PHONE_RULES, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
 import type { Db, Stmt } from "../relay/src/db.ts";
 import { handle, type RelayEnv } from "../relay/src/relay.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
@@ -334,6 +334,114 @@ describe("a block's questions on the move, and the place (v2.2 part C; lo-fi tas
 		]);
 		assert.deepEqual(store.misses().map((m) => m.questionId), ["gt-nash-q2"]);
 		assert.equal(store.blocks()[0]!.status, "accepted", "answering on the move does not start the block: the rest can still be moved");
+	});
+});
+
+describe("the laptop shows what the phone did (v2.3 part D)", () => {
+	it("Today says how many questions were answered on the phone today and in which modules; a unit answered only there is no longer \"not started\"", async () => {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 5);
+		await s.svc.requirePhone().pair();
+		assert.equal(s.svc.today().onPhone, null);
+		const status = () => s.svc.lectures().find((l) => l.id === "gt-nash")?.status;
+		assert.equal(status(), "not-started");
+		const at = new Date(2026, 10, 17, 12, 30).toISOString();
+		s.svc.requirePhone().replay([
+			{ id: "evt-shows-00000001", at, type: "answered", payload: { lectureId: "gt-nash", questionId: "gt-nash-q1", choice: 0, correct: true } },
+			{ id: "evt-shows-00000002", at, type: "answered", payload: { lectureId: "gt-nash", questionId: "gt-nash-q2", choice: 0, correct: true } },
+		]);
+		assert.equal(s.svc.today().onPhone, "On your phone today: 2 questions, Game Theory.");
+		assert.equal(status(), "answered");
+		// The next day the line is gone; the unit's standing stays.
+		s.svc.demoClock({ set: new Date(2026, 10, 18, 9, 0).toISOString() });
+		assert.equal(s.svc.today().onPhone, null);
+		assert.equal(status(), "answered");
+	});
+
+	it("phone answers from before v2.3 count too: the log is read once", async () => {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 5);
+		s.svc.log("answered", { source: "phone", phoneAt: new Date(2026, 10, 10, 12).toISOString(), lectureId: "gt-nash", questionId: "gt-nash-q1", choice: 0, correct: true });
+		// An install from before v2.3 has kept no list.
+		s.store.saveRuntime({ phoneAnsweredLectures: undefined });
+		assert.deepEqual(s.store.state().phoneAnswered, ["gt-nash"]);
+		assert.deepEqual(s.store.runtime().phoneAnsweredLectures, ["gt-nash"]);
+	});
+});
+
+describe("Practise from the phone's home screen (v2.3 part B)", () => {
+	type Q = { id: string; lectureId: string; stem: string; options: string[]; correct: number; unit?: string; module?: string };
+	type Pool = { module: string; name: string; questions: Q[] };
+	/** Tuesday 17 Nov, 12:58, paired. Game Theory has two units with banks (14 questions in all); the sample modules have none here. */
+	async function withBanks(opts: { newRelay?: boolean } = {}) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 8);
+		s.addUnit("gt-mixed", "GT", "Mixed strategies", 6);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		if (opts.newRelay === false) s.store.saveRuntime({ relayNudgeChars: undefined });
+		const sent = () => (s.svc.requirePhone().buildSchedule() as { practise?: Pool[] }).practise;
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { practise?: Pool[]; blocks: unknown[] };
+		return { ...s, sent, read, pairId, token };
+	}
+
+	it(`each module with questions gets a pool of up to ${PHONE_RULES.practisePool}, named as the student knows it`, async () => {
+		const { sent } = await withBanks();
+		const pools = sent()!;
+		const gt = pools.find((p) => p.module === "GT")!;
+		assert.deepEqual([gt.name, gt.questions.length], ["Game Theory", PHONE_RULES.practisePool]);
+		assert.equal(new Set(gt.questions.map((q) => q.id)).size, gt.questions.length, "no question twice");
+		assert.ok(gt.questions.every((q) => q.options.length >= 2 && typeof q.correct === "number" && (q.unit === "Nash equilibrium" || q.unit === "Mixed strategies")));
+		assert.ok(new Set(gt.questions.map((q) => q.lectureId)).size === 2, "mixed across the module's units");
+		assert.ok(pools.every((p) => p.questions.length > 0), "a module with no questions has no pool");
+	});
+
+	it("the same history gives the same pool, so nothing is uploaded again for no reason", async () => {
+		const { sent } = await withBanks();
+		assert.deepEqual(sent(), sent());
+	});
+
+	it("a relay from before v2.1 is sent no pool", async () => {
+		const { sent } = await withBanks({ newRelay: false });
+		assert.equal(sent(), undefined);
+	});
+
+	it("the pool reaches the phone, and stays there when the week is changed on the phone", async () => {
+		const { svc, store, read, phone, pairId, token } = await withBanks();
+		store.saveBlocks([{ id: "blk-a", date: "2026-11-18", start: "14:00", minutes: 50, status: "accepted", source: "student" }]);
+		await svc.requirePhone().sync({ force: true });
+		assert.equal((await read()).practise?.find((p) => p.module === "GT")?.questions.length, PHONE_RULES.practisePool);
+		await phone("POST", `/v1/pairs/${pairId}/events`, token, [{ id: "evt-prac-move-0001", at: new Date(2026, 10, 17, 13).toISOString(), type: "plan_remove", payload: { blockId: "blk-a" } }]);
+		assert.equal((await read()).practise?.find((p) => p.module === "GT")?.questions.length, PHONE_RULES.practisePool);
+	});
+
+	it("an answer given there is saved like any phone answer, and the next pool leads with what has not been asked", async () => {
+		const { svc, store, sent } = await withBanks();
+		const first = sent()!.find((p) => p.module === "GT")!.questions.slice(0, 3);
+		const at = new Date(2026, 10, 17, 13, 5).toISOString();
+		svc.requirePhone().replay(first.map((q, i) => ({ id: `evt-prac-0000000${i}`, at, type: "answered", payload: { practise: true, module: "GT", lectureId: q.lectureId, questionId: q.id, choice: i === 0 ? 1 : 0, correct: i !== 0 } })));
+		assert.deepEqual(store.misses().map((m) => m.questionId), [first[0]!.id], "the wrong one is something to revisit");
+		assert.equal(svc.today().onPhone, "On your phone today: 3 questions, Game Theory.");
+		const next = sent()!.find((p) => p.module === "GT")!.questions.map((q) => q.id);
+		const asked = new Set(first.map((q) => q.id));
+		const unaskedInBank = 14 - 3;
+		assert.ok(next.slice(0, Math.min(unaskedInBank, PHONE_RULES.practisePool) - 2).filter((id) => asked.has(id)).length <= 1, "what was just answered is not asked again first (a gap may come back early)");
+	});
+
+	it("the pools fit the relay: questions come off the largest pool first, and an emptied pool is not sent", () => {
+		const q = { id: "q", stem: "x".repeat(100) };
+		const pools = [{ module: "A", name: "A", questions: [q, q, q] }, { module: "B", name: "B", questions: [q] }];
+		const size = (x: unknown) => JSON.stringify(x).length;
+		assert.deepEqual(fitPractise(pools, 0, size(pools)), pools);
+		assert.deepEqual(fitPractise(pools, 0, size(pools) - 1).map((p) => [p.module, p.questions.length]), [["A", 2], ["B", 1]]);
+		assert.deepEqual(fitPractise(pools, 0, 170).map((p) => [p.module, p.questions.length]), [["B", 1]], "room for one question: one pool of one is left");
+		assert.deepEqual(fitPractise(pools, 10_000, 9_000), [], "no room at all: no pools, and the week is untouched");
+	});
+
+	it("the relay takes a week with its pools", async () => {
+		const { svc, events } = await withBanks();
+		await svc.requirePhone().sync({ force: true });
+		assert.ok(!events().includes("relay_error" as never));
+		assert.ok((svc.requirePhone().buildSchedule() as { practise?: Pool[] }).practise!.length > 0);
 	});
 });
 

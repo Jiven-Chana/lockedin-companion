@@ -93,6 +93,8 @@ export function TodayScreen() {
 				</div>
 			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
+			{/* What was done on the phone today (v2.3 part D): one quiet line, never a score. */}
+			{t?.onPhone ? <p className="li-muted" role="status" style={{ margin: 0 }}>{t.onPhone}</p> : null}
 			<StarterCards phone={!!t?.phoneAvailable && !t.phonePaired} />
 			<div className="li-grid-2">
 				<div className="li-stack" style={{ gap: 24 }}>

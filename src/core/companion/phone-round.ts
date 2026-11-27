@@ -67,3 +67,18 @@ export function fitBlocks<T extends { round?: unknown[] }>(blocks: readonly T[],
 	}
 	return out;
 }
+
+/**
+ * The phone's Practise pools small enough for the relay (v2.3 part B): one
+ * question at a time comes off the end of the largest pool until they fit
+ * beside the blocks and the week (`besideChars`). A pool with nothing left
+ * is not sent. The blocks and the week are never touched for this.
+ */
+export function fitPractise<T extends { questions: unknown[] }>(pools: readonly T[], besideChars: number, maxChars: number): T[] {
+	let out = pools.filter((p) => p.questions.length > 0);
+	while (out.length > 0 && JSON.stringify(out).length + besideChars > maxChars) {
+		const largest = out.reduce((a, b) => (b.questions.length > a.questions.length ? b : a));
+		out = out.map((p) => (p === largest ? { ...p, questions: p.questions.slice(0, -1) } : p)).filter((p) => p.questions.length > 0);
+	}
+	return out;
+}

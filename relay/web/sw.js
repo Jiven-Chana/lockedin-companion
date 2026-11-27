@@ -11,7 +11,15 @@ const DATA = "lockedin-data-v1";
 const FILES = ["/p", "/app.js", "/styles.css", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (e) => {
-	e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+	e.waitUntil(
+		caches.open(SHELL)
+			.then(async (c) => {
+				await c.addAll(FILES);
+				// The maths library and its fonts (v2.3), so maths is drawn with no connection. Best effort: the app works without them.
+				await fetch("/vendor/katex/files.json").then((r) => (r.ok ? r.json() : [])).then((list) => c.addAll(list)).catch(() => undefined);
+			})
+			.then(() => self.skipWaiting()),
+	);
 });
 self.addEventListener("activate", (e) => {
 	e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== SHELL && k !== DATA).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

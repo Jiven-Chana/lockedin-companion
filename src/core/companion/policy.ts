@@ -142,6 +142,16 @@ export const SCORE_RULES = {
 } as const;
 
 /** Progress: the wording of the score, its chart and "needs attention" (v1.1). Never "behind", never a deficit number. */
+/** Today (v2.3 part D): what was done on the phone, as one quiet line. Counts and module names only; never how many were right (R-6). */
+export const TODAY_COPY = {
+	onPhone: (questions: number, modules: readonly string[]): string | null => {
+		if (questions < 1) return null;
+		const count = questions === 1 ? "1 question" : `${questions} questions`;
+		const names = modules.length > 1 ? `${modules.slice(0, -1).join(", ")} and ${modules[modules.length - 1]}` : (modules[0] ?? "");
+		return `On your phone today: ${count}${names ? `, ${names}` : ""}.`;
+	},
+} as const;
+
 export const PROGRESS_COPY = {
 	/** The week is one tap from Progress (v2.2; asked for in the look test). */
 	seeWeek: "See your week",
@@ -969,6 +979,8 @@ export const PHONE_RULES = {
 	roundSize: 5,
 	/** Questions kept by "Done for now" and "Save the rest for later": at most the rest of one round. */
 	savedMax: 4,
+	/** Practise from the phone's home screen (v2.3): this many questions per module are kept on the phone, chosen again at every upload. */
+	practisePool: 10,
 	/** A block's questions for "On the move" (v2.2) are sent for today's blocks and this many days ahead; later blocks get theirs nearer the day. */
 	blockRoundDaysAhead: 1,
 	/** The week's size limit on a relay that has not said its own (v2.1's relay: 60,000). */

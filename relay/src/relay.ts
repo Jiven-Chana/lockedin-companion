@@ -28,8 +28,8 @@ export const LIMITS = {
 	payloadChars: 12_000,
 	eventsPerPost: 50,
 	eventPayloadChars: 2_000,
-	/** The week: the blocks with what the phone shows for each, the lectures between them and the free times (v2.1; 20,000 before). */
-	blocksChars: 60_000,
+	/** The week: the blocks with what the phone shows for each, the lectures between them, the free times, and since v2.3 a pool of questions per module (60,000 in v2.1 and v2.2; 20,000 before). */
+	blocksChars: 200_000,
 	/** New pairs per minute, across the relay (a cheap rate limit with no per-IP state). */
 	pairsPerMinute: 30,
 	eventsPage: 200,
@@ -58,6 +58,8 @@ const limits = () => ({ nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blo
 interface Plan {
 	blocks: Record<string, unknown>[];
 	week?: Record<string, unknown>;
+	/** v2.3: questions the phone can ask by itself, per module. Stored and handed back as they came; the relay never reads them. */
+	practise?: Record<string, unknown>[];
 }
 function readPlan(text: string | null | undefined): Plan {
 	let v: unknown;
@@ -67,10 +69,14 @@ function readPlan(text: string | null | undefined): Plan {
 		v = [];
 	}
 	if (Array.isArray(v)) return { blocks: v as Record<string, unknown>[] };
-	const o = (v ?? {}) as { blocks?: unknown; week?: unknown };
-	return { blocks: Array.isArray(o.blocks) ? (o.blocks as Record<string, unknown>[]) : [], ...(o.week && typeof o.week === "object" ? { week: o.week as Record<string, unknown> } : {}) };
+	const o = (v ?? {}) as { blocks?: unknown; week?: unknown; practise?: unknown };
+	return {
+		blocks: Array.isArray(o.blocks) ? (o.blocks as Record<string, unknown>[]) : [],
+		...(o.week && typeof o.week === "object" ? { week: o.week as Record<string, unknown> } : {}),
+		...(Array.isArray(o.practise) ? { practise: o.practise as Record<string, unknown>[] } : {}),
+	};
 }
-const writePlan = (p: Plan) => JSON.stringify(p.week ? p : p.blocks);
+const writePlan = (p: Plan) => JSON.stringify(p.week || p.practise ? p : p.blocks);
 /** A notification that must not fire while its block is removed: its real time stays in its payload, for "Undo". */
 const PARKED = "9999-12-31T00:00:00.000Z";
 
@@ -189,7 +195,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 
 			if (rest === "/schedule" && req.method === "PUT") {
 				if (!(await authorise(env, req, pairId, ["laptop"]))) return fail(401, "unauthorised");
-				const body = (await readJson(req, LIMITS.nudges * LIMITS.payloadChars + LIMITS.blocksChars)) as { version?: unknown; timeZone?: unknown; nudges?: unknown; blocks?: unknown; week?: unknown };
+				const body = (await readJson(req, LIMITS.nudges * LIMITS.payloadChars + LIMITS.blocksChars)) as { version?: unknown; timeZone?: unknown; nudges?: unknown; blocks?: unknown; week?: unknown; practise?: unknown };
 				if (!Number.isInteger(body.version)) return fail(400, "version is required");
 				const nudges = Array.isArray(body.nudges) ? (body.nudges as ScheduledNudgeIn[]) : [];
 				if (nudges.length > LIMITS.nudges) return fail(400, "too many nudges");
@@ -197,7 +203,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 					if (typeof n?.id !== "string" || !n.id || Number.isNaN(Date.parse(n.fireAt)) || Number.isNaN(Date.parse(n.expiresAt))) return fail(400, "each nudge needs id, fireAt and expiresAt");
 					if (JSON.stringify(n).length > LIMITS.payloadChars) return fail(400, "a nudge is too large");
 				}
-				const blocks = writePlan({ blocks: Array.isArray(body.blocks) ? (body.blocks as Record<string, unknown>[]) : [], ...(body.week && typeof body.week === "object" ? { week: body.week as Record<string, unknown> } : {}) });
+				const blocks = writePlan({ blocks: Array.isArray(body.blocks) ? (body.blocks as Record<string, unknown>[]) : [], ...(body.week && typeof body.week === "object" ? { week: body.week as Record<string, unknown> } : {}), ...(Array.isArray(body.practise) ? { practise: body.practise as Record<string, unknown>[] } : {}) });
 				if (blocks.length > LIMITS.blocksChars) return fail(400, "too many blocks");
 				// Versions only go up (§5.2): a stale or repeated upload changes nothing.
 				const cur = await env.DB.prepare("SELECT schedule_version FROM pairs WHERE id = ?").bind(pairId).first<{ schedule_version: number }>();
@@ -222,7 +228,7 @@ export async function handle(req: Request, env: RelayEnv, now = new Date()): Pro
 				const p = await env.DB.prepare("SELECT time_zone, blocks FROM pairs WHERE id = ?").bind(pairId).first<{ time_zone: string | null; blocks: string }>();
 				const rows = (await env.DB.prepare("SELECT payload, sent_at FROM nudges WHERE pair_id = ? AND expires_at > ? ORDER BY fire_at").bind(pairId, now.toISOString()).all<{ payload: string; sent_at: string | null }>()).results;
 				const plan = readPlan(p?.blocks);
-				return json({ now: now.toISOString(), timeZone: p?.time_zone ?? null, blocks: plan.blocks, ...(plan.week ? { week: plan.week } : {}), nudges: rows.map((r) => ({ ...JSON.parse(r.payload), sentAt: r.sent_at })) });
+				return json({ now: now.toISOString(), timeZone: p?.time_zone ?? null, blocks: plan.blocks, ...(plan.week ? { week: plan.week } : {}), ...(plan.practise ? { practise: plan.practise } : {}), nudges: rows.map((r) => ({ ...JSON.parse(r.payload), sentAt: r.sent_at })) });
 			}
 
 			if (rest === "/subscriptions" && req.method === "POST") {

@@ -790,4 +790,6 @@ export interface CompanionState {
 	sessions: CompanionSession[];
 	misses: Miss[];
 	nudges: NudgeRecord[];
+	/** Units with at least one answer given on the phone (v2.3 part D): such a unit is not "not started". */
+	phoneAnswered?: string[];
 }

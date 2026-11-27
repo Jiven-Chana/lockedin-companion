@@ -64,6 +64,8 @@ export interface RuntimeState {
 	/** v2.1 (V-46): questions left with "Done for now" or "Save the rest for later"; they follow the next notification's own question. */
 	phoneSaved?: { lectureId: string; questionId: string }[];
 	/** The largest notification the relay accepts, from its last answer. Unset for a relay deployed before v2.1. */
+	/** Units answered on the phone at least once (v2.3 part D), so reading a unit's standing never means reading the whole log. */
+	phoneAnsweredLectures?: string[];
 	relayNudgeChars?: number;
 	/** The week's size limit the relay last reported (v2.2: a block's on-the-move questions must fit inside it). */
 	relayBlocksChars?: number;
@@ -276,7 +278,24 @@ export class CompanionStore {
 			sessions: this.sessions(),
 			misses: this.misses(),
 			nudges: this.nudges(),
+			phoneAnswered: this.phoneAnswered(),
 		};
+	}
+
+	/**
+	 * Units answered on the phone (v2.3 part D). Kept in the runtime file; an
+	 * install from before v2.3 reads its log once to fill it.
+	 */
+	phoneAnswered(): string[] {
+		const kept = this.runtime().phoneAnsweredLectures;
+		if (kept) return kept;
+		const fromLog = [...new Set(this.events().flatMap((e) => (e.type === "answered" && e.data.source === "phone" && typeof e.data.lectureId === "string" ? [e.data.lectureId] : [])))];
+		this.saveRuntime({ phoneAnsweredLectures: fromLog });
+		return fromLog;
+	}
+	addPhoneAnswered(lectureId: string): void {
+		const kept = this.phoneAnswered();
+		if (!kept.includes(lectureId)) this.saveRuntime({ phoneAnsweredLectures: [...kept, lectureId] });
 	}
 
 	/**
