@@ -54,12 +54,16 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 	/** The first run chooses the models once, by itself. */
 	const autoChosen = useRef(false);
 
+	// The parent's callbacks are read when a status arrives, never as a reason to load again:
+	// a parent that hands over a new function on every draw would otherwise have this panel ask without stopping.
+	const tell = useRef({ onReadyChange, onStatus });
+	tell.current = { onReadyChange, onStatus };
 	const apply = useCallback((s: AiFullStatus) => {
 		setStatus(s);
 		setDraft(s.slots);
-		onReadyChange?.(s.ready);
-		onStatus?.(s);
-	}, [onReadyChange, onStatus]);
+		tell.current.onReadyChange?.(s.ready);
+		tell.current.onStatus?.(s);
+	}, []);
 
 	const refresh = useCallback(async () => {
 		setMsg(null);

@@ -30,7 +30,6 @@ function Seg<T extends string | number>({ label, value, options, onChange }: { l
 export function MeScreen() {
 	const router = useRouter();
 	const { appearance, setAppearance, moduleLook, refreshModules } = useLockedIn();
-	const aiStatus = useData(() => lockedIn.ai.status());
 	// "Advanced" is closed unless a link asked for something inside it (#blocks, #routine, #voice, #advanced).
 	const [advanced, setAdvanced] = useState(false);
 	useEffect(() => {
@@ -45,7 +44,7 @@ export function MeScreen() {
 	const [prefs, setPrefs] = useState<Profile["prefs"] | null>(null);
 	const [notify, setNotify] = useLocalFlag("li-notify");
 	const [msg, setMsg] = useState<string | null>(null);
-	// The AI status is loaded once, by "Your AI"; Voice reads its key state from it.
+	// The AI status is loaded once, by the AI panel in "Advanced"; the "Your AI" line and Voice read it from there.
 	const [ai, setAi] = useState<AiFullStatus | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -90,10 +89,10 @@ export function MeScreen() {
 			<section id="ai" className="li-card li-row" aria-labelledby="ai-h" style={{ gap: 14 }}>
 				<span style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
 					<h2 id="ai-h" className="li-h2">Your AI</h2>
-					<span className="li-muted">{aiStatus.data ? (aiStatus.data.ready ? "Connected. It teaches your Learn sessions and writes your questions." : (aiStatus.data.blocker ?? AI_COPY.fallback)) : "Checking…"}</span>
+					<span className="li-muted">{ai ? (ai.ready ? "Connected. It teaches your Learn sessions and writes your questions." : (ai.blocker ?? AI_COPY.fallback)) : "Checking…"}</span>
 				</span>
-				{aiStatus.data?.ready ? <span className="li-status solid"><Icon.check />Connected</span> : null}
-				<button type="button" className="li-btn" onClick={() => openAdvanced("ai-settings")}>{aiStatus.data?.ready ? "Change" : "Connect"}<Icon.arrow /></button>
+				{ai?.ready ? <span className="li-status solid"><Icon.check />Connected</span> : null}
+				<button type="button" className="li-btn" onClick={() => openAdvanced("ai-settings")}>{ai?.ready ? "Change" : "Connect"}<Icon.arrow /></button>
 			</section>
 
 			<section id="phone" className="li-card li-stack" aria-labelledby="ph-h" style={{ gap: 12 }}>
@@ -173,7 +172,7 @@ export function MeScreen() {
 					<section id="ai-settings" className="li-stack" aria-labelledby="ais-h" style={{ gap: 12 }}>
 						<h3 id="ais-h" className="li-h2" style={{ fontSize: "1.25em" }}>Your AI and its models</h3>
 						<span className="li-muted">The AI that teaches your sessions, and the model behind each part of the teacher.</span>
-						<ConnectAi variant="settings" onStatus={(st) => { setAi(st); void aiStatus.reload(); }} />
+						<ConnectAi variant="settings" onStatus={setAi} />
 					</section>
 					<section id="voice" className="li-stack" aria-labelledby="vo-h" style={{ gap: 12 }}>
 						<h3 id="vo-h" className="li-h2" style={{ fontSize: "1.25em" }}>Voice</h3>
