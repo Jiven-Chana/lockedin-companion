@@ -7,15 +7,38 @@
 import { openMisses } from "./misses.ts";
 import { latestEndedLecture, specFor } from "./nudges.ts";
 import { SESSION_COPY, WELCOME_BACK_DAYS } from "./policy.ts";
-import { addDays, startOfWeek } from "./time.ts";
+import { addDays, dateKey, startOfWeek } from "./time.ts";
 import { isTimed, type TimedLecture } from "./timetable.ts";
-import type { CompanionSession, CompanionState, Lecture, Miss, SessionSpec } from "./types.ts";
+import type { CompanionSession, CompanionState, EventLogEntry, Lecture, Miss, SessionSpec } from "./types.ts";
 
 export type LectureStatus = "answered" | "revisit" | "not-started";
 
-export function lectureStatus(lectureId: string, sessions: CompanionSession[], misses: Miss[]): LectureStatus {
+/** `phoneAnswered`: units answered on the phone (v2.3). An answer there is an answer: the unit is no longer "not started". */
+export function lectureStatus(lectureId: string, sessions: CompanionSession[], misses: Miss[], phoneAnswered: readonly string[] = []): LectureStatus {
 	if (openMisses(misses, lectureId).length > 0) return "revisit";
-	return sessions.some((s) => s.spec.lectureId === lectureId && s.answered > 0) ? "answered" : "not-started";
+	return phoneAnswered.includes(lectureId) || sessions.some((s) => s.spec.lectureId === lectureId && s.answered > 0) ? "answered" : "not-started";
+}
+
+/**
+ * What was answered on the phone on the day of `now` (v2.3 part D): how many
+ * questions, and their modules in the order first answered. The day is the
+ * one the phone answered on, not the one the laptop heard about it. Right
+ * and wrong count the same, and neither is reported (R-6).
+ */
+export function phoneToday(events: readonly EventLogEntry[], lectures: readonly Pick<Lecture, "id" | "module">[], now: Date): { questions: number; modules: string[] } {
+	const today = dateKey(now);
+	const moduleOf = new Map(lectures.map((l) => [l.id, l.module]));
+	const modules: string[] = [];
+	let questions = 0;
+	for (const e of events) {
+		if (e.type !== "answered" || e.data.source !== "phone") continue;
+		const phoneAt = e.data.phoneAt;
+		if (dateKey(new Date(typeof phoneAt === "string" && !Number.isNaN(Date.parse(phoneAt)) ? phoneAt : e.t)) !== today) continue;
+		questions++;
+		const m = typeof e.data.lectureId === "string" ? moduleOf.get(e.data.lectureId) : undefined;
+		if (m && !modules.includes(m)) modules.push(m);
+	}
+	return { questions, modules };
 }
 
 export interface LectureWithStatus extends Lecture {
@@ -23,14 +46,14 @@ export interface LectureWithStatus extends Lecture {
 	revisit: number;
 }
 
-export function lecturesWithStatus(state: Pick<CompanionState, "lectures" | "sessions" | "misses">): LectureWithStatus[] {
+export function lecturesWithStatus(state: Pick<CompanionState, "lectures" | "sessions" | "misses" | "phoneAnswered">): LectureWithStatus[] {
 	return state.lectures
 		.filter((l) => (l.kind ?? "lecture") === "lecture")
-		.map((l) => ({ ...l, status: lectureStatus(l.id, state.sessions, state.misses), revisit: openMisses(state.misses, l.id).length }));
+		.map((l) => ({ ...l, status: lectureStatus(l.id, state.sessions, state.misses, state.phoneAnswered), revisit: openMisses(state.misses, l.id).length }));
 }
 
 /** Course order per module (the roadmap, INT-01-e). */
-export function roadmap(state: Pick<CompanionState, "lectures" | "sessions" | "misses">): Record<string, LectureWithStatus[]> {
+export function roadmap(state: Pick<CompanionState, "lectures" | "sessions" | "misses" | "phoneAnswered">): Record<string, LectureWithStatus[]> {
 	const out: Record<string, LectureWithStatus[]> = {};
 	for (const l of lecturesWithStatus(state)) (out[l.module] ??= []).push(l);
 	for (const list of Object.values(out)) list.sort((a, b) => a.order - b.order);

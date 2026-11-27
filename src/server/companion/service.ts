@@ -30,7 +30,7 @@ import {
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
 import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, TODAY_COPY, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -50,7 +50,7 @@ import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../co
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
 import { checkProposal, currentWeek, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
-import { lecturesWithStatus, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
+import { lecturesWithStatus, phoneToday, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
 import { parseMermaidPlan } from "../../agent/tools/mermaid-plan.ts";
@@ -1732,6 +1732,8 @@ export class CompanionService {
 
 	/** An answer given on the phone: a wrong one becomes an idea to revisit, as on the laptop (§6.8). */
 	phoneAnswer(a: { lectureId: string; questionId: string; choice: number; correct: boolean; at: string }) {
+		// An answer on the phone is an answer (v2.3 part D): its unit is no longer "not started".
+		if (this.lectureById(a.lectureId)) this.store.addPhoneAnswered(a.lectureId);
 		const q = this.packs?.bank(a.lectureId)?.find((x) => x.id === a.questionId);
 		if (!q || a.correct) return;
 		const record: AnswerRecord = { questionId: q.id, questionText: q.stem, nodeId: q.node, graded: true, correct: false, dontKnow: false, shown: false, correctLabels: [q.options[q.correct]], explanation: q.explanation, answeredAt: a.at };
@@ -3132,7 +3134,11 @@ export class CompanionService {
 			}
 			return null;
 		})();
+		// What was done on the phone today (v2.3 part D): one quiet line, counts and module names only.
+		const phone = phoneToday(this.store.events(), state.lectures, now);
+		const onPhone = TODAY_COPY.onPhone(phone.questions, phone.modules.map((code) => state.profile?.modules.find((m) => m.code === code)?.name ?? code));
 		return {
+			onPhone,
 			now: now.toISOString(),
 			// A profile made by setup isn't set up until setup's end is reached (V-45).
 			onboarded: !!state.profile && !this.inSetup(state.profile),

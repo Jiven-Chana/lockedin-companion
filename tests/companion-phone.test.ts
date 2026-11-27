@@ -337,6 +337,38 @@ describe("a block's questions on the move, and the place (v2.2 part C; lo-fi tas
 	});
 });
 
+describe("the laptop shows what the phone did (v2.3 part D)", () => {
+	it("Today says how many questions were answered on the phone today and in which modules; a unit answered only there is no longer \"not started\"", async () => {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 5);
+		await s.svc.requirePhone().pair();
+		assert.equal(s.svc.today().onPhone, null);
+		const status = () => s.svc.lectures().find((l) => l.id === "gt-nash")?.status;
+		assert.equal(status(), "not-started");
+		const at = new Date(2026, 10, 17, 12, 30).toISOString();
+		s.svc.requirePhone().replay([
+			{ id: "evt-shows-00000001", at, type: "answered", payload: { lectureId: "gt-nash", questionId: "gt-nash-q1", choice: 0, correct: true } },
+			{ id: "evt-shows-00000002", at, type: "answered", payload: { lectureId: "gt-nash", questionId: "gt-nash-q2", choice: 0, correct: true } },
+		]);
+		assert.equal(s.svc.today().onPhone, "On your phone today: 2 questions, Game Theory.");
+		assert.equal(status(), "answered");
+		// The next day the line is gone; the unit's standing stays.
+		s.svc.demoClock({ set: new Date(2026, 10, 18, 9, 0).toISOString() });
+		assert.equal(s.svc.today().onPhone, null);
+		assert.equal(status(), "answered");
+	});
+
+	it("phone answers from before v2.3 count too: the log is read once", async () => {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 5);
+		s.svc.log("answered", { source: "phone", phoneAt: new Date(2026, 10, 10, 12).toISOString(), lectureId: "gt-nash", questionId: "gt-nash-q1", choice: 0, correct: true });
+		// An install from before v2.3 has kept no list.
+		s.store.saveRuntime({ phoneAnsweredLectures: undefined });
+		assert.deepEqual(s.store.state().phoneAnswered, ["gt-nash"]);
+		assert.deepEqual(s.store.runtime().phoneAnsweredLectures, ["gt-nash"]);
+	});
+});
+
 describe("the week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	type W = { lectures: { date: string; start: string; title: string }[]; free: { date: string; start: string }[]; nudgesPerDay: number; blockMinutes: number };
 	async function withWeek() {

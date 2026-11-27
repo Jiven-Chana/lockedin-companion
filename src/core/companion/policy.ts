@@ -142,6 +142,16 @@ export const SCORE_RULES = {
 } as const;
 
 /** Progress: the wording of the score, its chart and "needs attention" (v1.1). Never "behind", never a deficit number. */
+/** Today (v2.3 part D): what was done on the phone, as one quiet line. Counts and module names only; never how many were right (R-6). */
+export const TODAY_COPY = {
+	onPhone: (questions: number, modules: readonly string[]): string | null => {
+		if (questions < 1) return null;
+		const count = questions === 1 ? "1 question" : `${questions} questions`;
+		const names = modules.length > 1 ? `${modules.slice(0, -1).join(", ")} and ${modules[modules.length - 1]}` : (modules[0] ?? "");
+		return `On your phone today: ${count}${names ? `, ${names}` : ""}.`;
+	},
+} as const;
+
 export const PROGRESS_COPY = {
 	/** The week is one tap from Progress (v2.2; asked for in the look test). */
 	seeWeek: "See your week",

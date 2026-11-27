@@ -86,6 +86,8 @@ export type LectureWithStatus = Lecture & { status: "answered" | "revisit" | "no
 
 export interface TodayData {
 	now: string;
+	/** "On your phone today: 4 questions, HCI and Game Theory." (v2.3 part D), or null on a day with no phone answers. */
+	onPhone: string | null;
 	onboarded: boolean;
 	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
 	lectures: LectureWithStatus[];
