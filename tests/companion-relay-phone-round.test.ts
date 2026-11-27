@@ -52,6 +52,15 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unkno
 		app, events, buttons,
 		text: () => (app.textContent ?? "").replace(/\s+/g, " ").trim(),
 		saved: () => JSON.parse(local.get("saved") ?? "null") as { total: number; done: number; label: string; questions: { id: string }[] } | null,
+		/** A button inside the week row whose text has `row` (v2.2: every block row has its own Move and Remove). */
+		tapIn: async (row: string, label: string) => {
+			const li = [...app.querySelectorAll("li")].find((x) => (x.textContent ?? "").replace(/\s+/g, " ").includes(row));
+			assert.ok(li, `no row with "${row}"`);
+			const b = [...li.querySelectorAll("button")].find((x) => (x.textContent ?? "").trim() === label);
+			assert.ok(b, `no button "${label}" in the row "${row}"`);
+			b.dispatchEvent(new DomEvent("click"));
+			await settle();
+		},
 		tap: async (label: string) => {
 			const b = [...app.querySelectorAll("button")].find((x) => (x.textContent ?? "").trim() === label);
 			assert.ok(b, `no button "${label}" among: ${buttons().join(" | ")}`);
@@ -228,7 +237,7 @@ describe("what was saved (Jiven, 25 Nov: a card, and next after the next notific
 	});
 });
 
-describe("the notification itself (lo-fi: \"Why now\" on the lock screen)", () => {
+describe("the notification itself (v2.2: the lead line and the question, nothing else)", () => {
 	async function push(nudges: unknown[]) {
 		const shown: { title: string; body: string }[] = [];
 		const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -251,9 +260,9 @@ describe("the notification itself (lo-fi: \"Why now\" on the lock screen)", () =
 		return shown;
 	}
 
-	it("says why now under the question; a notification with no reason is left as it was", async () => {
+	it("is the lead line and the question; the reason stays on the question screen", async () => {
 		const cases = [
-			{ name: "a question with a reason", n: nudge(), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?\nWhy now: lecture ended, you're free till 15:00" } },
+			{ name: "a question with a reason", n: nudge(), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?" } },
 			{ name: "no reason", n: nudge({ why: undefined }), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?" } },
 		];
 		for (const c of cases) assert.deepEqual(await push([c.n]), [c.want], c.name);
@@ -275,7 +284,11 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		...over,
 	});
 	const blockNudge = { id: `block:blk1:${date}`, kind: "block", blockId: "blk1", title: "Thu 14:00 · your study block", body: "Lecture 7. First step: slide 12, one question.", opens: "session", fireAt: started.toISOString(), sentAt: started.toISOString(), expiresAt: "2099-01-01T00:00:00.000Z" };
-	const opened = (b = block()) => open({ nudges: [blockNudge], blocks: [b], open: blockNudge.id });
+	const opened = (b = block(), local: Record<string, unknown> = {}) => open({ nudges: [blockNudge], blocks: [b], open: blockNudge.id, local });
+	const PLACES = ["Library", "Desk", "Bed", "Café", "On the move"];
+	// v2.2 part C: a block that is near arrives with its unit's questions, for "On the move".
+	const rq = (n: number) => ({ id: `l7-q${n}`, lectureId: "hci-l7", stem: `Lecture 7: question ${n}?`, options: ["Right", "Wrong A", "Wrong B"], correct: 0, explanation: `Because ${n}.`, slides: [12], unit: "Lecture 7", module: "HCI" });
+	const withRound = (n = 5) => block({ round: Array.from({ length: n }, (_, i) => rq(i + 1)) });
 
 	it("the notification opens the block: its goal, its first step, and two ways on", async () => {
 		const p = await opened();
@@ -283,7 +296,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.match(p.text(), new RegExp(`${start}-\\d\\d:\\d\\d`));
 		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
 		assert.match(p.text(), /First step: open slide 12, answer one question/);
-		assert.deepEqual(p.buttons(), ["Take the first step", "Not now"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
 		assert.equal(p.app.querySelector("button.primary")?.textContent, "Take the first step");
 	});
 
@@ -314,7 +327,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.match(p.text(), /When suits you better\? The rest of the block moves there\. Nothing is marked missed\./);
 		assert.deepEqual(p.buttons(), ["Today 16:00", "This evening 18:00", "Tomorrow 08:00", "Pick for me: next free gap"]);
 		await p.tap("Tomorrow 08:00");
-		assert.match(p.text(), /Moved to Tomorrow 08:00\. LockedIn will nudge you then, and not before\./);
+		assert.match(p.text(), /Moved to Tomorrow 08:00\. LockedIn will notify you then, and not before\./);
 		const [m] = of(p.events, "plan_move");
 		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start], ["blk1", tomorrowKey, "08:00"]);
 		assert.equal(m?.payload.fireAt, new Date(`${tomorrowKey}T08:00:00`).toISOString(), "the relay is told the moment, on this phone's clock");
@@ -334,6 +347,126 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		await p.tap("Not now");
 		assert.match(p.text(), /No free gap is left this week\./);
 		assert.equal(of(p.events, "plan_move").length, 0);
+	});
+
+	it("asks where you are as an option (v2.2): the start buttons work with nothing picked, and nothing is sent", async () => {
+		const p = await opened();
+		assert.match(p.text(), /Where are you\? \(optional\)/);
+		assert.match(p.text(), /You tell us\. We never track your location\./);
+		await p.tap("Take the first step");
+		assert.match(p.text(), /Put your phone face down\./);
+		assert.equal(of(p.events, "block_where").length, 0);
+	});
+
+	it("Library and Desk go straight on; the place is told to the laptop's log, and the desk has its own tip", async () => {
+		const p = await opened();
+		await p.tap("Desk");
+		assert.deepEqual(of(p.events, "block_where").map((e) => e.payload), [{ blockId: "blk1", place: "Desk" }]);
+		assert.equal(p.app.querySelector("button[aria-pressed=true]")?.textContent, "Desk");
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		await p.tap("Take the first step");
+		assert.match(p.text(), /At your desk\. Phone face down, out of reach if you can\./);
+		assert.doesNotMatch(p.text(), /Put your phone face down\./);
+	});
+
+	const askFirst: { place: string; tip: RegExp; running: RegExp }[] = [
+		{ place: "Bed", tip: /Sitting up, phone out of reach, makes starting easier\./, running: /Phone across the room, if you can\./ },
+		{ place: "Café", tip: /Headphones help if it's busy\./, running: /Headphones on, phone face down\./ },
+	];
+	for (const c of askFirst) {
+		it(`${c.place} asks "study now, or later?" before anything else`, async () => {
+			const p = await opened();
+			await p.tap(c.place);
+			assert.match(p.text(), /Do you want to study now, or later\?/);
+			assert.deepEqual(p.buttons(), [...PLACES, "Study now", "Later"]);
+			await p.tap("Study now");
+			assert.match(p.text(), c.tip);
+			assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+			await p.tap("Take the first step");
+			assert.match(p.text(), c.running);
+		});
+	}
+
+	it("\"Later\" from bed goes straight to moving the block", async () => {
+		const p = await opened();
+		await p.tap("Bed");
+		await p.tap("Later");
+		assert.match(p.text(), /When suits you better\? The rest of the block moves there\. Nothing is marked missed\./);
+	});
+
+	it("tapping the picked place again un-picks it", async () => {
+		const p = await opened();
+		await p.tap("Bed");
+		await p.tap("Bed");
+		assert.equal(p.app.querySelector("button[aria-pressed=true]"), null);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		assert.equal(of(p.events, "block_where").length, 1, "un-picking sends nothing");
+	});
+
+	it("On the move: one question now, then another one or the rest later", async () => {
+		const p = await opened(withRound());
+		await p.tap("On the move");
+		assert.match(p.text(), /Not a good moment for a full block\. One question now, and the rest when you sit down\?/);
+		assert.deepEqual(p.buttons(), [...PLACES, "Answer one question now", "Just move the block"]);
+		assert.equal(p.app.querySelector("button.primary")?.textContent, "Answer one question now");
+		await p.tap("Answer one question now");
+		assert.match(p.text(), /^On the move 0 of 5 done ?Lecture 7: question 1\?/);
+		await p.tap("Right");
+		assert.match(p.text(), /✓ Right\. Because 1\./);
+		assert.match(p.text(), /1 of 5 done\. Up to you\./);
+		assert.deepEqual(p.buttons(), ["Another one", "Save the rest for later"]);
+		assert.deepEqual(of(p.events, "answered")[0]?.payload, { blockId: "blk1", onTheMove: true, lectureId: "hci-l7", questionId: "l7-q1", choice: 0, correct: true });
+		await p.tap("Another one");
+		assert.match(p.text(), /^On the move 1 of 5 done ?Lecture 7: question 2\?/);
+		await p.tap("Wrong A");
+		assert.match(p.text(), /Not quite: Right\./);
+		await p.tap("Save the rest for later");
+		assert.match(p.text(), /When suits you better\? 2 of 5 done\. The rest of the block moves there\. Nothing is marked missed\./);
+		await p.tap("Tomorrow 08:00");
+		assert.match(p.text(), /Moved to Tomorrow 08:00\. You've already done 2 of 5\. LockedIn will notify you then, and not before\./);
+		assert.equal(of(p.events, "focus_start").length, 0, "the block is not started: the rest of it moved");
+	});
+
+	it("all five on the move finishes the block", async () => {
+		const p = await opened(withRound());
+		await p.tap("On the move");
+		await p.tap("Answer one question now");
+		for (let i = 1; i <= 5; i++) {
+			await p.tap("Right");
+			if (i < 5) await p.tap("Another one");
+		}
+		assert.deepEqual(p.buttons(), ["That's all 5"]);
+		await p.tap("That's all 5");
+		assert.match(p.text(), /All 5 done, on the move\. Nothing left for this block\. Anything you got wrong comes back in a later review\./);
+		assert.doesNotMatch(p.text(), /missed/);
+		assert.deepEqual(of(p.events, "focus_start").map((e) => e.payload), [{ blockId: "blk1" }]);
+		assert.equal(of(p.events, "answered").length, 5);
+	});
+
+	it("a block opened again after some answers carries on where it stopped", async () => {
+		const p = await opened(withRound(), { onMove: { blk1: ["l7-q1", "l7-q2"] } });
+		await p.tap("On the move");
+		await p.tap("Answer one question now");
+		assert.match(p.text(), /^On the move 2 of 5 done ?Lecture 7: question 3\?/);
+	});
+
+	it("\"Just move the block\" opens the move screen; a short bank counts what is really there", async () => {
+		const p = await opened(withRound(2));
+		await p.tap("On the move");
+		await p.tap("Just move the block");
+		assert.match(p.text(), /When suits you better\? The rest of the block moves there\./);
+		const q = await opened(withRound(2));
+		await q.tap("On the move");
+		await q.tap("Answer one question now");
+		assert.match(q.text(), /^On the move 0 of 2 done/);
+	});
+
+	it("a block with no questions to ask offers only to move it", async () => {
+		const p = await opened();
+		await p.tap("On the move");
+		assert.match(p.text(), /Not a good moment for a full block\./);
+		assert.doesNotMatch(p.text(), /One question now/);
+		assert.deepEqual(p.buttons(), [...PLACES, "Just move the block"]);
 	});
 
 	it("a block from a laptop before v2.1 (no goal or first step) still opens, on the laptop as before", async () => {
@@ -359,7 +492,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	it("lists lectures and blocks in order, says how many blocks, and why a block is where it is", async () => {
 		const p = await home();
 		assert.match(p.text(), /Your week/);
-		assert.match(p.text(), /2 suggested blocks in your free gaps\. Tap one to move or remove it\./);
+		assert.match(p.text(), /2 suggested blocks in your free gaps\. Move or remove any of them\./);
 		assert.match(p.text(), new RegExp(`${short(d1)} HCI lecture 11:00`));
 		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00 · Nash equilibrium`));
 		assert.match(p.text(), /because you have energy in the afternoon/);
@@ -369,15 +502,14 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	});
 
 	it("counts in the lo-fi's words", async () => {
-		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Tap one to move or remove it\./);
+		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Move or remove it\./);
 		assert.match((await home({ blocks: [] })).text(), /No study blocks this week\. That's fine too\./);
 	});
 
-	it("a block opens to \"Move\" and \"Remove\"; moving offers the free times and leaves a \"moved\" tag", async () => {
+	it("every block shows \"Move\" and \"Remove\" without being opened (v2.2, LF-10); moving offers the free times and leaves a \"moved\" tag", async () => {
 		const p = await home();
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
-		assert.ok(p.buttons().includes("Move") && p.buttons().includes("Remove"));
-		await p.tap("Move");
+		assert.deepEqual([p.buttons().filter((b) => b === "Move").length, p.buttons().filter((b) => b === "Remove").length], [2, 2]);
+		await p.tapIn("Study 14:00 · Nash equilibrium", "Move");
 		assert.match(p.text(), /Move to a free gap:/);
 		assert.ok(p.buttons().includes(`${short(d2)} 16:00`) && p.buttons().includes(`${short(d3)} 09:00`) && p.buttons().includes("Cancel"));
 		await p.tap(`${short(d3)} 09:00`);
@@ -385,8 +517,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start, m?.payload.fireAt], ["blk-a", d3, "09:00", new Date(`${d3}T09:00:00`).toISOString()]);
 		assert.match(p.text(), new RegExp(`${short(d3)} Study 09:00 · Nash equilibrium moved`));
 		// The time it took is not offered again.
-		await p.tap(`${short(d2)} Study 10:00`);
-		await p.tap("Move");
+		await p.tapIn(`${short(d2)} Study 10:00`, "Move");
 		assert.ok(!p.buttons().includes(`${short(d3)} 09:00`));
 		await p.tap("Cancel");
 		assert.equal(of(p.events, "plan_move").length, 1);
@@ -394,8 +525,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 
 	it("\"Remove\" can be undone, once", async () => {
 		const p = await home();
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
-		await p.tap("Remove");
+		await p.tapIn("Study 14:00 · Nash equilibrium", "Remove");
 		assert.deepEqual(of(p.events, "plan_remove")[0]?.payload, { blockId: "blk-a" });
 		assert.match(p.text(), new RegExp(`Removed ${short(d1)} block ·`));
 		assert.match(p.text(), /One suggested block/);
@@ -420,10 +550,10 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		await p.tap("Looks good");
 		assert.deepEqual(of(p.events, "plan_tick").map((e) => e.payload), [{ blockId: "blk-b" }]);
 		assert.match(p.text(), /Your week is set\. 2 study blocks\./);
-		assert.match(p.text(), /LockedIn will nudge you when each one starts\. You can change them any time\./);
+		assert.match(p.text(), /LockedIn will notify you when each one starts\. You can change them any time\./);
 		const off = await home({ week: week({ nudgesPerDay: 0 }) });
 		await off.tap("Looks good");
-		assert.match(off.text(), /Nudges are off, so LockedIn won't buzz\. Your blocks are still here\. You can change them any time\./);
+		assert.match(off.text(), /Notifications are off, so LockedIn won't buzz\. Your blocks are still here\. You can change them any time\./);
 		const one = await home({ blocks: [blocks()[0]] });
 		await one.tap("Looks good");
 		assert.match(one.text(), /Your week is set\. One study block\./);
@@ -432,7 +562,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	it("Settings is reached from the week: nudges per day, and what LockedIn uses", async () => {
 		const p = await home();
 		await p.tap("Settings");
-		assert.match(p.text(), /Nudges per day/);
+		assert.match(p.text(), /Notifications per day/);
 		assert.match(p.text(), /One a day, and it's the first question\./);
 		assert.match(p.text(), /What LockedIn uses Timetable: yes Lecture slides: yes Location: never\./);
 		await p.tap("0");

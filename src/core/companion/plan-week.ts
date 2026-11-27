@@ -330,6 +330,75 @@ export function freeTimes(input: { now: Date; lectures: readonly Lecture[]; rout
 	return out;
 }
 
+// ─── re-planning the rest of the week (v2.2 part B) ─────────────────────────
+
+const blockMoment = (b: Pick<StudyBlock, "date" | "start">) => new Date(`${b.date}T${b.start}:00`);
+
+/**
+ * This week's kept blocks whose time has passed without being started, in
+ * the order they were planned. They are "not started", never "missed" (R-6).
+ */
+export function openBlocks(blocks: readonly StudyBlock[], now: Date): StudyBlock[] {
+	const monday = dateKey(addDays(atTime(now, "00:00"), 1 - isoWeekday(now)));
+	return blocks
+		.filter((b) => b.status === "accepted" && b.date >= monday && addMinutes(blockMoment(b), b.minutes) <= now)
+		.sort((a, b) => blockMoment(a).getTime() - blockMoment(b).getTime());
+}
+
+export interface Replan {
+	/** Where each open block goes. */
+	moves: { id: string; date: string; start: string }[];
+	/** How many of the moves are into next week, because this week had no room. */
+	nextWeek: number;
+	/** Open blocks with no free time this week or next: they stay where they are. */
+	left: string[];
+}
+
+/**
+ * "Re-plan the rest of my week": each open block moves to a free time from
+ * now to Sunday, the emptiest day first so they are spread out, then the
+ * planner's own preference (energy, the gap after a lecture), then the
+ * earliest. A day never holds more than maxBlocksPerDay. With no room left
+ * this week, the block goes to next week. Only ever run when the student asks.
+ */
+export function replanWeek(input: { now: Date; lectures: readonly Lecture[]; routine?: Pick<Routine, "commitments" | "energy">; quietHours: Profile["prefs"]["quietHours"]; blocks: readonly StudyBlock[] }): Replan {
+	const open = openBlocks(input.blocks, input.now);
+	const openIds = new Set(open.map((b) => b.id));
+	// Every other block that isn't removed is in the way, suggested ones too.
+	const placed: StudyBlock[] = input.blocks.filter((b) => b.status !== "removed" && !openIds.has(b.id)).map((b) => ({ ...b, status: "accepted" as const }));
+	const today = atTime(input.now, "00:00");
+	const daysLeft = 7 - isoWeekday(input.now);
+	const out: Replan = { moves: [], nextWeek: 0, left: [] };
+	for (const b of open) {
+		const len = clampBlockMinutes(b.minutes);
+		const plan: PlanInput = {
+			week: input.now, now: input.now, lectures: input.lectures, ...(input.routine ? { routine: input.routine } : {}), quietHours: input.quietHours,
+			targetMinutes: 0, blockMinutes: len, existing: placed, lastWeek: [], focus: [], newId: () => "",
+		};
+		const best = (from: number, to: number): Slot | undefined => {
+			const found: { slot: Slot; load: number }[] = [];
+			for (let i = from; i <= to; i++) {
+				const day = addDays(today, i);
+				const load = placed.filter((p) => p.date === dateKey(day)).length;
+				if (load >= PLAN_RULES.maxBlocksPerDay) continue;
+				for (const slot of slotsOn(day, plan, len, new Set())) found.push({ slot, load });
+			}
+			return found.sort((x, y) => x.load - y.load || y.slot.score - x.slot.score || x.slot.start.getTime() - y.slot.start.getTime())[0]?.slot;
+		};
+		const thisWeek = best(0, daysLeft);
+		const slot = thisWeek ?? best(daysLeft + 1, daysLeft + 7);
+		if (!slot) {
+			out.left.push(b.id);
+			continue;
+		}
+		if (!thisWeek) out.nextWeek++;
+		const to = { date: dateKey(slot.start), start: formatHM(slot.start) };
+		out.moves.push({ id: b.id, ...to });
+		placed.push({ ...b, ...to, status: "accepted" });
+	}
+	return out;
+}
+
 // ─── moving a block by hand (v1.1, V-37) ────────────────────────────────────
 
 export type PlacementProblem = "lecture" | "commitment" | "block" | "quiet" | "past-midnight";

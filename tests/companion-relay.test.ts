@@ -150,7 +150,7 @@ describe("the schedule (§5.2: the laptop writes, versions only go up)", () => {
 	});
 });
 
-describe("a block moved on the phone (v2.1 part B: \"LockedIn will nudge you then, and not before\")", () => {
+describe("a block moved on the phone (v2.1 part B: \"LockedIn will notify you then, and not before\")", () => {
 	const block = { id: "blk1", date: "2026-11-24", start: "14:00", minutes: 50, status: "accepted" };
 	const blockNudge = (fireMin: number) => nudge("block:blk1:2026-11-24", fireMin, { kind: "block", blockId: "blk1", title: "Tue 14:00 · your study block" });
 	const move = (fireAt: string, id = "evt-move-0001") => [{ id, type: "plan_move", payload: { blockId: "blk1", date: "2026-11-25", start: "10:00", fireAt, title: "Wed 10:00 · your study block" } }];

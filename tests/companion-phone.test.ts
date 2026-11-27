@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "node:test";
-import { applyPlanEdits, eventsToReplay, nextVersion, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
+import { applyPlanEdits, eventsToReplay, fitBlocks, nextVersion, PHONE_TEST_COPY, scheduleFingerprint, type StudyBlock } from "../src/core/companion/index.ts";
 import type { Db, Stmt } from "../relay/src/db.ts";
 import { handle, type RelayEnv } from "../relay/src/relay.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
@@ -258,6 +258,82 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2)", () => {
 		assert.deepEqual([store.blocks()[0]!.date, store.blocks()[0]!.start], ["2026-11-18", "08:00"]);
 		const n = link.buildSchedule().nudges.find((x) => x.kind === "block")!;
 		assert.equal(n.title, "Wed 08:00 · your study block");
+	});
+});
+
+describe("a block's questions on the move, and the place (v2.2 part C; lo-fi task 2, version A)", () => {
+	type Q = { id: string; lectureId: string; stem: string; options: string[]; correct: number; unit?: string };
+	type B = { id: string; date: string; round?: Q[] };
+	const blockOn = (id: string, date: string, over: Partial<StudyBlock> = {}): StudyBlock => ({ id, date, start: "14:00", minutes: 50, status: "accepted", source: "student", lectureId: "gt-nash", module: "GT", firstTaskQuestionId: "gt-nash-q1", ...over });
+	/** Tuesday 17 Nov, 12:58. A unit with a bank of seven questions. */
+	async function withBlocks(blocks: StudyBlock[], opts: { newRelay?: boolean } = {}) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 7);
+		s.store.saveBlocks(blocks);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		if (opts.newRelay === false) s.store.saveRuntime({ relayNudgeChars: undefined });
+		const sent = () => s.svc.requirePhone().buildSchedule().blocks as B[];
+		return { ...s, sent, pairId, token };
+	}
+
+	it("today's block arrives with five questions from its unit's bank, its first step's question first", async () => {
+		const { sent } = await withBlocks([blockOn("blk-a", "2026-11-17", { firstTaskQuestionId: "gt-nash-q3" })]);
+		const round = sent().find((b) => b.id === "blk-a")!.round!;
+		assert.deepEqual(round.map((q) => q.id), ["gt-nash-q3", "gt-nash-q4", "gt-nash-q5", "gt-nash-q6", "gt-nash-q7"]);
+		assert.deepEqual([round[0]!.lectureId, round[0]!.unit, round[0]!.options.length, round[0]!.correct], ["gt-nash", "Nash equilibrium", 3, 0]);
+	});
+
+	const cases: { name: string; block: StudyBlock; newRelay?: boolean; want: number | undefined }[] = [
+		{ name: "tomorrow's block has its questions too", block: blockOn("b", "2026-11-18"), want: 5 },
+		{ name: "a block later in the week has none yet: they come nearer the day", block: blockOn("b", "2026-11-20"), want: undefined },
+		{ name: "a free-study block has none", block: { id: "b", date: "2026-11-17", start: "14:00", minutes: 50, status: "accepted", source: "student" }, want: undefined },
+		{ name: "a relay from before v2.1 is sent none", block: blockOn("b", "2026-11-17"), newRelay: false, want: undefined },
+	];
+	for (const c of cases) {
+		it(c.name, async () => {
+			const { sent } = await withBlocks([c.block], { newRelay: c.newRelay });
+			assert.equal(sent().find((b) => b.id === "b")!.round?.length, c.want);
+		});
+	}
+
+	it("a short bank gives a short round", async () => {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 2);
+		s.store.saveBlocks([blockOn("b", "2026-11-17")]);
+		await s.svc.requirePhone().pair();
+		assert.equal((s.svc.requirePhone().buildSchedule().blocks as B[])[0]!.round?.length, 2);
+	});
+
+	it("the week still fits the relay: questions come off the furthest block first, never a block's own lines", () => {
+		const q = { id: "q", stem: "x".repeat(200) };
+		const blocks = [{ id: "a", goal: "g", round: [q, q] }, { id: "b", goal: "g", round: [q, q] }];
+		const size = (x: unknown) => JSON.stringify(x).length;
+		assert.deepEqual(fitBlocks(blocks, 0, size(blocks)), blocks, "it fits: nothing changes");
+		const tight = fitBlocks(blocks, 0, size(blocks) - 1);
+		assert.deepEqual(tight.map((b) => [b.id, b.goal, b.round?.length]), [["a", "g", 2], ["b", "g", undefined]]);
+		const tighter = fitBlocks(blocks, 600, size(blocks) - 1);
+		assert.deepEqual(tighter.map((b) => [b.id, b.goal, b.round?.length]), [["a", "g", undefined], ["b", "g", undefined]], "the week beside the blocks counts too");
+	});
+
+	it("the place the student picks is written to the log and kept nowhere else", async () => {
+		const { svc, store, phone, pairId, token } = await withBlocks([blockOn("blk-a", "2026-11-17")]);
+		const posted = (await phone("POST", `/v1/pairs/${pairId}/events`, token, [{ id: "evt-place-00000001", at: new Date(2026, 10, 17, 13, 0).toISOString(), type: "block_where", payload: { blockId: "blk-a", place: "Bed" } }])) as { error?: string };
+		assert.equal(posted?.error, undefined, "the relay takes the event");
+		svc.requirePhone().replay([{ id: "evt-place-00000001", at: new Date(2026, 10, 17, 13, 0).toISOString(), type: "block_where", payload: { blockId: "blk-a", place: "Bed" } }]);
+		const e = store.events().find((x) => x.type === "block_where")!;
+		assert.deepEqual([e.data.blockId, e.data.place, e.data.source], ["blk-a", "Bed", "phone"]);
+		assert.doesNotMatch(JSON.stringify([store.profile(), store.blocks(), store.runtime()]), /Bed/);
+	});
+
+	it("an answer on the move is saved like any phone answer: a wrong one becomes something to revisit", async () => {
+		const { svc, store } = await withBlocks([blockOn("blk-a", "2026-11-17")]);
+		const at = new Date(2026, 10, 17, 13, 5).toISOString();
+		svc.requirePhone().replay([
+			{ id: "evt-move-00000001", at, type: "answered", payload: { blockId: "blk-a", onTheMove: true, lectureId: "gt-nash", questionId: "gt-nash-q1", choice: 0, correct: true } },
+			{ id: "evt-move-00000002", at, type: "answered", payload: { blockId: "blk-a", onTheMove: true, lectureId: "gt-nash", questionId: "gt-nash-q2", choice: 1, correct: false } },
+		]);
+		assert.deepEqual(store.misses().map((m) => m.questionId), ["gt-nash-q2"]);
+		assert.equal(store.blocks()[0]!.status, "accepted", "answering on the move does not start the block: the rest can still be moved");
 	});
 });
 

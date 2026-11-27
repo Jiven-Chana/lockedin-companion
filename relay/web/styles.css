@@ -49,10 +49,14 @@ summary { cursor: pointer; font-weight: 700; }
 .week { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .wk { display: flex; flex-direction: column; gap: 6px; }
 .wk.static { padding: 6px 4px; color: var(--muted); display: block; }
-.wkrow { width: 100%; text-align: left; font-weight: 400; }
+.wkrow { margin: 0; }
+.wk.block-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
 .tag { margin-left: 6px; padding: 1px 8px; border: 1px dashed var(--line); border-radius: 999px; font-size: 0.78em; color: var(--muted); }
 .chip { border-radius: 999px; }
 .chip.dashed { border-style: dashed; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+.where { gap: 8px; }
+.where p { margin: 0; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
 .seg { display: flex; gap: 8px; }
 .seg .btn { min-width: 56px; }

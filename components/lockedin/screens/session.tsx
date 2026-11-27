@@ -335,8 +335,8 @@ export function SessionScreen({ id }: { id: string }) {
 								{practising ? null : (
 									<>
 										<label className="li-stack" style={{ gap: 6 }}>
-											<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, it helps the feedback)</span></b>
-											<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={mic.available ? "Because… (or press Speak)" : "Because…"} />
+											<b>{SESSION_COPY.reasoning} <span className="li-muted" style={{ fontWeight: 400 }}>{SESSION_COPY.reasoningOptional}</span></b>
+											<textarea className="li-input" rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder={SESSION_COPY.reasoningSkip("feedback")} />
 										</label>
 										<MicButton mic={mic} />
 									</>

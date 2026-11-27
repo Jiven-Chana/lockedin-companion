@@ -8,10 +8,11 @@
 
 import QRCode from "qrcode";
 import { HANDOFF_COPY, NUDGE_TEXT, PHONE_RULES, PHONE_TEST_COPY, PLAN_COPY } from "../../core/companion/policy.ts";
-import { fitNudge, type RoundRef } from "../../core/companion/phone-round.ts";
+import { fitBlocks, fitNudge, type RoundRef } from "../../core/companion/phone-round.ts";
 import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type PhoneEvent, type PlanEdit, type RelaySchedule } from "../../core/companion/sync.ts";
 import { FEELINGS, proposeTarget } from "../../core/companion/checkin.ts";
 import type { ScheduledNudge } from "../../core/companion/nudges.ts";
+import { addDays, dateKey } from "../../core/companion/time.ts";
 import type { CompanionEventType, StudyBlock } from "../../core/companion/types.ts";
 import { CompanionError } from "./errors.ts";
 import type { CompanionService } from "./service.ts";
@@ -47,7 +48,7 @@ export class RelayClient {
 	pair = () => this.call<Pairing>("POST", "/v1/pairs");
 	unpair = (p: Pairing) => this.call<void>("DELETE", `/v1/pairs/${p.pairId}`, p.laptopSecret);
 	status = (p: Pairing) => this.call<{ phoneSeenAt: string | null; pushReady: boolean; scheduleVersion: number }>("GET", `/v1/pairs/${p.pairId}/status`, p.laptopSecret);
-	putSchedule = (p: Pairing, s: RelaySchedule) => this.call<{ accepted: boolean; version: number; limits?: { nudgeChars?: number } }>("PUT", `/v1/pairs/${p.pairId}/schedule`, p.laptopSecret, s);
+	putSchedule = (p: Pairing, s: RelaySchedule) => this.call<{ accepted: boolean; version: number; limits?: { nudgeChars?: number; blocksChars?: number } }>("PUT", `/v1/pairs/${p.pairId}/schedule`, p.laptopSecret, s);
 	events = (p: Pairing, after: number) => this.call<{ events: PhoneEvent[]; cursor: number }>("GET", `/v1/pairs/${p.pairId}/events?after=${after}`, p.laptopSecret);
 	ack = (p: Pairing, cursor: number) => this.call<void>("POST", `/v1/pairs/${p.pairId}/events/ack`, p.laptopSecret, { cursor });
 	/** The 6-digit code a phone types to pair (v1.0.3): the current one while it lasts, a fresh one after. */
@@ -246,19 +247,25 @@ export class PhoneLink {
 			return { ...fitted, more: fitted.round.length };
 		});
 		const newRelay = this.store.runtime().relayNudgeChars !== undefined;
+		const week = newRelay ? this.svc.phoneWeek() : null;
+		// A block that is near carries its questions for "On the move" (v2.2 part C): today's, and tomorrow's.
+		const nearUntil = dateKey(addDays(this.svc.now(), PHONE_RULES.blockRoundDaysAhead));
+		const today = dateKey(this.svc.now());
+		// A relay from before v2.1 has a smaller limit on blocks: it gets them as they always were.
+		const blocks: RelaySchedule["blocks"] = [...plan.blocks, ...next.blocks].map((b) => {
+			const base = { id: b.id, date: b.date, start: b.start, minutes: b.minutes, status: b.status, focus: b.focus };
+			const stored = byId.get(b.id);
+			if (!stored || !newRelay) return base;
+			const { unit: _unit, slide: _slide, ...lines } = this.svc.phoneBlock(stored);
+			const round = stored.status !== "removed" && b.date >= today && b.date <= nearUntil ? this.svc.phoneBlockRound(stored) : [];
+			return { ...base, ...lines, ...(round.length > 0 ? { round } : {}) };
+		});
 		return {
 			timeZone: this.svc.timeZone(),
 			// The week beside the blocks (v2.1 part C), for a relay that knows what to do with it.
-			...(newRelay ? { week: this.svc.phoneWeek() } : {}),
+			...(week ? { week } : {}),
 			nudges: withRounds,
-			// A relay from before v2.1 has a smaller limit on blocks: it gets them as they always were.
-			blocks: [...plan.blocks, ...next.blocks].map((b) => {
-				const base = { id: b.id, date: b.date, start: b.start, minutes: b.minutes, status: b.status, focus: b.focus };
-				const stored = byId.get(b.id);
-				if (!stored || this.store.runtime().relayNudgeChars === undefined) return base;
-				const { unit: _unit, slide: _slide, ...lines } = this.svc.phoneBlock(stored);
-				return { ...base, ...lines };
-			}),
+			blocks: fitBlocks(blocks, week ? JSON.stringify(week).length + PHONE_RULES.blocksSlackChars : 0, this.store.runtime().relayBlocksChars ?? PHONE_RULES.blocksChars),
 		};
 	}
 
@@ -283,7 +290,8 @@ export class PhoneLink {
 		const version = nextVersion(r.scheduleVersion ?? 0, Date.now());
 		const res = await this.relay.putSchedule(p, { version, ...body });
 		const relayNudgeChars = res.limits?.nudgeChars;
-		this.store.saveRuntime({ scheduleVersion: Math.max(version, res.version), scheduleFingerprint: fp, scheduleUploadedAt: new Date().toISOString(), ...(typeof relayNudgeChars === "number" ? { relayNudgeChars } : {}) });
+		const relayBlocksChars = res.limits?.blocksChars;
+		this.store.saveRuntime({ scheduleVersion: Math.max(version, res.version), scheduleFingerprint: fp, scheduleUploadedAt: new Date().toISOString(), ...(typeof relayNudgeChars === "number" ? { relayNudgeChars } : {}), ...(typeof relayBlocksChars === "number" ? { relayBlocksChars } : {}) });
 		this.svc.log("schedule_uploaded", { version, nudges: body.nudges.length, blocks: body.blocks.length, accepted: res.accepted });
 		return true;
 	}

@@ -47,6 +47,8 @@ export const PHONE_EVENT_TYPES = [
 	"plan_tick", "plan_move", "plan_remove", "checkin", "target_confirm", "focus_start", "focus_end",
 	// v2.1 part C: a block added on the phone, and the nudges-per-day setting.
 	"plan_add", "prefs",
+	// v2.2 part C: the place picked on a block's start. Passed to the laptop's log; the relay does nothing with it.
+	"block_where",
 ] as const;
 
 /** What the relay tells the laptop it accepts, with every answer to an upload. */

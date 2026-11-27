@@ -696,6 +696,9 @@ export const COMPANION_EVENT_TYPES = [
 	"plan_accepted",
 	"plan_moved",
 	"plan_removed",
+	// v2.2: "Re-plan the rest of my week" and its Undo
+	"plan_replanned",
+	"plan_replan_undone",
 	"setup_chat_started",
 	"setup_chat_turn",
 	"setup_chat_confirmed",
@@ -723,6 +726,8 @@ export const COMPANION_EVENT_TYPES = [
 	"target_confirm",
 	"focus_start",
 	"focus_end",
+	// v2.2 part C: the place picked on a block's start ("Where are you?"). Logged for the test record; nothing reads it.
+	"block_where",
 	// v0.1 F-116
 	"dictation_used",
 	// v0.1 F-118

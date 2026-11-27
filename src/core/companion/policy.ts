@@ -143,6 +143,8 @@ export const SCORE_RULES = {
 
 /** Progress: the wording of the score, its chart and "needs attention" (v1.1). Never "behind", never a deficit number. */
 export const PROGRESS_COPY = {
+	/** The week is one tap from Progress (v2.2; asked for in the look test). */
+	seeWeek: "See your week",
 	score: "Learning score",
 	steadyPace: "Steady pace",
 	steadyPaceHelp: "A straight line to securing every idea in your study packs by the end of term.",
@@ -538,7 +540,7 @@ export const SETUP_COPY = {
 	},
 	timetable: {
 		title: "Your timetable",
-		lead: "Paste your timetable link and your modules appear. LockedIn nudges you after a lecture, never during one.",
+		lead: "Paste your timetable link and your modules appear. LockedIn sends you a question after a lecture, never during one.",
 		label: "Timetable link",
 		placeholder: "https://… or webcal://…",
 		reading: "Reading your timetable…",
@@ -662,6 +664,23 @@ export const PLAN_COPY = {
 		energy: (when: "morning" | "afternoon" | "evening") => `because you have energy in the ${when}`,
 		afterLecture: (module: string) => `right after your ${module} lecture`,
 		gap: "a free gap in your day",
+	},
+	/** Above the timetable (v2.2, LF-10: moving a block had to be explained to two testers). */
+	dragHint: "Drag a study block to move it, or click it for Move and Remove.",
+	/** "Re-plan the rest of my week" (v2.2): only when the student asks. A passed block is "not started", never anything worse (R-6). */
+	replan: {
+		button: "Re-plan the rest of my week",
+		notStarted: "not started",
+		moved: "moved",
+		undo: "Undo",
+		done: (moved: number, nextWeek: number) => {
+			const what = moved === 1 ? "Moved 1 block to a free time" : `Moved ${moved} blocks to free times`;
+			return nextWeek === 0 ? `${what}.` : nextWeek === moved && moved === 1 ? `${what} next week.` : `${what}, ${nextWeek} of them next week.`;
+		},
+		noRoom: "There is no free time left for them this week or next. They stay where they are.",
+		undone: "Put back where they were.",
+		/** Beside Undo when the page is opened again after a re-plan. */
+		still: (moved: number) => (moved === 1 ? "1 block moved." : `${moved} blocks moved.`),
 	},
 	targetProposal: (minutes: number) => `Try ${PLAN_COPY.hours(minutes)} next week?`,
 	keepTarget: (minutes: number) => `Keep ${PLAN_COPY.hours(minutes)}`,
@@ -854,6 +873,10 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** The reasoning box (v2.2, LF-13: two testers asked whether it was required). It stays open and says it can be skipped. */
+	reasoning: "Your reasoning",
+	reasoningOptional: "(optional)",
+	reasoningSkip: (reader: "feedback" | "tutor") => `Skip this if you like. If you say why, ${reader === "tutor" ? "your tutor reads it" : "the feedback uses it"}.`,
 	/** Where you are in the set: the question you are on, not how many are behind you (lo-fi task 1). */
 	position: (n: number, total: number) => `Question ${n} of ${total}`,
 	/** The done screen (R-6; design log 23 Nov): no score. It names what comes back, and the next block. */
@@ -946,6 +969,12 @@ export const PHONE_RULES = {
 	roundSize: 5,
 	/** Questions kept by "Done for now" and "Save the rest for later": at most the rest of one round. */
 	savedMax: 4,
+	/** A block's questions for "On the move" (v2.2) are sent for today's blocks and this many days ahead; later blocks get theirs nearer the day. */
+	blockRoundDaysAhead: 1,
+	/** The week's size limit on a relay that has not said its own (v2.1's relay: 60,000). */
+	blocksChars: 60_000,
+	/** Room left for how the relay wraps the blocks and the week together when it stores them. */
+	blocksSlackChars: 200,
 	/** The largest notification a relay deployed before v2.1 accepts. A newer relay says its own limit when the week is uploaded. */
 	nudgeCharsBefore21: 4_000,
 } as const;

@@ -35,7 +35,9 @@ export interface PlanData {
 	committedMinutes: number;
 	proposedMinutes: number;
 	/** `module`: the block's module (the student's choice, else its unit's), or null for free study (V-37). */
-	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean; mode: BlockMode | null })[];
+	blocks: (Omit<StudyBlock, "module"> & { focus: { title: string; module: string } | null; module: string | null; firstStep: string | null; canStart: boolean; mode: BlockMode | null; notStarted: boolean; moved: boolean })[];
+	/** "Re-plan the rest of my week" (v2.2): kept blocks that passed unstarted, and what the last re-plan moved (Undo while `canUndo`). */
+	replan: { open: number; moved: number; canUndo: boolean };
 	lectures: Lecture[];
 	commitments: Routine["commitments"];
 	quietHours: { from: string; to: string };
@@ -230,6 +232,8 @@ export const lockedIn = {
 	startBlock: (id: string, study?: "learn" | "practise") => api<{ block: StudyBlock; sessionId: string | null }>(`/blocks/${encodeURIComponent(id)}/start`, { body: study ? { study } : {} }),
 	updateBlock: (id: string, patch: { status?: StudyBlock["status"]; date?: string; start?: string; minutes?: number; module?: string | null }) => api<StudyBlock>(`/blocks/${encodeURIComponent(id)}`, { method: "PUT", body: patch }),
 	acceptBlocks: (week: string) => api<PlanData>("/blocks/accept", { body: { week } }),
+	replanWeek: () => api<PlanData & { message: string | null }>("/plan/replan", { method: "POST" }),
+	undoReplan: () => api<PlanData & { message: string | null }>("/plan/replan", { method: "DELETE" }),
 	planSettings: (patch: Partial<NonNullable<Profile["plan"]>>) => api<NonNullable<Profile["plan"]>>("/plan/settings", { method: "PUT", body: patch }),
 	saveRoutine: (body: { routine: Partial<Routine>; source: "chat" | "form"; modules?: { code: string; week?: number; readingWeeks?: number[] }[] }) => api<{ routine: Routine; plan: PlanData & { message: string | null } }>("/routine", { body }),
 	chatTurn: (messages: { role: "assistant" | "student"; text: string }[]) => api<ChatTurnData>("/setup-chat", { body: { messages } }),
