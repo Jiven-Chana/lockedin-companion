@@ -36,6 +36,7 @@ Five steps (sign in, timetable, slides, week, phone); every step but sign-in can
 | POST | `/setup/done` | | `SetupView` with `done: true`. Logs `onboarding_done` (`flow: "v2.0"`) once |
 | POST | `/modules` | `{ name }` | `{ code, name }`: "+ Add a module" (V-64), in setup and the Library. `400` for an empty or repeated name, or more than 20 modules |
 | PUT | `/modules/:code/share` | `{ share: "less" \| "normal" \| "more" }` | The module with its share of the week (V-63). `GET /course` carries `share` when it isn't normal |
+| PUT | `/modules/:code/colour` | `{ colour: "tangerine" \| "rose" \| "sky" \| "lime" \| "aqua" \| "orchid" \| "sunflower" \| null }` | **v3.0.** The module's colour on every screen and on the phone; `null` gives it back its place in the student's list. `400` for anything else (mint and lilac are not module colours) → the module with its `colour`. Event `module_colour_changed` |
 | POST | `/modules/:code/materials/quick` | multipart `file` fields | `{ units, skipped }`: read, split and save every unit with enough text, with no checklist (V-66). `400` when nothing is worth studying |
 | PUT | `/lectures/:id/title` | `{ title }` (1 to 120 characters) | The unit. Only for a unit made from the student's own material |
 
@@ -193,6 +194,8 @@ Phone events are replayed exactly once each, in order, logged under their own ty
 **v2.2:** a block that is today or tomorrow is uploaded with `round`, up to five questions from its unit's bank, for "On the move". An answer given there is an `answered` event with `blockId` and `onTheMove: true`, saved like any phone answer. The place picked on a block's start is a `block_where` event, `{ blockId, place }`, which is logged and nothing more.
 
 **v2.3:** the upload also carries `practise`, a pool per module of `{ module, name, questions }` (up to ten questions, chosen by the laptop's Practise rule), for "Practise" on the phone's home screen. The relay stores and returns it untouched, and its limit for the week is 200,000 characters. An answer given there is an `answered` event with `practise: true` and `module`. `GET /today` gains `onPhone`: "On your phone today: 4 questions, HCI and Game Theory.", or null. A unit with a phone answer has status `answered`, not `not-started`.
+
+**v3.0:** what is uploaded carries each module's colour by name (`colour` on a question, a block, a Practise pool and a lecture in the week), so a module looks the same on the phone as on the laptop. The week also carries each lecture's `minutes`, and `targetMinutes` and `keptMinutes` for the bar above the phone's week. `GET /today` gains `bannerModule`, and `nextBlock` gains `module` and `minutes`.
 
 Facilitator: `POST /demo/phone { action: "answer" \| "handover" \| "done", correct?: boolean }` plays the phone's events on the laptop without a phone or relay.
 
