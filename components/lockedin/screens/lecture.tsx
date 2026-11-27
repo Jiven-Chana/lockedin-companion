@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LEARN_COPY, moduleHue, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel } from "@/src/core";
+import { LEARN_COPY, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -60,7 +60,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 	const openMisses = misses.data ?? [];
 
 	return (
-		<Tint hue={moduleHue(lecture.module)}>
+		<Tint module={lecture.module}>
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>

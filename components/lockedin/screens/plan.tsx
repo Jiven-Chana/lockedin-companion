@@ -13,7 +13,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { moduleHue, PLACEMENT_COPY, PLAN_COPY } from "@/src/core";
+import { PLACEMENT_COPY, PLAN_COPY } from "@/src/core";
 import { ApiError, lockedIn, type CheckinData, type PlanData } from "../api";
 import { fmtTime, useData } from "../hooks";
 import { Tint, useLockedIn } from "../root";
@@ -55,7 +55,7 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 		}
 	};
 	return (
-		<Tint hue={moduleHue(b.module ?? "study")}>
+		<Tint module={b.module ?? "study"}>
 			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
 				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : b.notStarted ? ` · ${PLAN_COPY.replan.notStarted}` : ""}{b.moved ? <> <span className="li-chip">{PLAN_COPY.replan.moved}</span></> : null}</span>
 				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : b.module ? b.module : PLACEMENT_COPY.freeStudy}{b.reason === "gap" ? " · catch-up" : ""}</span>
@@ -249,7 +249,7 @@ export function PlanScreen() {
 					<div key={d.date} className="li-day" role="listitem" data-today={d.date === iso(now) ? "true" : "false"}>
 						<b>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>
 						{[
-							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} hue={moduleHue(l.module)}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
+							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} module={l.module}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
 							...commitmentsOn(d.date).map((c, i) => ({ at: c.start, key: `c${i}`, node: <span key={`c${i}`} className="li-event" data-kind="commitment">{c.start} {c.label}</span> })),
 							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b} order={di} modules={p?.modules} onDone={() => void plan.reload()} /> })),
 						]

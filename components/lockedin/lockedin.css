@@ -1,202 +1,270 @@
-/* LockedIn "Focus" design system. Every colour is a --li-* token generated
-   by src/core/companion/palette.ts; nothing here hard-codes a colour. */
+/* LockedIn in the Blocks look (v3.0). Every colour is a --li-* token from
+   src/core/companion/look.ts; nothing here writes a colour.
+
+   The rules of the look:
+   - Thick ink outlines and rounded corners.
+   - A hard shadow means it can be pressed. A flat panel only shows something.
+   - One ink button per screen is the next step.
+   - A panel in a module's colour (--li-mod) carries ink text (--li-on).
+   - Mint is right and secured; lilac is your pick and to revisit. Never red. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { min-height: 100vh; }
 
 .li-root {
-	--li-radius: 20px;
-	--li-fs: 16px;
+	--li-radius: 22px;
+	--li-edge-w: 2.5px;
+	--li-hard: 4px;
+	--li-fs: 17px;
 	--li-lh: 1.5;
 	--li-font-display: var(--font-display), "Bricolage Grotesque", system-ui, sans-serif;
 	--li-font-body: var(--font-body), "Atkinson Hyperlegible", system-ui, sans-serif;
+	/* The shadow under the one ink button: ink on ink would not show. */
+	--li-hard-ink: color-mix(in srgb, var(--li-ink) 38%, var(--li-paper));
 	min-height: 100vh;
-	background: linear-gradient(160deg, var(--li-bg-a), var(--li-bg-b));
-	background-attachment: fixed;
+	background: var(--li-paper);
 	color: var(--li-ink);
 	font-family: var(--li-font-body);
 	font-size: var(--li-fs);
 	line-height: var(--li-lh);
 }
-.li-root[data-text="large"] { --li-fs: 18.5px; }
-.li-root[data-text="xlarge"] { --li-fs: 21px; }
+.li-root[data-text="large"] { --li-fs: 19.5px; }
+.li-root[data-text="xlarge"] { --li-fs: 22px; }
 .li-root[data-loose="true"] { --li-lh: 1.9; }
 
-/* ── Motion (v0.1 F-118, V-10) ──────────────────────────────────────────
-   Calm (default): only motion that explains a change of state. Full adds
-   page transitions and a slow background drift (never in a session).
-   Off, and the system reduced-motion setting, remove everything. The
-   timings come from MOTION in policy.ts (set on .li-root by root.tsx). */
-@property --li-bg-a { syntax: "<color>"; inherits: true; initial-value: #101018; }
-@property --li-bg-b { syntax: "<color>"; inherits: true; initial-value: #101018; }
-.li-root { transition: --li-bg-a 1.2s ease, --li-bg-b 1.2s ease; }
-/* Theme and hue changes cross-fade live (root.tsx sets data-xfade for a moment). */
+/* ── Motion (F-118, V-10; v3.0) ─────────────────────────────────────────
+   Calm (default): a pressable thing lifts and lands, and a change of state
+   is shown once. Full adds page transitions. Off, and the system
+   reduced-motion setting, remove everything. Timings come from MOTION in
+   policy.ts (set on .li-root by root.tsx). */
 .li-root[data-xfade] * { transition: background-color var(--li-m-medium) ease, color var(--li-m-medium) ease, border-color var(--li-m-medium) ease, fill var(--li-m-medium) ease, stroke var(--li-m-medium) ease !important; }
 @keyframes li-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes li-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes li-slide-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes li-pop { 0% { opacity: 0; transform: scale(0.6); } 70% { opacity: 1; transform: scale(1.08); } 100% { transform: none; } }
 @keyframes li-node-pulse { 0%, 100% { transform: none; } 45% { transform: scale(1.07); } }
-@keyframes li-drift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
-/* The focus ring fills as questions are answered. */
 .li-ring-fill { transition: stroke-dasharray var(--li-m-ring) ease; }
-/* Wrong: the explanation slides in (no shake, no red flash). Right: a soft check. */
+/* Wrong: the explanation rises in (no shake, no flash). Right: a soft check. */
 .li-feedback.miss { animation: li-rise var(--li-m-medium) ease-out; }
 .li-check { display: inline-block; animation: li-pop var(--li-m-medium) ease-out; }
-/* Pack stages tick through as they finish. */
 .li-tick { display: inline-block; animation: li-pop var(--li-m-short) ease-out; }
-/* Map nodes appear in order on first open (delays set per node); a changed status pulses once. */
 .li-map g.node.li-node-in { animation: li-fade-in var(--li-m-medium) ease-out both; }
 .li-map g.node.li-node-pulse > :is(rect, polygon, circle, path) { transform-box: fill-box; transform-origin: center; animation: li-node-pulse 600ms ease-out 1; }
 .li-pulse-once { display: inline-flex; animation: li-pop var(--li-m-medium) ease-out; }
-/* Full only: page transitions, and the time-of-day background slowly drifting. */
 .li-root[data-motion="full"] .li-page { animation: li-rise var(--li-m-page) ease-out; }
-.li-root[data-motion="full"]:not([data-place="session"]) { background-size: 220% 220%; animation: li-drift var(--li-m-drift) ease-in-out infinite alternate; }
-/* Off, and the system setting: nothing moves. */
 .li-root[data-motion="off"], .li-root[data-motion="off"] * { transition: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .li-root, .li-root * { transition: none !important; animation: none !important; } }
 
 .li-root a { color: inherit; text-decoration: none; }
-.li-root button, .li-root input, .li-root textarea, .li-root select { font: inherit; color: inherit; }
+.li-root :where(button, input, textarea, select) { font: inherit; color: inherit; }
 .li-root button { cursor: pointer; }
-.li-root :focus-visible { outline: 3px solid var(--li-accent); outline-offset: 2px; border-radius: 10px; }
+.li-root :focus-visible { outline: 3px solid var(--li-ink); outline-offset: 3px; border-radius: 12px; }
 .li-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.li-display { font-family: var(--li-font-display); letter-spacing: -0.02em; }
-.li-eyebrow { font-size: 0.8em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--li-muted); }
-.li-muted { color: var(--li-muted); }
+.li-display { font-family: var(--li-font-display); font-weight: 800; letter-spacing: -0.02em; }
+.li-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 0.95em; font-weight: 700; color: var(--li-ink); }
+.li-muted { color: var(--li-quiet); }
 .li-small { font-size: 0.88em; }
+/* On a panel in a module's colour, and on mint and lilac, quiet text is ink too: the panel is the emphasis. */
+:is(.li-panel, .li-hero, .li-on-colour) :is(.li-muted, .li-eyebrow) { color: inherit; }
 
-/* ── layout ─────────────────────────────────────────────────────────── */
-.li-app { display: flex; min-height: 100vh; }
+/* ── layout: a tab bar across the top; the current tab joins the page ── */
+.li-app { display: flex; flex-direction: column; min-height: 100vh; }
 .li-rail {
-	flex: 0 0 232px; position: sticky; top: 0; height: 100vh;
-	display: flex; flex-direction: column; gap: 4px; padding: 28px 18px;
-	background: var(--li-rail); border-right: 1px solid var(--li-line);
-	backdrop-filter: blur(12px);
+	position: sticky; top: 0; z-index: 20;
+	display: flex; align-items: flex-end; gap: 6px; padding: 14px 32px 0;
+	background: var(--li-bar); color: var(--li-bar-ink);
 }
-.li-brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; font-family: var(--li-font-display); font-weight: 700; font-size: 20px; }
-.li-nav { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; color: var(--li-muted); font-weight: 700; border: none; background: none; text-align: left; width: 100%; }
-.li-nav:hover { background: var(--li-soft); color: var(--li-ink); }
-.li-nav[aria-current="page"] { background: var(--li-soft); color: var(--li-accent-text); }
-.li-rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.li-clock { padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--li-line); font-size: 13px; color: var(--li-muted); display: flex; flex-direction: column; }
-.li-clock b { color: var(--li-ink); }
-.li-main { flex: 1 1 auto; min-width: 0; padding: 40px 48px 64px; display: flex; flex-direction: column; gap: 28px; max-width: 1280px; }
+.li-brand { display: flex; align-items: center; gap: 10px; padding: 0 22px 14px 0; font-family: var(--li-font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
+.li-nav { display: inline-flex; align-items: center; gap: 10px; padding: 12px 20px 16px; border-radius: 16px 16px 0 0; color: var(--li-bar-ink); font-weight: 700; font-size: 1.02em; border: none; background: none; }
+.li-nav:hover { background: var(--li-bar-soft); }
+.li-nav[aria-current="page"] { background: var(--li-paper); color: var(--li-ink); }
+.li-rail-foot { margin-left: auto; align-self: center; padding-bottom: 12px; }
+.li-clock { display: flex; gap: 8px; align-items: baseline; padding: 6px 12px; border-radius: 12px; border: 2px dashed var(--li-bar-line); font-size: 13px; color: var(--li-bar-quiet); }
+.li-clock b { color: var(--li-bar-ink); }
+.li-main { flex: 1 1 auto; width: 100%; max-width: 1320px; min-width: 0; margin: 0 auto; padding: 28px 32px 64px; display: flex; flex-direction: column; gap: 22px; }
 .li-main > .li-page { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
-.li-page-head { display: flex; flex-direction: column; gap: 4px; }
-.li-h1 { margin: 0; font-family: var(--li-font-display); font-size: 2.6em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.li-h2 { margin: 0; font-family: var(--li-font-display); font-size: 1.25em; font-weight: 700; }
-.li-grid-2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.li-page-head { display: flex; flex-direction: column; gap: 2px; }
+.li-h1 { margin: 0; font-family: var(--li-font-display); font-size: 3em; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; }
+.li-h2 { margin: 0; font-family: var(--li-font-display); font-size: 1.55em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.li-grid-2 { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 22px; align-items: stretch; }
 .li-stack { display: flex; flex-direction: column; gap: 16px; }
 .li-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
-/* ── surfaces and controls ─────────────────────────────────────────── */
-.li-card { background: var(--li-surface); border: 1px solid var(--li-line); border-radius: var(--li-radius); padding: 20px 24px; box-shadow: 0 10px 30px var(--li-shadow); }
-.li-card.flat { box-shadow: none; }
-.li-btn {
-	display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-	min-height: 44px; padding: 10px 20px; border-radius: 999px; font-weight: 700;
-	border: 1px solid var(--li-line); background: var(--li-surface); color: var(--li-ink);
-	transition: transform 0.15s, box-shadow 0.15s;
-}
-.li-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px var(--li-shadow); }
-.li-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.li-btn.primary { background: var(--li-accent); color: var(--li-accent-ink); border-color: transparent; }
-.li-btn.soft { background: var(--li-soft); border-color: transparent; color: var(--li-accent-text); }
-.li-btn.ghost { background: none; border-color: transparent; text-decoration: underline; padding-inline: 8px; color: var(--li-muted); }
-.li-btn.big { min-height: 52px; padding: 12px 28px; font-size: 1.05em; }
-.li-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 12px; border-radius: 999px; font-size: 0.85em; font-weight: 700; background: var(--li-soft); color: var(--li-accent-text); border: 1px solid transparent; }
-button.li-chip:hover { border-color: var(--li-accent); }
-.li-kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--li-line); color: var(--li-muted); }
-.li-input { width: 100%; min-height: 44px; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--li-line); background: var(--li-surface); }
-.li-input:focus { border-color: var(--li-accent); outline: none; }
-.li-seg { display: inline-flex; padding: 4px; gap: 4px; border-radius: 999px; background: var(--li-surface); border: 1px solid var(--li-line); flex-wrap: wrap; }
-.li-seg button { border: none; background: none; padding: 8px 16px; border-radius: 999px; font-weight: 700; color: var(--li-muted); min-height: 38px; }
-.li-seg button[aria-pressed="true"], .li-seg button[aria-selected="true"] { background: var(--li-soft); color: var(--li-accent-text); }
-.li-empty { padding: 32px; text-align: center; color: var(--li-muted); }
+/* ── surfaces ───────────────────────────────────────────────────────── */
+/* A card is a reading surface. It is flat: it shows something, it is not pressed. */
+.li-card { background: var(--li-card); border: var(--li-edge-w) solid var(--li-edge); border-radius: var(--li-radius); padding: 22px 26px; }
+/* A panel in its module's colour (inside <Tint>). Text on it is ink in every mode. */
+.li-panel { background: var(--li-mod); color: var(--li-on); border: var(--li-edge-w) solid var(--li-on); border-radius: var(--li-radius); padding: 24px 28px; }
+/* The same, soft: for something that only shows (a lecture in the week). */
+.li-panel.soft { background: var(--li-mod-soft); color: var(--li-mod-soft-ink); }
+/* The dark panel: one per screen at most, for a number that matters. */
+.li-panel.ink { background: var(--li-bar); color: var(--li-bar-ink); border-color: var(--li-edge); }
+.li-on-mint { background: var(--li-mint); color: var(--li-on); }
+.li-on-lilac { background: var(--li-lilac); color: var(--li-on); }
 
-/* ── hero card (tinted by module) ─────────────────────────────────── */
-.li-hero { display: flex; align-items: center; gap: 24px; padding: 28px; border-radius: 24px; color: #fff; background: linear-gradient(135deg, var(--li-accent), var(--li-deep)); box-shadow: 0 18px 40px var(--li-shadow); border: none; text-align: left; width: 100%; }
-.li-root[data-scheme="dark"] .li-hero { color: var(--li-accent-ink); }
-.li-hero .li-hero-cta { margin-left: auto; padding: 12px 22px; border-radius: 999px; background: #fff; color: #1c1830; font-weight: 700; white-space: nowrap; }
-.li-hero-title { font-family: var(--li-font-display); font-size: 1.9em; font-weight: 800; line-height: 1.1; }
+/* ── controls: a hard shadow means it can be pressed ────────────────── */
+.li-btn {
+	display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+	min-height: 46px; padding: 9px 20px; border-radius: 14px; font-weight: 700;
+	border: var(--li-edge-w) solid var(--li-edge); background: var(--li-card); color: var(--li-ink);
+	box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-edge);
+	transition: transform 90ms ease, box-shadow 90ms ease;
+}
+.li-btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: calc(var(--li-hard) + 1px) calc(var(--li-hard) + 1px) 0 var(--li-edge); }
+.li-btn:active:not(:disabled) { transform: translate(calc(var(--li-hard) - 1px), calc(var(--li-hard) - 1px)); box-shadow: 1px 1px 0 var(--li-edge); }
+.li-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+/* The one ink button: the next step. */
+.li-btn.primary { background: var(--li-ink); color: var(--li-paper); border-color: var(--li-ink); box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-hard-ink); font-family: var(--li-font-display); font-weight: 800; font-size: 1.08em; }
+.li-btn.primary:hover:not(:disabled) { box-shadow: calc(var(--li-hard) + 1px) calc(var(--li-hard) + 1px) 0 var(--li-hard-ink); }
+.li-btn.primary:active:not(:disabled) { box-shadow: 1px 1px 0 var(--li-hard-ink); }
+/* On a colour, every button keeps the ink text of the page it is on. */
+/* A colour is the same in light and dark, so what sits on it is too: ink text, a light surface, ink outlines. */
+:is(.li-panel:not(.ink), .li-hero:not(.plain), .li-on-colour) .li-btn { background: var(--li-on-card); color: var(--li-on); border-color: var(--li-on); box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-on); }
+:is(.li-panel:not(.ink), .li-hero:not(.plain), .li-on-colour) .li-btn.primary { background: var(--li-on); color: var(--li-on-card); box-shadow: var(--li-hard) var(--li-hard) 0 color-mix(in srgb, var(--li-on) 40%, transparent); }
+:is(.li-panel:not(.ink), .li-hero:not(.plain), .li-on-colour) .li-btn:active:not(:disabled) { box-shadow: 1px 1px 0 var(--li-on); }
+:is(.li-panel:not(.ink), .li-hero:not(.plain), .li-on-colour) .li-card { background: var(--li-on-card); color: var(--li-on); border-color: var(--li-on); }
+.li-btn.soft { background: var(--li-sand); }
+/* A smaller action. It is still pressable, and looks it: testers missed the quiet ones. */
+.li-btn.ghost { min-height: 38px; padding: 6px 14px; --li-hard: 3px; font-size: 0.94em; }
+.li-btn.big { min-height: 58px; padding: 14px 30px; font-size: 1.2em; border-radius: 18px; --li-hard: 6px; }
+.li-chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 11px; border-radius: 999px; font-size: 0.84em; font-weight: 700; background: var(--li-card); color: var(--li-ink); border: 2px solid var(--li-edge); white-space: nowrap; }
+button.li-chip { box-shadow: 2px 2px 0 var(--li-edge); transition: transform 90ms ease, box-shadow 90ms ease; }
+button.li-chip:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--li-edge); }
+button.li-chip:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--li-edge); }
+:is(.li-panel:not(.ink), .li-hero:not(.plain), .li-on-colour) .li-chip { background: var(--li-on-card); color: var(--li-on); border-color: var(--li-on); }
+.li-kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 1px 7px; border-radius: 6px; border: 2px solid var(--li-edge); color: var(--li-quiet); }
+.li-input { width: 100%; min-height: 46px; padding: 10px 14px; border-radius: 14px; border: var(--li-edge-w) solid var(--li-edge); background: var(--li-card); color: var(--li-ink); }
+.li-input:focus { outline: 3px solid var(--li-ink); outline-offset: 2px; }
+.li-seg { display: inline-flex; border-radius: 14px; background: var(--li-card); border: var(--li-edge-w) solid var(--li-edge); overflow: hidden; flex-wrap: wrap; }
+.li-seg button { border: none; border-right: 2px solid var(--li-edge); background: none; padding: 8px 16px; font-weight: 700; color: var(--li-ink); min-height: 40px; }
+.li-seg button:last-child { border-right: none; }
+.li-seg button[aria-pressed="true"], .li-seg button[aria-selected="true"] { background: var(--li-ink); color: var(--li-paper); }
+.li-empty { padding: 32px; text-align: center; color: var(--li-quiet); border-style: dashed; }
+
+/* ── the big panel: the next step, in its module's colour ───────────── */
+.li-hero { display: flex; align-items: center; gap: 24px; padding: 30px 34px; border-radius: 26px; color: var(--li-on); background: var(--li-mod); border: var(--li-edge-w) solid var(--li-on); text-align: left; width: 100%; }
+/* A next step that belongs to no module has no colour: it is a reading surface. */
+.li-hero.plain { background: var(--li-card); color: var(--li-ink); border-color: var(--li-edge); }
+.li-hero.plain .li-tower i { border-color: var(--li-ink); color: var(--li-ink); }
+.li-hero.plain .li-tower i[data-on="true"] { background: var(--li-mint); color: var(--li-on); box-shadow: 5px 5px 0 var(--li-edge); }
+.li-hero .li-hero-cta { margin-left: auto; padding: 14px 26px; border-radius: 16px; background: var(--li-on); color: var(--li-on-card); font-family: var(--li-font-display); font-weight: 800; font-size: 1.15em; white-space: nowrap; box-shadow: 5px 5px 0 color-mix(in srgb, var(--li-on) 40%, transparent); transition: transform 90ms ease, box-shadow 90ms ease; }
+button.li-hero:hover .li-hero-cta { transform: translate(-1px, -1px); box-shadow: 6px 6px 0 color-mix(in srgb, var(--li-on) 40%, transparent); }
+button.li-hero:active .li-hero-cta { transform: translate(4px, 4px); box-shadow: 1px 1px 0 color-mix(in srgb, var(--li-on) 40%, transparent); }
+.li-hero-title { font-family: var(--li-font-display); font-size: 2.9em; font-weight: 800; letter-spacing: -0.03em; line-height: 1.04; }
+/* A numeral that matters: chunky and physical. */
+.li-numeral { font-family: var(--li-font-display); font-weight: 800; letter-spacing: -0.04em; line-height: 0.9; font-variant-numeric: tabular-nums; }
+/* Blocks you can count: one square per thing. */
+.li-count { display: flex; flex-wrap: wrap; gap: 5px; }
+.li-count i { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--li-edge); background: var(--li-lilac); }
+.li-count i[data-on="true"] { background: var(--li-mint); }
+.li-count i[data-on="false"] { background: transparent; }
+/* A module's mark: its shape in its colour. */
+.li-mark { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border-radius: 12px; border: var(--li-edge-w) solid var(--li-edge); background: var(--li-mod); color: var(--li-on); }
+.li-mark.small { width: 28px; height: 28px; border-radius: 9px; border-width: 2px; }
+.li-mark { border-color: var(--li-on); }
+.li-mark.on-colour { background: var(--li-on-card); color: var(--li-on); }
+
+/* How far through: a tower of blocks. Done is solid with a tick; to come is dashed. */
+.li-tower { display: flex; flex-direction: column; gap: 10px; flex: none; align-self: center; padding-right: 8px; }
+.li-tower i { width: 150px; height: 54px; border-radius: 16px; border: var(--li-edge-w) dashed var(--li-on); display: flex; align-items: center; justify-content: center; color: var(--li-on); }
+.li-tower i[data-on="true"] { border-style: solid; background: var(--li-on-card); color: var(--li-on); box-shadow: 5px 5px 0 var(--li-on); }
+.li-tower svg { width: 24px; height: 24px; }
+@media (max-width: 1180px) { .li-tower { display: none; } }
+/* Today's second row: lectures, what to revisit, the week. */
+.li-today-three { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: stretch; }
+@media (max-width: 1100px) { .li-today-three { grid-template-columns: minmax(0, 1fr); } }
 
 /* ── toast ────────────────────────────────────────────────────────── */
-.li-toasts { position: fixed; top: 20px; right: 24px; z-index: 50; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 48px)); }
-.li-toast { background: var(--li-surface); border: 1px solid var(--li-line); border-radius: 18px; padding: 16px 18px; box-shadow: 0 16px 40px var(--li-shadow); display: flex; flex-direction: column; gap: 10px; animation: li-drop var(--li-m-medium) ease-out; }
+.li-toasts { position: fixed; top: 84px; right: 24px; z-index: 50; display: flex; flex-direction: column; gap: 12px; width: min(400px, calc(100vw - 48px)); }
+.li-toast { background: var(--li-card); border: var(--li-edge-w) solid var(--li-edge); border-radius: 18px; padding: 16px 18px; box-shadow: 6px 6px 0 var(--li-edge); display: flex; flex-direction: column; gap: 10px; animation: li-drop var(--li-m-medium) ease-out; }
 @keyframes li-drop { from { transform: translateY(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ── timeline rows ────────────────────────────────────────────────── */
-.li-tl { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--li-line); }
+.li-tl { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 2px dashed var(--li-sand); }
 .li-tl:last-child { border-bottom: none; }
-.li-tl-time { width: 104px; flex-shrink: 0; font-size: 0.88em; color: var(--li-muted); }
-.li-dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+.li-tl-time { flex-shrink: 0; font-family: var(--li-font-display); font-weight: 800; font-size: 1.05em; }
+.li-dot { width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0; background: var(--li-mod); border: 2px solid var(--li-edge); }
 
-/* ── status ───────────────────────────────────────────────────────── */
-/* v1.0 V-1: a status pill never wraps ("Not / yet") and never gives way to a long title. */
-.li-status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.85em; padding: 2px 10px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+/* ── status: a shape and a word, never colour alone ───────────────── */
+.li-status { display: inline-flex; align-items: center; gap: 5px; font-weight: 700; font-size: 0.82em; padding: 1px 10px 1px 8px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; border: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); }
+.li-status svg { width: 14px; height: 14px; }
 .li-week-label { flex: 0 0 auto; min-width: 64px; white-space: nowrap; }
-.li-status.solid { background: var(--li-solid-bg); color: var(--li-solid-ink); }
-.li-status.revisit { background: var(--li-revisit-bg); color: var(--li-revisit-ink); }
-.li-status.notyet { border: 1px dashed var(--li-notyet); color: var(--li-muted); }
+.li-status.solid { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-status.shaky { background: linear-gradient(90deg, var(--li-mint) 0 9px, var(--li-card) 9px); padding-left: 16px; }
+.li-status.revisit { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
+.li-status.notyet { border-style: dashed; background: transparent; }
 
-/* ── session: focus mode ──────────────────────────────────────────── */
-.li-focus { min-height: 100vh; padding: 24px 32px 32px; display: flex; flex-direction: column; gap: 20px; background: radial-gradient(120% 90% at 20% 0%, var(--li-deep), var(--li-deep-b)); }
-.li-focus-top { display: flex; align-items: center; gap: 16px; color: var(--li-deep-ink); flex-wrap: wrap; }
-.li-focus-top .li-x { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); display: inline-flex; align-items: center; justify-content: center; font-size: 18px; }
-.li-panes { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
-.li-qcard { background: var(--li-surface); border-radius: 24px; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3); }
+/* ── a session: the bar across the top, then the work ─────────────── */
+.li-focus { min-height: 100vh; display: flex; flex-direction: column; gap: 22px; background: var(--li-paper); padding: 0 0 32px; }
+.li-focus > :not(.li-focus-top) { margin-inline: 32px; }
+.li-focus-top { display: flex; align-items: center; gap: 16px; padding: 16px 32px; background: var(--li-bar); color: var(--li-bar-ink); flex-wrap: wrap; }
+.li-focus-top .li-x { min-width: 46px; height: 46px; padding: 0 14px; border-radius: 14px; border: 2px solid var(--li-bar-ink); background: transparent; color: var(--li-bar-ink); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; }
+.li-focus-top .li-x:hover { background: var(--li-bar-soft); }
+.li-panes { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.li-qcard { background: var(--li-card); border: var(--li-edge-w) solid var(--li-edge); border-radius: 26px; padding: 26px 30px; display: flex; flex-direction: column; gap: 16px; }
+/* The question on a panel in its module's colour (Practise). */
+.li-qcard.colour { background: var(--li-mod); color: var(--li-on); }
+.li-qcard.colour .li-muted { color: inherit; }
 .li-q-stem:focus { outline: none; }
-.li-q-stem { margin: 0; font-family: var(--li-font-display); font-size: 1.75em; font-weight: 700; line-height: 1.2; }
-.li-opt { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 16px; border: 2px solid var(--li-line); background: var(--li-surface); text-align: left; min-height: 56px; width: 100%; }
-.li-opt:hover:not(:disabled) { border-color: var(--li-accent); }
-.li-opt[aria-checked="true"] { border-color: var(--li-accent); background: var(--li-soft); }
-.li-opt.is-answer { border-color: var(--li-solid); background: var(--li-solid-bg); color: var(--li-solid-ink); }
-.li-opt.is-miss { border-color: var(--li-revisit); background: var(--li-revisit-bg); color: var(--li-revisit-ink); }
-.li-stops { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.li-stops button { min-height: 44px; border-radius: 12px; border: 2px solid var(--li-line); background: var(--li-surface); font-weight: 700; }
-.li-stops button[aria-checked="true"] { background: var(--li-accent); color: var(--li-accent-ink); border-color: var(--li-accent); }
-.li-feedback { padding: 18px 20px; border-radius: 18px; display: flex; flex-direction: column; gap: 10px; }
-.li-feedback.right { background: var(--li-solid-bg); color: var(--li-solid-ink); }
-.li-feedback.miss { background: var(--li-revisit-bg); color: var(--li-revisit-ink); }
-.li-feedback .li-fb-title { font-family: var(--li-font-display); font-size: 1.4em; font-weight: 700; }
-.li-note { padding: 14px 16px; border-radius: 14px; background: var(--li-soft); }
-.li-activity { display: flex; align-items: center; gap: 12px; color: var(--li-muted); padding: 24px 0; }
-.li-pulse { width: 12px; height: 12px; border-radius: 999px; background: var(--li-accent); animation: li-pulse 1.2s ease-in-out infinite; }
+.li-q-stem { margin: 0; font-family: var(--li-font-display); font-size: 2em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.12; }
+/* An answer option: pressable, with a box that fills when picked. */
+.li-opt { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 16px; border: var(--li-edge-w) solid var(--li-edge); background: var(--li-card); color: var(--li-ink); text-align: left; min-height: 56px; width: 100%; font-weight: 700; box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-edge); transition: transform 90ms ease, box-shadow 90ms ease; }
+.li-qcard.colour .li-opt { background: var(--li-on-card); color: var(--li-on); box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-on); border-color: var(--li-on); }
+.li-opt:hover:not(:disabled) { transform: translate(-1px, -1px); }
+.li-opt:active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--li-edge); }
+.li-opt[aria-checked="true"] { background: var(--li-sand); transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--li-edge); }
+.li-opt:disabled, div.li-opt { box-shadow: none; }
+.li-opt.is-answer { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-opt.is-miss { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
+.li-opt .li-kbd { border-color: currentColor; color: inherit; }
+/* How sure are you: four taps in a row. */
+.li-stops { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: var(--li-edge-w) solid var(--li-edge); border-radius: 16px; overflow: hidden; background: var(--li-card); box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-edge); }
+.li-qcard.colour .li-stops { border-color: var(--li-on); box-shadow: var(--li-hard) var(--li-hard) 0 var(--li-on); }
+.li-stops button { min-height: 50px; border: none; border-right: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.li-stops button:last-child { border-right: none; }
+.li-stops button[aria-checked="true"] { background: var(--li-ink); color: var(--li-paper); }
+/* After an answer. Right is mint. Not right is a calm lilac card the size of a column: never a shout (look test, 27 Nov). */
+.li-feedback { padding: 18px 20px; border-radius: 20px; display: flex; flex-direction: column; gap: 12px; border: var(--li-edge-w) solid var(--li-edge); }
+.li-feedback.right { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-feedback.miss { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
+.li-feedback .li-fb-title { font-family: var(--li-font-display); font-size: 1.35em; font-weight: 800; }
+.li-note { padding: 12px 16px; border-radius: 14px; background: var(--li-sand); color: var(--li-ink); }
+.li-activity { display: flex; align-items: center; gap: 12px; color: var(--li-quiet); padding: 24px 0; }
+.li-pulse { width: 14px; height: 14px; border-radius: 5px; background: var(--li-ink); animation: li-pulse 1.2s ease-in-out infinite; }
 @keyframes li-pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } }
-.li-slides { background: var(--li-deep-panel); color: var(--li-deep-ink); border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 14px; position: sticky; top: 24px; }
-.li-slide { --li-slide-ink: #1d1b26; --li-slide-muted-ink: #6a6680; aspect-ratio: 16 / 10; background: #ffffff; color: var(--li-slide-ink); border-radius: 14px; padding: 28px 32px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3); overflow: auto; }
-/* Slides are printed paper in every theme, so their muted ink is fixed too. */
-.li-slide-muted { color: var(--li-slide-muted-ink); }
+/* The slide beside the question: a card with a second one behind it, like a deck. */
+.li-slides { background: var(--li-card); color: var(--li-ink); border: var(--li-edge-w) solid var(--li-edge); border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 12px; position: sticky; top: 24px; box-shadow: 8px 8px 0 var(--li-mod), 8px 8px 0 var(--li-edge-w) var(--li-edge); }
+/* A slide is printed paper in every theme: black on white. */
+.li-slide { --li-slide-ink: #000000; --li-slide-paper: #ffffff; aspect-ratio: 16 / 10; background: var(--li-slide-paper); color: var(--li-slide-ink); border: 2px solid var(--li-edge); border-radius: 14px; padding: 28px 32px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.li-slide-muted { color: var(--li-slide-ink); opacity: 0.7; }
 .li-slide h3 { margin: 0; font-size: 1.5em; line-height: 1.15; }
 /* v1.0 S-2: the real PDF page as a picture. The card takes the page's own shape. */
 .li-slide[data-page="true"] { aspect-ratio: auto; padding: 0; gap: 0; overflow: hidden; }
-.li-page-img { display: block; width: 100%; height: auto; background: #ffffff; }
-.li-slide-row .li-page-img { border: 1px solid var(--li-line); border-radius: 12px; }
+.li-page-img { display: block; width: 100%; height: auto; background: var(--li-slide-paper, #ffffff); }
+.li-slide-row .li-page-img { border: 2px solid var(--li-edge); border-radius: 12px; }
 .li-page-text { padding: 10px 16px; font-size: 0.9em; }
-.li-page-text summary { cursor: pointer; font-weight: 600; }
-.li-slide[data-page="true"] .li-page-text { border-top: 1px solid #e6e4ee; color: var(--li-slide-ink); }
+.li-page-text summary { cursor: pointer; font-weight: 700; }
+.li-slide[data-page="true"] .li-page-text { border-top: 2px solid var(--li-edge); color: var(--li-slide-ink); }
 .li-slide ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 6px; }
-.li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 999px; border: none; background: var(--li-deep-soft); color: var(--li-deep-ink); font-size: 18px; }
+.li-slides .li-icon-btn { width: 44px; height: 44px; border-radius: 12px; border: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); font-size: 18px; box-shadow: 3px 3px 0 var(--li-edge); }
 /* Gaps by idea (V-39): module, idea, question, each a row that opens. */
 .li-gap-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.li-gap-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 10px; border: none; border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.li-gap-row:hover, .li-gap-row[aria-expanded="true"] { background: var(--li-soft); }
+.li-gap-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 6px 10px; border: none; border-radius: 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.li-gap-row:hover, .li-gap-row[aria-expanded="true"] { background: var(--li-sand); }
 .li-gap-q .li-gap-row { min-height: 38px; font-size: 0.95em; }
 .li-gap-detail { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 10px 32px; }
-/* The session's mode, named in the header (V-50). */
-.li-mode { display: inline-block; font-size: 0.62em; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 10px; border-radius: 999px; border: 2px solid var(--li-deep-ink); vertical-align: middle; margin-right: 6px; }
-.li-mode[data-study="practise"] { background: var(--li-deep-ink); color: var(--li-deep); }
-/* The set as dots: done, the one you are on, still to come. Shape as well as colour (never colour alone). */
+/* The session's mode, named in the bar (V-50): a block in the module's colour. */
+.li-mode { display: inline-flex; align-items: center; gap: 8px; font-family: var(--li-font-display); font-weight: 800; font-size: 0.62em; padding: 6px 14px; border-radius: 12px; background: var(--li-mod); color: var(--li-on); vertical-align: middle; margin-right: 10px; }
+/* The set as marks: done, the one you are on, still to come. Shape as well as colour. */
 .li-qdots { display: inline-flex; gap: 6px; align-items: center; }
-.li-qdots i { width: 10px; height: 10px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; }
-.li-qdots i[data-state="done"] { background: var(--li-deep-accent); border-color: var(--li-deep-accent); }
-.li-qdots i[data-state="current"] { border-color: var(--li-deep-ink); width: 14px; height: 14px; }
+.li-qdots i { width: 30px; height: 14px; border-radius: 6px; border: 2px dashed currentColor; background: transparent; }
+.li-qdots i[data-state="done"] { background: currentColor; border-style: solid; }
+.li-qdots i[data-state="current"] { border-style: solid; background: radial-gradient(circle, currentColor 0 3px, transparent 3.5px); height: 20px; }
 .li-dots { display: flex; gap: 4px; }
-.li-dots span { flex: 1; height: 6px; border-radius: 3px; background: var(--li-deep-line); }
-.li-dots span[data-on="true"] { background: var(--li-deep-accent); }
+.li-dots span { flex: 1; height: 10px; border-radius: 5px; border: 2px solid var(--li-edge); background: transparent; }
+.li-dots span[data-on="true"] { background: var(--li-mint); }
 .li-prose p { margin: 0 0 0.6em; }
 .li-prose p:last-child { margin-bottom: 0; }
 .li-prose ul { margin: 0 0 0.6em; padding-left: 1.2em; }

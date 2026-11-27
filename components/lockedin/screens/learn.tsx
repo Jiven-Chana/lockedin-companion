@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, moduleHue, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type SessionView } from "@/src/core";
+import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, usePoll } from "../hooks";
 import { LearnPlan } from "../learn-plan";
@@ -309,7 +309,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const label = !q ? null : q.guess ? LEARN_COPY.guess : q.kind === "write" ? LEARN_COPY.yourTurn : q.kind === "quiz" ? LEARN_COPY.check : null;
 
 	return (
-		<Tint hue={moduleHue(view.lecture.module)}>
+		<Tint module={view.lecture.module}>
 			<div className="li-focus li-learn">
 				<div className="li-focus-top">
 					<button type="button" className="li-x" aria-label="Stop for now" title="Stop for now. It is saved with its plan." onClick={stop}>✕</button>

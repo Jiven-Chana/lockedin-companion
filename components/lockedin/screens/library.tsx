@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LEARN_COPY, moduleHue, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, weekLabel, type WeekShare } from "@/src/core";
+import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, weekLabel, type WeekShare } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
@@ -142,7 +142,7 @@ export function LibraryScreen() {
 				if (hits && shown.length === 0) return null;
 				const weeks = [...new Set(shown.map((u) => u.week))].sort((a, b) => (a || 99) - (b || 99));
 				return (
-					<Tint key={m.code} hue={moduleHue(m.code)}>
+					<Tint key={m.code} module={m.code}>
 						<section className="li-stack" aria-labelledby={`m-${m.code}`}>
 							<div className="li-row">
 								<span style={{ width: 14, height: 14, borderRadius: 5, background: "var(--li-accent)" }} />

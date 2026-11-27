@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, moduleHue, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
+import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUESTIONS, MATERIALS_RULES, questionNumber, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type SessionQuestion, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { LearnAsk } from "../learn-ask";
@@ -211,7 +211,7 @@ export function SessionScreen({ id }: { id: string }) {
 	// The module's first Learn session (V-52): one card, once, before the tutor starts.
 	if (view.status === "ask" && view.ask) {
 		return (
-			<Tint hue={moduleHue(view.lecture.module)}>
+			<Tint module={view.lecture.module}>
 				<div className="li-focus li-learn">
 					<div className="li-focus-top">
 						<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>
@@ -234,7 +234,7 @@ export function SessionScreen({ id }: { id: string }) {
 	const practising = view.study === "practise";
 	const at = questionNumber({ answered: view.answered, budget: view.budget, done: view.status === "done", reviewing });
 	return (
-		<Tint hue={moduleHue(view.lecture.module)}>
+		<Tint module={view.lecture.module}>
 			<div className="li-focus">
 				<div className="li-focus-top">
 					<button type="button" className="li-x" aria-label="Stop for now" onClick={stop}>✕</button>

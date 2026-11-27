@@ -13,7 +13,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { GAP_COPY, GAP_RULES, moduleHue } from "@/src/core";
+import { GAP_COPY, GAP_RULES } from "@/src/core";
 import { ApiError, lockedIn, type GapsData } from "./api";
 import { Tint } from "./root";
 
@@ -85,7 +85,7 @@ export function GapsByIdea({ data, first }: { data: GapsData | null; first?: str
 			{data && modules.length === 0 ? <div className="li-card flat li-muted">{GAP_COPY.empty}</div> : null}
 			{err ? <p className="li-small" role="alert" style={{ margin: 0 }}>{err}</p> : null}
 			{modules.map((m) => (
-				<Tint key={m.code} hue={moduleHue(m.code)}>
+				<Tint key={m.code} module={m.code}>
 					<div className="li-card li-stack" style={{ gap: 6 }}>
 						<div className="li-row">
 							<span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 999, background: "var(--li-accent)" }} />

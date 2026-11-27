@@ -371,6 +371,8 @@ export interface ModuleInfo {
 	readingWeeks?: number[];
 	/** This module's share of the week's blocks (V-63). Unset = normal. */
 	share?: "less" | "more";
+	/** The colour the student picked for this module (v3.0), one of MODULE_COLOUR_CHOICES. Unset = by its place in the list. */
+	colour?: string;
 }
 
 /** A module's share of the week as the student sets it: one tap, never hours (V-63). */

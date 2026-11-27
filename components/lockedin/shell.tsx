@@ -120,10 +120,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
 /** Page header used by every tab. */
 /** `clock`: the eyebrow and title come from the clock, which can differ between server and browser (#418). */
-export function PageHead({ eyebrow, title, children, clock = false }: { eyebrow?: string; title: string; children?: React.ReactNode; clock?: boolean }) {
+export function PageHead({ eyebrow, title, children, clock = false, icon }: { eyebrow?: string; title: string; children?: React.ReactNode; clock?: boolean; icon?: React.ReactNode }) {
 	return (
-		<header className="li-page-head" style={{ paddingRight: 420 }}>
-			{eyebrow ? <span className="li-eyebrow" suppressHydrationWarning={clock}>{eyebrow}</span> : null}
+		<header className="li-page-head">
+			{eyebrow ? <span className="li-eyebrow" suppressHydrationWarning={clock}>{icon}{eyebrow}</span> : null}
 			<h1 className="li-h1" suppressHydrationWarning={clock}>{title}</h1>
 			{children}
 		</header>

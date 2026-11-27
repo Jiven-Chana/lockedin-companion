@@ -3146,7 +3146,11 @@ export class CompanionService {
 					const b = state.blocks.find((x) => x.id === c.id);
 					const first = b ? this.firstStepOf(b) : null;
 					// Today's block can be started from Today (V-44).
-					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null };
+					return {
+						blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null,
+						// The block's panel on Today is in its module's colour (v3.0).
+						module: b?.module ?? (b?.lectureId ? this.lectureById(b.lectureId)?.module : undefined) ?? null, minutes: b?.minutes ?? null,
+					};
 				}
 			}
 			return null;
@@ -3166,6 +3170,8 @@ export class CompanionService {
 			readyToRevisit: gapsByIdea(state.misses, []).length,
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
+			// The waiting question's module, for the colour of its panel (v3.0).
+			bannerModule: (() => { const id = this.banner()?.lectureId; return id ? (this.lectureById(id)?.module ?? null) : null; })(),
 			phonePaired: this.phone?.paired() ?? false,
 			phoneAvailable: this.phone !== null,
 			activeSession: resume?.id ?? null,

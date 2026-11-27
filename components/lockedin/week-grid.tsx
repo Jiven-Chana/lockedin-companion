@@ -17,7 +17,7 @@
  */
 
 import { useRef, useState } from "react";
-import { moduleHue, PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
+import { PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
 import type { PlanData } from "./api";
 import { Tint } from "./root";
 
@@ -105,7 +105,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 								const e = new Date(l.end!);
 								const a = s.getHours() * 60 + s.getMinutes();
 								return (
-									<Tint key={l.id} hue={moduleHue(l.module)} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2) }}>
+									<Tint key={l.id} module={l.module} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2) }}>
 										<b>{hm(a)} {l.module}</b>
 										<span>{l.title}</span>
 									</Tint>
@@ -129,7 +129,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 						return (
 							<Tint
 								key={b.id}
-								hue={moduleHue(b.module ?? "study")}
+								module={b.module ?? "study"}
 								className="li-tt-item li-tt-block"
 								style={{ top: top(mins(at.start)), height: Math.max(22, b.minutes * PX_PER_MIN - 2), left: `calc(${(col * 100) / 7}% + 3px)`, right: "auto", width: `calc(${100 / 7}% - 6px)` }}
 							>

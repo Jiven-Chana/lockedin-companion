@@ -14,7 +14,6 @@ import { PhoneSection } from "../phone-section";
 import { VoiceSection } from "../voice-section";
 import { RoutineSettings, StudyBlocksSettings } from "../study-settings";
 
-const SEEDS: [string, number][] = [["Lavender", 285], ["Ocean", 230], ["Moss", 150], ["Ember", 40], ["Rose", 350]];
 
 function Seg<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
 	return (
@@ -59,8 +58,6 @@ export function MeScreen() {
 		void lockedIn.event("settings_changed", { changed: ["notifications"], granted: p === "granted" });
 	}
 
-	const hue = appearance.hue === "auto" ? "auto" : appearance.hue;
-
 	return (
 		<>
 			<PageHead eyebrow="Me" title="Make it yours" />
@@ -95,23 +92,10 @@ export function MeScreen() {
 				<VoiceSection voice={ai ? !!ai.voice : null} />
 			</section>
 
-			<section className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>
+			<section id="look" className="li-card li-stack" aria-labelledby="ap" style={{ gap: 20 }}>
 				<h2 id="ap" className="li-h2">Appearance</h2>
 				<Seg label="Theme" value={appearance.theme} options={[["system", "System"], ["light", "Light"], ["dark", "Dark"], ["contrast", "High contrast"]]} onChange={(v) => setAppearance({ theme: v })} />
-				<div className="li-stack" style={{ gap: 8 }}>
-					<b>Colour</b>
-					<span className="li-small li-muted">Every colour is generated from one hue. Auto gives each module its own.</span>
-					<div className="li-row" style={{ gap: 10 }}>
-						<button type="button" className="li-btn" aria-pressed={hue === "auto"} onClick={() => setAppearance({ accent: "auto" })} style={{ borderColor: hue === "auto" ? "var(--li-accent)" : undefined, borderWidth: 2 }}>Auto</button>
-						{SEEDS.map(([name, h]) => (
-							<button key={name} type="button" aria-label={name} aria-pressed={hue === h} onClick={() => setAppearance({ accent: String(h) })} style={{ width: 44, height: 44, borderRadius: 999, background: `oklch(0.6 0.16 ${h})`, border: `3px solid ${hue === h ? "var(--li-ink)" : "transparent"}` }} />
-						))}
-						<label className="li-row" style={{ gap: 8, flexGrow: 1, minWidth: 260 }}>
-							<span className="li-small li-muted">Any hue</span>
-							<input type="range" min={0} max={359} value={hue === "auto" ? 285 : hue} onChange={(e) => setAppearance({ accent: e.target.value })} style={{ flexGrow: 1, accentColor: "var(--li-accent)" }} aria-label="Hue" />
-						</label>
-					</div>
-				</div>
+				{/* The one-colour theme picker is gone (v3.0): a colour now means a module. Each module's colour is chosen here in a later stage. */}
 				<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
 					<Seg label="Text size" value={appearance.textSize} options={[["normal", "Normal"], ["large", "Large"], ["xlarge", "Extra large"]]} onChange={(v) => setAppearance({ textSize: v })} />
 					<Seg label="Line spacing" value={appearance.loose ? "loose" : "normal"} options={[["normal", "Normal"], ["loose", "Loose"]]} onChange={(v) => setAppearance({ lineSpacing: v })} />

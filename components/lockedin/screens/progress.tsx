@@ -17,7 +17,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { MILESTONE_GROUPS, moduleHue, PROGRESS_COPY, type ScoreRange } from "@/src/core";
+import { MILESTONE_GROUPS, PROGRESS_COPY, type ScoreRange } from "@/src/core";
 import { lockedIn, type ProgressAttention, type ProgressData, type ProgressPoint } from "../api";
 import { GapsByIdea } from "../gaps";
 import { useData } from "../hooks";
@@ -61,7 +61,7 @@ function PointDetail({ p, range, data }: { p: ProgressPoint; range: ScoreRange; 
 
 /** The module's colour as a dot: the only tinted thing on a Progress card (v1.0 V-1). */
 function ModuleDot({ code }: { code: string }) {
-	return <Tint hue={moduleHue(code)} style={{ display: "inline-flex" }}><span className="li-dot" style={{ background: "var(--li-accent)" }} /></Tint>;
+	return <Tint module={code} style={{ display: "inline-flex" }}><span className="li-dot" style={{ background: "var(--li-accent)" }} /></Tint>;
 }
 
 export function ProgressScreen() {
@@ -102,7 +102,7 @@ export function ProgressScreen() {
 				<div className="li-row" style={{ marginTop: 12 }}><Link className="li-btn" href="/app/plan">{PROGRESS_COPY.seeWeek}</Link></div>
 			</PageHead>
 			{p.welcomeBack ? (
-				<Tint hue={285}>
+				<Tint>
 					<button type="button" className="li-hero" onClick={() => start({ kind: "try-now", lectureId: p.welcomeBack!.spec.lectureId }, p.welcomeBack!.spec)}>
 						<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 							<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>Welcome back</span>
@@ -150,7 +150,7 @@ export function ProgressScreen() {
 									<span className="li-small li-muted" style={{ whiteSpace: "nowrap" }}>{m.hasMaterial ? minutesText(share.minutes) : "no material yet"}</span>
 									<b style={{ minWidth: 52, textAlign: "right" }}>{share.points.toLocaleString("en-GB")}</b>
 								</span>
-								<Tint hue={moduleHue(m.code)}><span className="li-bar"><span style={{ width: `${(share.points / maxPoints) * 100}%` }} /></span></Tint>
+								<Tint module={m.code}><span className="li-bar"><span style={{ width: `${(share.points / maxPoints) * 100}%` }} /></span></Tint>
 							</div>
 						);
 					})}
