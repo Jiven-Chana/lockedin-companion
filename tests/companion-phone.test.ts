@@ -195,6 +195,141 @@ describe("plan edits and the check-in from the phone", () => {
 	});
 });
 
+describe("the study block on the phone (v2.1 part B; lo-fi task 2)", () => {
+	type B = { id: string; date: string; start: string; minutes: number; status: string; goal?: string; firstStep?: string | null; onLaptop?: string | null; why?: string | null; moves?: { kind: string; date: string; start: string; label: string }[] };
+	type N = { id: string; kind: string; title: string; body: string; blockId?: string; fireAt: string };
+	/** Tuesday 17 Nov, 12:58. One accepted block today at 14:00 on a unit with a study pack. */
+	async function withBlock(opts: { newRelay?: boolean } = {}) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", 6);
+		const block: StudyBlock = { id: "blk-thu", date: "2026-11-17", start: "14:00", minutes: 50, status: "accepted", source: "student", lectureId: "gt-nash", module: "GT", firstTaskQuestionId: "gt-nash-q1" };
+		s.store.saveBlocks([block]);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		if (opts.newRelay === false) s.store.saveRuntime({ relayNudgeChars: undefined });
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { blocks: B[]; nudges: N[] };
+		return { ...s, block, read };
+	}
+
+	it("the block's notification is the lo-fi's: its day and time, the unit and the first step", async () => {
+		const { svc } = await withBlock();
+		const n = svc.requirePhone().buildSchedule().nudges.find((x) => x.kind === "block")!;
+		assert.deepEqual([n.title, n.body, n.blockId], ["Tue 14:00 · your study block", "Nash equilibrium. First step: slide 1, one question.", "blk-thu"]);
+	});
+
+	it("each block arrives with its goal, its first step, why it is there and where it can move to", async () => {
+		const { svc, read } = await withBlock();
+		await svc.requirePhone().sync({ force: true });
+		const b = (await read()).blocks.find((x) => x.id === "blk-thu")!;
+		assert.equal(b.goal, "5 questions, about 10 min");
+		assert.equal(b.firstStep, "open slide 1, answer one question");
+		assert.equal(b.onLaptop, "open Nash equilibrium at slide 1 on your laptop and answer one question.");
+		// 12:58 on a day with the HCI lecture until 13:00: the times are the planner's own (a quarter past, after the lecture's ten minutes).
+		assert.deepEqual(b.moves?.map((m) => m.label), ["Today 15:15", "This evening 18:15", "Tomorrow 08:00", "next free gap"]);
+		assert.ok(b.moves!.every((m) => /^\d{4}-\d{2}-\d{2}$/.test(m.date) && /^\d{2}:\d{2}$/.test(m.start)));
+	});
+
+	it("a relay from before v2.1 gets the blocks as they were, so its size limit is never hit", async () => {
+		const { svc } = await withBlock({ newRelay: false });
+		const b = svc.requirePhone().buildSchedule().blocks.find((x) => x.id === "blk-thu")! as B;
+		assert.deepEqual(Object.keys(b).sort(), ["date", "focus", "id", "minutes", "start", "status"]);
+	});
+
+	it("\"Take the first step\" on the phone starts the block; \"Open on my laptop\" opens its session there with the lo-fi's line", async () => {
+		const { svc, store, events } = await withBlock();
+		const link = svc.requirePhone();
+		const at = new Date(2026, 10, 17, 14, 1).toISOString();
+		svc.demoClock({ set: new Date(2026, 10, 17, 14, 0).toISOString() });
+		link.replay([{ id: "evt-block-0001", at, type: "focus_start", payload: { blockId: "blk-thu" } }]);
+		assert.equal(store.blocks()[0]!.status, "started");
+		assert.ok(events().includes("block_started"));
+		link.replay([{ id: "evt-block-0002", at, type: "handover", payload: { blockId: "blk-thu" } }]);
+		const toast = store.nudges().find((n) => n.key === "handoff:evt-block-0002")!;
+		assert.equal(toast.text, "Your study block is open. Nash equilibrium from slide 1. 5 questions, about 10 min.");
+		assert.ok(toast.sessionId && store.session(toast.sessionId), "its session is ready on the laptop");
+		// The same event again changes nothing.
+		link.replay([{ id: "evt-block-0002", at, type: "handover", payload: { blockId: "blk-thu" } }]);
+		assert.equal(store.nudges().filter((n) => n.key.startsWith("handoff:")).length, 1);
+	});
+
+	it("a move made on the phone moves the block on the laptop, and its notification with it", async () => {
+		const { svc, store } = await withBlock();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-block-0003", at: new Date(Date.now() + 60_000).toISOString(), type: "plan_move", payload: { blockId: "blk-thu", date: "2026-11-18", start: "08:00" } }]);
+		assert.deepEqual([store.blocks()[0]!.date, store.blocks()[0]!.start], ["2026-11-18", "08:00"]);
+		const n = link.buildSchedule().nudges.find((x) => x.kind === "block")!;
+		assert.equal(n.title, "Wed 08:00 · your study block");
+	});
+});
+
+describe("the week on the phone (v2.1 part C; lo-fi task 3)", () => {
+	type W = { lectures: { date: string; start: string; title: string }[]; free: { date: string; start: string }[]; nudgesPerDay: number; blockMinutes: number };
+	async function withWeek() {
+		const s = await setup({ packs: true });
+		s.store.saveBlocks([{ id: "blk-a", date: "2026-11-18", start: "14:00", minutes: 50, status: "accepted", source: "student" }, { id: "blk-b", date: "2026-11-19", start: "10:00", minutes: 50, status: "proposed", source: "planner" }]);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { week?: W };
+		const later = () => new Date(Date.now() + 60_000).toISOString();
+		return { ...s, read, later };
+	}
+
+	it("the phone is sent the week's lectures, a free time for each day ahead, and the nudges setting", async () => {
+		const { svc, read } = await withWeek();
+		await svc.requirePhone().sync({ force: true });
+		const w = (await read()).week!;
+		assert.equal(w.nudgesPerDay, 1);
+		assert.equal(w.blockMinutes, 50);
+		assert.ok(w.lectures.length > 0 && w.lectures.every((l) => /^\d{4}-\d{2}-\d{2}$/.test(l.date) && /^\d{2}:\d{2}$/.test(l.start) && l.title));
+		assert.ok(w.free.length > 0 && w.free.length <= 7);
+		assert.equal(new Set(w.free.map((f) => f.date)).size, w.free.length, "one a day");
+		assert.ok(!w.free.some((f) => (f.date === "2026-11-18" && f.start === "14:00") || (f.date === "2026-11-19" && f.start === "10:00")), "never on top of a block");
+	});
+
+	it("a relay from before v2.1 is not sent it", async () => {
+		const { svc, store } = await withWeek();
+		store.saveRuntime({ relayNudgeChars: undefined });
+		assert.equal(svc.requirePhone().buildSchedule().week, undefined);
+	});
+
+	it("\"Remove\" then \"Undo\" on the phone leaves the block as it was; a block the laptop removed stays removed", async () => {
+		const { svc, store, later } = await withWeek();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-week-0001", at: later(), type: "plan_remove", payload: { blockId: "blk-a" } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-a")?.status, "removed");
+		link.replay([{ id: "evt-week-0002", at: later(), type: "plan_tick", payload: { blockId: "blk-a", restore: true } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-a")?.status, "accepted");
+		svc.updateBlock("blk-b", { status: "removed" });
+		link.replay([{ id: "evt-week-0003", at: new Date(Date.now() - 60_000).toISOString(), type: "plan_tick", payload: { blockId: "blk-b", restore: true } }]);
+		assert.equal(store.blocks().find((b) => b.id === "blk-b")?.status, "removed");
+	});
+
+	it("\"Add a block\" on the phone makes the block on the laptop, once, and only where one can go", async () => {
+		const { svc, store, events, later } = await withWeek();
+		const link = svc.requirePhone();
+		const add = (id: string, date: string, start: string) => ({ id: `evt-add-${id}`, at: later(), type: "plan_add", payload: { blockId: id, date, start, minutes: 50 } });
+		link.replay([add("phone-new00001", "2026-11-20", "15:00")]);
+		link.replay([add("phone-new00001", "2026-11-20", "15:00")]);
+		const made = store.blocks().filter((b) => b.id === "phone-new00001");
+		assert.deepEqual(made.map((b) => [b.date, b.start, b.minutes, b.status, b.source]), [["2026-11-20", "15:00", 50, "accepted", "phone"]]);
+		// On top of the block at Wed 14:00: not made, and the log says why.
+		link.replay([add("phone-new00002", "2026-11-18", "14:20")]);
+		assert.equal(store.blocks().some((b) => b.id === "phone-new00002"), false);
+		assert.ok(events().includes("relay_error"));
+		// An id or a time that isn't one.
+		link.replay([add("x y", "2026-11-21", "09:00"), add("phone-new00003", "soon", "09:00")]);
+		assert.equal(store.blocks().length, 3);
+	});
+
+	it("nudges per day set on the phone is the student's setting on the laptop too", async () => {
+		const { svc, store, later } = await withWeek();
+		const link = svc.requirePhone();
+		link.replay([{ id: "evt-prefs-001", at: later(), type: "prefs", payload: { nudgesPerDay: 0 } }]);
+		assert.equal(store.profile()?.prefs.nudgesPerDay, 0);
+		assert.equal(link.buildSchedule().week?.nudgesPerDay, 0);
+		link.replay([{ id: "evt-prefs-002", at: later(), type: "prefs", payload: { nudgesPerDay: 9 } }]);
+		assert.equal(store.profile()?.prefs.nudgesPerDay, 0, "only 0, 1 or 2");
+	});
+});
+
 describe("the relay is down", () => {
 	it("the laptop keeps working and logs it", async () => {
 		const { svc, events } = await setup({ relayDown: true });
@@ -225,7 +360,8 @@ describe("Send a test question to my phone (v1.0.4)", () => {
 		assert.ok(n, "on the relay");
 		assert.match(n.id, /^test:/);
 		assert.ok(Math.abs(Date.parse(n.fireAt) - before) < 5_000, "fires at real time");
-		assert.deepEqual([n.opens, n.lectureId, n.question?.id, n.more], ["question", "gt-nash", "gt-nash-q1", 4]);
+		// "2 more on your laptop": the unit's pack has three questions, and the count is what is really there (v2.1).
+		assert.deepEqual([n.opens, n.lectureId, n.question?.id, n.more], ["question", "gt-nash", "gt-nash-q1", 2]);
 		assert.equal(events().filter((e) => e === "phone_test_sent").length, 1);
 	});
 
@@ -255,6 +391,115 @@ describe("Send a test question to my phone (v1.0.4)", () => {
 		await assert.rejects(s.svc.requirePhone().sendTest(), (e: unknown) => e instanceof Error && e.message === PHONE_TEST_COPY.nothing);
 		const unpaired = await setup({ packs: true });
 		await assert.rejects(unpaired.svc.requirePhone().sendTest(), /Pair a phone first/);
+	});
+});
+
+describe("the round on the phone (v2.1 part A; V-46)", () => {
+	type Q = { id: string; lectureId: string; stem: string; unit?: string; module?: string; slides: number[] };
+	type N = { id: string; kind: string; title: string; body: string; why?: string; more?: number; unit?: string; module?: string; question?: Q; round?: Q[] };
+	async function paired(gt = 6) {
+		const s = await setup({ packs: true });
+		s.addUnit("gt-nash", "GT", "Nash equilibrium", gt);
+		const { pairId, token } = fromLink((await s.svc.requirePhone().pair()).url);
+		const read = async () => (await s.phone("GET", `/v1/pairs/${pairId}/schedule`, token)) as { nudges: N[] };
+		let e = 0;
+		const send = async (type: string, nudgeId: string, payload: Record<string, unknown>) => s.phone("POST", `/v1/pairs/${pairId}/events`, token, [{ id: `evt-round-${String(++e).padStart(4, "0")}`, at: new Date(2026, 10, 17, 13, 6, e).toISOString(), type, nudgeId, payload }]);
+		const test = async () => {
+			const r = await s.svc.requirePhone().sendTest();
+			return (await read()).nudges.find((x) => x.id === r.nudgeId)!;
+		};
+		const ref = (id: string) => ({ lectureId: "gt-nash", questionId: id });
+		return { ...s, read, send, test, ref };
+	}
+
+	it("a question arrives with the rest of its round, and says which unit each one is from", async () => {
+		const { test } = await paired();
+		const n = await test();
+		assert.equal(n.question?.id, "gt-nash-q1");
+		assert.deepEqual(n.round?.map((q) => q.id), ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"]);
+		assert.equal(n.more, 4);
+		assert.deepEqual([n.question?.unit, n.question?.module], ["Nash equilibrium", "GT"]);
+		assert.ok(n.round!.every((q) => q.unit === "Nash equilibrium" && q.module === "GT"));
+	});
+
+	it("a short bank gives a short round, and \"more on your laptop\" counts what is really there", async () => {
+		const { test } = await paired(3);
+		const n = await test();
+		assert.deepEqual(n.round?.map((q) => q.id), ["gt-nash-q2", "gt-nash-q3"]);
+		assert.equal(n.more, 2);
+	});
+
+	it("\"Done for now\" saves the rest; they come straight after the next notification's own question", async () => {
+		const { svc, store, test, send, ref, events } = await paired();
+		const first = await test();
+		await send("answered", first.id, { questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true });
+		await send("done_for_now", first.id, { saved: ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"].map(ref) });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q2", "gt-nash-q3", "gt-nash-q4", "gt-nash-q5"]);
+		// The next question is q2 itself (the first not sent yet): the saved ones follow it, then a new one fills the round.
+		const next = await test();
+		assert.equal(next.question?.id, "gt-nash-q2");
+		assert.deepEqual(next.round?.map((q) => q.id), ["gt-nash-q3", "gt-nash-q4", "gt-nash-q5", "gt-nash-q1"]);
+		assert.ok(events().includes("done_for_now"));
+	});
+
+	it("only the next notification leads with what was saved; an answer on the phone takes a question off the list", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const first = await test();
+		await send("done_for_now", first.id, { saved: [ref("gt-nash-q5"), ref("gt-nash-q4")] });
+		await svc.requirePhone().sync({ force: true });
+		await send("answered", first.id, { questionId: "gt-nash-q5", lectureId: "gt-nash", choice: 1, correct: false });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q4"]);
+		assert.equal(store.misses().some((m) => m.questionId === "gt-nash-q5"), true, "a wrong answer on the phone is still a gap");
+		// Rubbish in the saved list is ignored, not stored.
+		await send("done_for_now", first.id, { saved: [{ lectureId: 3 }, "x", ref("gt-nash-q4")] });
+		await svc.requirePhone().sync({ force: true });
+		assert.deepEqual(store.runtime().phoneSaved?.map((r) => r.questionId), ["gt-nash-q4"]);
+	});
+
+	it("after three answers on the phone, the laptop opens the same round at question 4", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const n = await test();
+		const round = [n.question!, ...n.round!].map((q) => ref(q.id));
+		const answers = [{ questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true }, { questionId: "gt-nash-q2", lectureId: "gt-nash", choice: 2, correct: false }, { questionId: "gt-nash-q3", lectureId: "gt-nash", choice: 0, correct: true }];
+		for (const a of answers) await send("answered", n.id, a);
+		await send("done_for_now", n.id, { saved: [ref("gt-nash-q4"), ref("gt-nash-q5")] });
+		await send("handover", n.id, { lectureId: "gt-nash", round, answers });
+		await svc.requirePhone().sync({ force: true });
+		const toast = store.nudges().find((x) => x.key.startsWith("handoff:"))!;
+		assert.equal(toast.text, "3 questions answered on your phone. 2 more ready.");
+		const session = store.session(toast.sessionId!)!;
+		assert.equal(session.spec.study, "practise");
+		assert.deepEqual(session.spec.practise?.picks.map((p) => p.questionId), round.map((r) => r.questionId));
+		assert.equal(session.spec.seedAnswers?.length, 3);
+		await svc.whenReady(session.id);
+		const v = await svc.view(session.id);
+		assert.equal(v.answered, 3);
+		assert.equal(v.budget, 5);
+		assert.equal(v.question?.id, "gt-nash-q4");
+		assert.deepEqual(store.runtime().phoneSaved ?? [], [], "what the laptop took over is no longer saved on the phone");
+	});
+
+	it("one answer still reads \"Question 1 answered on your phone\"", async () => {
+		const { svc, store, test, send, ref } = await paired();
+		const n = await test();
+		const round = [n.question!, ...n.round!].map((q) => ref(q.id));
+		await send("handover", n.id, { lectureId: "gt-nash", round, answers: [{ questionId: "gt-nash-q1", lectureId: "gt-nash", choice: 0, correct: true }] });
+		await svc.requirePhone().sync({ force: true });
+		assert.equal(store.nudges().find((x) => x.key.startsWith("handoff:"))?.text, "Question 1 answered on your phone ✓ 4 more ready.");
+	});
+
+	it("a relay from before v2.1 gets notifications it can accept; a newer one says its limit and gets the whole round", async () => {
+		const { svc, store, test } = await paired();
+		await test();
+		assert.equal(store.runtime().relayNudgeChars, 12_000, "the relay's own limit is remembered from its answer");
+		const plain = svc.requirePhone().buildSchedule();
+		assert.ok(plain.nudges.every((n) => JSON.stringify(n).length <= 12_000));
+		store.saveRuntime({ relayNudgeChars: 700 });
+		const cut = svc.requirePhone().buildSchedule().nudges.find((n) => n.question)!;
+		assert.ok(JSON.stringify(cut).length <= 700 || (cut.round as unknown[]).length === 0);
+		assert.ok(((cut.round as unknown[]) ?? []).length < 4);
 	});
 });
 

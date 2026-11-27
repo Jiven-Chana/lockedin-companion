@@ -51,6 +51,9 @@ export interface SessionBudget {
 	parts?: number;
 }
 
+/** An answer already given on the phone, which the laptop session starts from (F-112). */
+export interface SeedAnswer { questionId: string; choice: number; correct: boolean; at: string; stem?: string; choiceLabel?: string }
+
 export interface SessionSpec {
 	kind: SessionKind;
 	lectureId: string;
@@ -61,7 +64,9 @@ export interface SessionSpec {
 	/** v0.1 F-106: a session scoped to these concept-map nodes ("Quiz me on this idea"). */
 	nodes?: string[];
 	/** v0.1 F-112: question 1 was answered on the phone; the session continues at question 2. */
-	seedAnswer?: { questionId: string; choice: number; correct: boolean; at: string; stem?: string; choiceLabel?: string };
+	seedAnswer?: SeedAnswer;
+	/** v2.1: every answer given on the phone before the hand-off ("Keep going here", V-46), in the round's order. Used in place of `seedAnswer`. */
+	seedAnswers?: SeedAnswer[];
 	/** A study block's first step (V-44): the session opens on this bank question. */
 	firstQuestionId?: string;
 	/** Learn or Practise (V-40). Absent means Learn. */

@@ -129,8 +129,8 @@ describe("pairing with a 6-digit code (v1.0.3)", () => {
 describe("the schedule (§5.2: the laptop writes, versions only go up)", () => {
 	it("a higher version replaces the queue; the same or a lower one is ignored", async () => {
 		const { call, pairId, laptopSecret, phoneToken } = await setup();
-		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, timeZone: "Europe/London", nudges: [nudge("a", 10)], blocks: [{ date: "2026-11-24", start: "14:00" }] })).body, { accepted: true, version: 2 });
-		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, nudges: [nudge("b", 10)] })).body, { accepted: false, version: 2 });
+		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, timeZone: "Europe/London", nudges: [nudge("a", 10)], blocks: [{ date: "2026-11-24", start: "14:00" }] })).body, { accepted: true, version: 2, limits: { nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blocksChars } });
+		assert.deepEqual((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 2, nudges: [nudge("b", 10)] })).body, { accepted: false, version: 2, limits: { nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blocksChars } });
 		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [] })).body.accepted, false);
 		const view = (await call("GET", `/v1/pairs/${pairId}/schedule`, phoneToken)).body;
 		assert.deepEqual(view.nudges.map((n: { id: string }) => n.id), ["a"]);
@@ -143,7 +143,136 @@ describe("the schedule (§5.2: the laptop writes, versions only go up)", () => {
 	it("refuses a nudge without times, or too large", async () => {
 		const { call, pairId, laptopSecret } = await setup();
 		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [{ id: "x" }] })).status, 400);
-		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { body: "y".repeat(5000) })] })).status, 400);
+		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { body: "y".repeat(13_000) })] })).status, 400);
+		// A question with the rest of its round fits (v2.1): the limit is 12,000 characters, and the laptop is told so.
+		assert.equal(LIMITS.payloadChars, 12_000);
+		assert.equal((await call("PUT", `/v1/pairs/${pairId}/schedule`, laptopSecret, { version: 1, nudges: [nudge("x", 1, { round: "y".repeat(10_000) })] })).status, 200);
+	});
+});
+
+describe("a block moved on the phone (v2.1 part B: \"LockedIn will nudge you then, and not before\")", () => {
+	const block = { id: "blk1", date: "2026-11-24", start: "14:00", minutes: 50, status: "accepted" };
+	const blockNudge = (fireMin: number) => nudge("block:blk1:2026-11-24", fireMin, { kind: "block", blockId: "blk1", title: "Tue 14:00 · your study block" });
+	const move = (fireAt: string, id = "evt-move-0001") => [{ id, type: "plan_move", payload: { blockId: "blk1", date: "2026-11-25", start: "10:00", fireAt, title: "Wed 10:00 · your study block" } }];
+	const rows = async (s: Awaited<ReturnType<typeof setup>>) => (await s.env.DB.prepare("SELECT id, fire_at, sent_at, payload FROM nudges WHERE pair_id = ? ORDER BY fire_at").bind(s.pairId).all<{ id: string; fire_at: string; sent_at: string | null; payload: string }>()).results;
+
+	it("with the laptop closed, the notification moves to the new time and the week shows it there", async () => {
+		const s = await setup();
+		await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [blockNudge(30), nudge("other", 40)], blocks: [block, { id: "blk2", date: "2026-11-26", start: "09:00" }] });
+		const fireAt = at(24 * 60).toISOString();
+		assert.equal((await s.call("POST", `/v1/pairs/${s.pairId}/events`, s.phoneToken, move(fireAt))).status, 204);
+		const moved = (await rows(s)).find((r) => r.id === "block:blk1:2026-11-24")!;
+		assert.equal(moved.fire_at, fireAt);
+		assert.equal(JSON.parse(moved.payload).title, "Wed 10:00 · your study block");
+		assert.equal((await rows(s)).find((r) => r.id === "other")!.fire_at, at(40).toISOString(), "other notifications are untouched");
+		// Nothing is sent at the old time; it is sent at the new one.
+		assert.equal((await cron(s.env, at(31), async () => new Response(null, { status: 201 }))).sent, 0);
+		const view = (await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, s.phoneToken)).body;
+		assert.deepEqual(view.blocks.map((b: { id: string; date: string; start: string; moved?: boolean }) => [b.id, b.date, b.start, b.moved ?? false]), [["blk1", "2026-11-25", "10:00", true], ["blk2", "2026-11-26", "09:00", false]]);
+	});
+
+	it("a block whose notification already came is announced again at the new time, once", async () => {
+		const s = await setup();
+		await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [blockNudge(1)], blocks: [block] });
+		await cron(s.env, at(2), async () => new Response(null, { status: 201 }));
+		const fireAt = at(24 * 60).toISOString();
+		await s.call("POST", `/v1/pairs/${s.pairId}/events`, s.phoneToken, move(fireAt), at(3));
+		await s.call("POST", `/v1/pairs/${s.pairId}/events`, s.phoneToken, move(fireAt), at(4));
+		const all = await rows(s);
+		assert.equal(all.length, 2);
+		const again = all.find((r) => r.sent_at === null)!;
+		assert.equal(again.fire_at, fireAt);
+		assert.equal(JSON.parse(again.payload).blockId, "blk1");
+	});
+
+	it("a move with no usable time, or for a block the relay doesn't hold, changes nothing", async () => {
+		const s = await setup();
+		await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [blockNudge(30)], blocks: [block] });
+		const before = JSON.stringify(await rows(s));
+		for (const payload of [{ blockId: "blk1", date: "2026-11-25", start: "10:00", fireAt: "soon" }, { blockId: "nope", date: "2026-11-25", start: "10:00", fireAt: at(600).toISOString() }, { blockId: "blk1", date: "25 Nov", start: "10am", fireAt: at(600).toISOString() }]) {
+			assert.equal((await s.call("POST", `/v1/pairs/${s.pairId}/events`, s.phoneToken, [{ id: crypto.randomUUID(), type: "plan_move", payload }])).status, 204);
+		}
+		assert.equal(JSON.stringify(await rows(s)), before);
+		assert.equal((await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, s.phoneToken)).body.blocks[0].start, "14:00");
+	});
+});
+
+describe("the week changed on the phone (v2.1 part C): it holds with the laptop closed", () => {
+	const blocks = [{ id: "blk1", date: "2026-11-24", start: "14:00", minutes: 50, status: "accepted" }, { id: "blk2", date: "2026-11-26", start: "09:00", minutes: 50, status: "proposed" }];
+	const week = { lectures: [{ date: "2026-11-24", start: "11:00", title: "HCI" }], free: [{ date: "2026-11-25", start: "10:00" }], nudgesPerDay: 1, blockMinutes: 50 };
+	const blockNudge = (id: string, fireMin: number) => nudge(`block:${id}:x`, fireMin, { kind: "block", blockId: id });
+	async function withWeek() {
+		const s = await setup();
+		await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [blockNudge("blk1", 30), blockNudge("blk2", 60), nudge("q", 20)], blocks, week });
+		const send = (type: string, payload: Record<string, unknown>, now = T0) => s.call("POST", `/v1/pairs/${s.pairId}/events`, s.phoneToken, [{ id: crypto.randomUUID(), type, payload }], now);
+		const view = async () => (await s.call("GET", `/v1/pairs/${s.pairId}/schedule`, s.phoneToken)).body as { blocks: { id: string; date: string; start: string; status: string; moved?: boolean }[]; week?: typeof week };
+		const due = async (min: number) => (await cron(s.env, at(min), async () => new Response(null, { status: 201 }))).sent;
+		const sub = () => s.call("POST", `/v1/pairs/${s.pairId}/subscriptions`, s.phoneToken, { endpoint: "https://push.example/abc" });
+		return { ...s, send, view, due, sub };
+	}
+	const vapid = async () => { const k = await generateVapidKeys("mailto:test@example.invalid"); return { VAPID_PUBLIC_KEY: k.publicKey, VAPID_PRIVATE_KEY: k.privateKey }; };
+
+	it("the week travels with the blocks, and a schedule without one is read as before", async () => {
+		const s = await withWeek();
+		assert.deepEqual((await s.view()).week, week);
+		assert.equal((await s.view()).blocks.length, 2);
+		const old = await setup();
+		await old.call("PUT", `/v1/pairs/${old.pairId}/schedule`, old.laptopSecret, { version: 1, nudges: [], blocks });
+		const v = (await old.call("GET", `/v1/pairs/${old.pairId}/schedule`, old.phoneToken)).body;
+		assert.equal(v.blocks.length, 2);
+		assert.equal(v.week, undefined);
+	});
+
+	it("\"Remove\" takes the block and its notification away; \"Undo\" brings both back", async () => {
+		const s = await withWeek();
+		Object.assign(s.env, await vapid());
+		await s.sub();
+		await s.send("plan_remove", { blockId: "blk1" });
+		assert.equal((await s.view()).blocks.find((b) => b.id === "blk1")?.status, "removed");
+		assert.equal(await s.due(21), 1, "the lecture question is sent as usual");
+		assert.equal(await s.due(31), 0, "a removed block does not buzz");
+		await s.send("plan_tick", { blockId: "blk1", restore: true }, at(32));
+		assert.equal((await s.view()).blocks.find((b) => b.id === "blk1")?.status, "accepted");
+		assert.equal(await s.due(33), 1, "its notification is back, at its own time");
+	});
+
+	it("\"Looks good\" keeps a suggested block; \"Add a block\" puts a new one in the week with its own notification", async () => {
+		const s = await withWeek();
+		await s.send("plan_tick", { blockId: "blk2" });
+		assert.equal((await s.view()).blocks.find((b) => b.id === "blk2")?.status, "accepted");
+		const fireAt = at(24 * 60).toISOString();
+		await s.send("plan_add", { blockId: "phone-abc12345", date: "2026-11-25", start: "10:00", minutes: 50, fireAt, title: "Wed 10:00 · your study block" });
+		await s.send("plan_add", { blockId: "phone-abc12345", date: "2026-11-25", start: "10:00", minutes: 50, fireAt, title: "Wed 10:00 · your study block" });
+		const v = await s.view();
+		assert.deepEqual(v.blocks.filter((b) => b.id === "phone-abc12345").map((b) => [b.date, b.start, b.status, b.moved]), [["2026-11-25", "10:00", "accepted", true]]);
+		assert.deepEqual(v.week?.free, [], "the time it took is no longer offered");
+		const row = await s.env.DB.prepare("SELECT fire_at, payload FROM nudges WHERE pair_id = ? AND id = ?").bind(s.pairId, "block:phone-abc12345:2026-11-25").first<{ fire_at: string; payload: string }>();
+		assert.equal(row?.fire_at, fireAt);
+		assert.deepEqual([JSON.parse(row!.payload).kind, JSON.parse(row!.payload).blockId, JSON.parse(row!.payload).title], ["block", "phone-abc12345", "Wed 10:00 · your study block"]);
+		// Nonsense is refused quietly.
+		await s.send("plan_add", { blockId: "x", date: "tomorrow", start: "10:00", fireAt });
+		assert.equal((await s.view()).blocks.length, 3);
+	});
+
+	it("nudges set to 0 on the phone stop every notification at once; back to 1, they come again", async () => {
+		const s = await withWeek();
+		Object.assign(s.env, await vapid());
+		await s.sub();
+		await s.send("prefs", { nudgesPerDay: 0 });
+		assert.equal((await s.view()).week?.nudgesPerDay, 0);
+		assert.equal(await s.due(21), 0);
+		assert.equal(await s.due(31), 0);
+		await s.send("prefs", { nudgesPerDay: 1 }, at(32));
+		assert.equal(await s.due(33), 1, "what was due and has not run out is sent");
+		await s.send("prefs", { nudgesPerDay: 7 });
+		assert.equal((await s.view()).week?.nudgesPerDay, 1, "only 0, 1 or 2");
+	});
+
+	it("the laptop is told how much the week may hold", async () => {
+		const s = await setup();
+		const r = await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [], blocks });
+		assert.deepEqual(r.body.limits, { nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blocksChars });
+		assert.equal(LIMITS.blocksChars, 60_000);
 	});
 });
 

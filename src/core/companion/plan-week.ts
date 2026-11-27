@@ -268,6 +268,68 @@ export function proposeWeek(input: PlanInput): PlanResult {
 	return { proposals, plannedMinutes, roomMinutes: room, fits: input.targetMinutes <= room };
 }
 
+// ─── moving a block from the phone (v2.1 part B) ────────────────────────────
+
+/** A time a block can move to. `next` is the earliest free time of all ("Pick for me: next free gap"). */
+export interface MoveTime {
+	kind: "today" | "evening" | "tomorrow" | "next";
+	date: string;
+	start: string;
+}
+
+/**
+ * Where a block can go when the student says "Not now" (lo-fi task 2):
+ * later today, this evening, tomorrow morning, and the next free gap. Only
+ * times the planner itself would use: never on a lecture, a commitment,
+ * another block or in quiet hours, and never in the past. A kind with no
+ * free time is left out; nothing at all means the week has no room.
+ */
+export function moveTimes(input: { block: Pick<StudyBlock, "id" | "minutes">; now: Date; lectures: readonly Lecture[]; routine?: Pick<Routine, "commitments" | "energy">; quietHours: Profile["prefs"]["quietHours"]; blocks: readonly StudyBlock[] }): MoveTime[] {
+	const len = clampBlockMinutes(input.block.minutes);
+	const plan: PlanInput = {
+		week: input.now, now: input.now, lectures: input.lectures, ...(input.routine ? { routine: { commitments: input.routine.commitments, energy: [] } } : {}), quietHours: input.quietHours,
+		targetMinutes: 0, blockMinutes: len, existing: input.blocks.filter((b) => b.id !== input.block.id), lastWeek: [], focus: [], newId: () => "",
+	};
+	const today = atTime(input.now, "00:00");
+	const free: Date[] = [];
+	for (let i = 0; i < PLAN_RULES.moveDays; i++) for (const s of slotsOn(addDays(today, i), plan, len, new Set())) free.push(s.start);
+	free.sort((a, b) => a.getTime() - b.getTime());
+	const todayKey = dateKey(input.now);
+	const tomorrowKey = dateKey(addDays(today, 1));
+	const evening = parseHM(PLAN_RULES.moveEveningFrom);
+	const laterFrom = addMinutes(input.now, PLAN_RULES.moveLaterMinutes);
+	const pick = (kind: MoveTime["kind"], d: Date | undefined): MoveTime[] => (d ? [{ kind, date: dateKey(d), start: formatHM(d) }] : []);
+	const tomorrow = free.filter((d) => dateKey(d) === tomorrowKey);
+	return [
+		...pick("today", free.find((d) => dateKey(d) === todayKey && d >= laterFrom && minutesOfDay(d) < evening)),
+		...pick("evening", free.find((d) => dateKey(d) === todayKey && minutesOfDay(d) >= evening)),
+		...pick("tomorrow", tomorrow.find((d) => minutesOfDay(d) < parseHM(PLAN_RULES.moveMorningUntil)) ?? tomorrow[0]),
+		...pick("next", free[0]),
+	];
+}
+
+/**
+ * One free time a day for the days ahead, the one the planner would choose
+ * that day (the student's energy first, then the earliest): what "Move to a
+ * free gap" and "Add a block" offer on the phone (v2.1 part C). Every block
+ * that isn't removed is in the way, suggested ones too.
+ */
+export function freeTimes(input: { now: Date; lectures: readonly Lecture[]; routine?: Pick<Routine, "commitments" | "energy">; quietHours: Profile["prefs"]["quietHours"]; blocks: readonly StudyBlock[]; minutes: number; days?: number }): { date: string; start: string }[] {
+	const len = clampBlockMinutes(input.minutes);
+	const busy = input.blocks.filter((b) => b.status !== "removed").map((b) => ({ ...b, status: "accepted" as const }));
+	const plan: PlanInput = {
+		week: input.now, now: input.now, lectures: input.lectures, ...(input.routine ? { routine: input.routine } : {}), quietHours: input.quietHours,
+		targetMinutes: 0, blockMinutes: len, existing: busy, lastWeek: [], focus: [], newId: () => "",
+	};
+	const today = atTime(input.now, "00:00");
+	const out: { date: string; start: string }[] = [];
+	for (let i = 0; i < (input.days ?? PLAN_RULES.moveDays); i++) {
+		const best = slotsOn(addDays(today, i), plan, len, new Set()).sort((a, b) => b.score - a.score || a.start.getTime() - b.start.getTime())[0];
+		if (best) out.push({ date: dateKey(best.start), start: formatHM(best.start) });
+	}
+	return out;
+}
+
 // ─── moving a block by hand (v1.1, V-37) ────────────────────────────────────
 
 export type PlacementProblem = "lecture" | "commitment" | "block" | "quiet" | "past-midnight";

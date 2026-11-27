@@ -1,14 +1,80 @@
 /* LockedIn phone app (v0.1 F-112, J2′, J9). Plain JS, no build.
- * Screens: pair · question → result → hand-off · this week (+ Sunday check-in) · settings-lite.
- * No other learning on the phone (R-8): sessions happen on the laptop.
+ * Screens: pair · question → result → hand-off, keep going here or save (v2.1) · this week (+ Sunday check-in) · settings-lite.
+ * The phone's question starts a Practise round that can carry on here (V-46). Learn stays on the laptop (R-8).
  * Wording: spec Appendix A.
  */
 
 const COPY = {
-	right: (exp) => `✓ Right. ${exp}`,
-	wrong: (opt, exp) => `It's ${opt}. ${exp}`,
+	app: "LockedIn",
+	// After a lecture (v2.1): the lo-fi's wording (prototype/lofi, task 1).
+	questionOf: (i, n) => `Question ${i} of ${n}`,
+	why: (w) => `Why now: ${w}`,
+	right: "✓ Right.",
+	wrong: (opt) => `Not quite: ${opt}.`,
+	slide: (unit, n) => (unit ? `${unit} · slide ${n}` : `Slide ${n}`),
 	more: (n) => `${n} more on your laptop`,
+	keepGoing: "Keep going here",
 	done: "Done for now",
+	finished: "Done",
+	doneOf: (d, n) => `${d} of ${n} done`,
+	upToYou: (d, n) => `${d} of ${n} done. Up to you.`,
+	another: "Another one",
+	saveRest: "Save the rest for later",
+	thatsAll: (n) => `That's all ${n}`,
+	saved: "Saved.",
+	savedLine: (k) => (k === 1 ? "The other question waits for your next free gap. Nothing is overdue." : `The other ${k} questions wait for your next free gap. Nothing is overdue.`),
+	savedCard: (k) => (k === 1 ? "1 question saved" : `${k} questions saved`),
+	carryOn: "Carry on",
+	// The study block (v2.1 part B): the lo-fi's wording (task 2, without focus). The goal and the steps come from the laptop.
+	block: {
+		title: "Study block",
+		goal: "Goal:",
+		firstStep: "First step:",
+		take: "Take the first step",
+		notNow: "Not now",
+		left: (m) => `${m} min left`,
+		phoneDown: "Put your phone face down.",
+		openLaptop: "Open on my laptop",
+		end: "End block",
+		ended: "Block ended.",
+		endedLine: "Nothing is lost: the session waits on your laptop.",
+		when: "When suits you better?",
+		whenLine: "The rest of the block moves there. Nothing is marked missed.",
+		pickForMe: "Pick for me: next free gap",
+		moved: (to) => `Moved to ${to}.`,
+		movedLine: "LockedIn will nudge you then, and not before.",
+		noGap: "No free gap is left this week.",
+		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
+	},
+	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3).
+	week: {
+		title: "Your week",
+		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Tap one to move or remove it." : `${n} suggested blocks in your free gaps. Tap one to move or remove it.`),
+		moved: "moved",
+		move: "Move",
+		remove: "Remove",
+		moveTo: "Move to a free gap:",
+		cancel: "Cancel",
+		removed: (day) => `Removed ${day} block ·`,
+		undo: "Undo",
+		add: "Add a block",
+		looksGood: "Looks good",
+		set: "Your week is set.",
+		setCount: (n) => (n === 0 ? "No study blocks this week." : n === 1 ? "One study block." : `${n} study blocks.`),
+		willNudge: "LockedIn will nudge you when each one starts.",
+		nudgesOff: "Nudges are off, so LockedIn won't buzz. Your blocks are still here.",
+		changeAnyTime: "You can change them any time.",
+	},
+	settings: {
+		title: "Settings",
+		nudges: "Nudges per day",
+		nudgeLine: ["LockedIn won't buzz. Your blocks stay in your week.", "One a day, and it's the first question.", "Up to two a day. Never repeated."],
+		uses: "What LockedIn uses",
+		usesLines: ["Timetable: yes", "Lecture slides: yes", "Location: never."],
+		done: "Done",
+	},
+	onLaptop: "It's waiting on your laptop.",
+	onLaptopNote: "Open LockedIn on your laptop: your answers are already there.",
 	holds: "Lecture names and times, your phone's questions and answers, your study block times. Never your location, slides, notes or AI key.",
 	offline: "Can't reach LockedIn right now. Your answers are saved and will be sent when you're back online.",
 	// Pairing an iPhone (v1.0.3): add LockedIn to the Home Screen, then type the code the laptop shows.
@@ -171,7 +237,7 @@ function sampleQuestion() {
 	const box = h("details", { class: "card" }, h("summary", {}, COPY.install.tryTitle), h("p", { class: "eyebrow" }, SAMPLE.title), h("h2", {}, SAMPLE.stem));
 	const options = h("div", { class: "options", role: "group", "aria-label": "Answers" }, SAMPLE.options.map((o, i) => h("button", { class: "btn option", onclick: () => {
 		const right = i === SAMPLE.correct;
-		options.replaceWith(h("p", { class: right ? "result right" : "result" }, right ? COPY.right(SAMPLE.explanation) : COPY.wrong(SAMPLE.options[SAMPLE.correct], SAMPLE.explanation)), h("p", { class: "muted small" }, COPY.install.tried));
+		options.replaceWith(h("p", { class: right ? "result right" : "result" }, h("b", {}, right ? COPY.right : COPY.wrong(SAMPLE.options[SAMPLE.correct])), " ", SAMPLE.explanation), h("p", { class: "muted small" }, COPY.install.tried));
 	} }, o)));
 	box.append(options, h("p", { class: "muted small" }, COPY.install.tryNote));
 	return box;
@@ -260,41 +326,206 @@ async function pairScreen(byCode = false) {
 }
 
 // ─── the question (J2′) ─────────────────────────────────────────────────────
-function questionScreen(n, s) {
-	const q = n.question;
-	void event("opened", n.id, { kind: n.kind });
-	if (!q) {
-		// No question in this nudge (the v1 fallback): the laptop is where it continues.
-		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? `Why now: ${n.why}` : ""), handoff(n, null)));
+// ─── the question after a lecture, and its round on the phone (v2.1; lo-fi task 1, V-46) ──
+/** A round is five questions at most (the lo-fi's "Question 1 of 5"; the laptop's PHONE_RULES.roundSize). */
+const ROUND = 5;
+const ref = (q) => ({ lectureId: q.lectureId, questionId: q.id });
+const unitLabel = (q, n) => [q?.module || n?.module, q?.unit].filter(Boolean).join(" · ");
+const bar = (title, sub) => h("header", { class: "bar" }, h("b", {}, title), " ", sub ? h("span", { class: "muted small" }, sub) : null);
+
+/** The round a notification's question starts: its own question first, then what was saved on this phone, then the rest the laptop sent. */
+function roundOf(n) {
+	const saved = local.get("saved", null);
+	const seen = new Set();
+	const out = [];
+	for (const q of [n.question, ...(saved?.questions || []), ...(n.round || [])]) {
+		if (!q || seen.has(q.id) || out.length >= ROUND) continue;
+		seen.add(q.id);
+		out.push(q);
 	}
+	return out;
+}
+
+/** Questions no longer waiting on this phone: answered here, or taken over by the laptop. */
+function unsave(ids, done) {
+	const saved = local.get("saved", null);
+	if (!saved) return;
+	const questions = saved.questions.filter((q) => !ids.includes(q.id));
+	local.set("saved", questions.length ? { ...saved, questions, ...(done !== undefined ? { done } : {}) } : null);
+}
+
+const resultBox = (q, choice) => {
+	const right = choice === q.correct;
+	return h("p", { class: right ? "result right" : "result" },
+		h("b", {}, right ? COPY.right : COPY.wrong(q.options[q.correct])), " ", q.explanation,
+		q.slides?.length ? h("span", { class: "src" }, COPY.slide(q.unit, q.slides[0])) : null,
+	);
+};
+
+function questionScreen(n) {
+	void event("opened", n.id, { kind: n.kind });
+	if (!n.question) {
+		// No question in this nudge (the v1 fallback): the laptop is where it continues.
+		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
+	}
+	// A laptop from before v2.1 sends no round: one question here, the rest there, as it was.
+	const old = !Array.isArray(n.round);
+	const questions = old ? [n.question] : roundOf(n);
+	ask({ nudge: n, old, questions, answers: [], total: old ? 1 + (n.more ?? 4) : questions.length, base: 0 }, true);
+}
+
+/** "Carry on" from the home card: the saved questions, counted against the round they came from. */
+function carryOn() {
+	const saved = local.get("saved", null);
+	if (!saved?.questions?.length) return render();
+	ask({ nudge: null, old: false, questions: saved.questions, answers: [], total: saved.total, base: saved.done }, false);
+}
+
+/** One question of a round. `first`: the question the notification carried ("Question 1 of 5"); after it the header counts what is done. */
+function ask(r, first) {
+	const q = r.questions[r.answers.length];
+	const n = r.nudge;
+	const done = () => r.base + r.answers.length;
+	const left = () => r.questions.length - r.answers.length;
+	const head = () => (first ? [bar(COPY.app, unitLabel(q, n)), h("p", { class: "muted small" }, COPY.questionOf(1, r.total))] : [bar(COPY.app, COPY.doneOf(done(), r.total)), h("p", { class: "eyebrow" }, unitLabel(q, n))]);
+
 	const choose = (i) => {
-		const right = i === q.correct;
-		const exp = /\(Slides? \d/.test(q.explanation) ? q.explanation : `${q.explanation}${q.slides?.length ? ` (Slide ${q.slides[0]})` : ""}`;
-		void event("answered", n.id, { questionId: q.id, lectureId: q.lectureId, choice: i, correct: right });
-		const done = local.get("answered", []);
-		done.push(n.id);
-		local.set("answered", done.slice(-200));
-		show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, q.stem), h("p", { class: right ? "result right" : "result" }, right ? COPY.right(exp) : COPY.wrong(q.options[q.correct], exp)), handoff(n, { questionId: q.id, choice: i, correct: right })));
+		const answer = { questionId: q.id, lectureId: q.lectureId, choice: i, correct: i === q.correct };
+		void event("answered", n?.id ?? null, answer);
+		r.answers.push(answer);
+		if (n) {
+			const answered = local.get("answered", []);
+			answered.push(n.id);
+			local.set("answered", answered.slice(-200));
+		}
+		unsave([q.id], done());
+		const next = () => ask(r, false);
+		const ways = r.old
+			? handoffOld(n, answer)
+			: left() === 0
+				? h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => { unsave(r.questions.map((x) => x.id)); render(); } }, first ? COPY.finished : COPY.thatsAll(r.total)))
+				: first
+					? h("div", { class: "row" },
+							h("button", { class: "btn primary", onclick: () => handover(r) }, COPY.more(left())),
+							h("button", { class: "btn", onclick: next }, COPY.keepGoing),
+							h("button", { class: "btn", onclick: () => save(r) }, COPY.done),
+						)
+					: h("div", { class: "row" },
+							h("button", { class: "btn primary", onclick: next }, COPY.another),
+							h("button", { class: "btn", onclick: () => save(r) }, COPY.saveRest),
+						);
+		show(h("main", {}, ...head(), h("h1", {}, q.stem), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
 	};
+
 	show(
 		h("main", {},
-			h("p", { class: "eyebrow" }, n.title),
+			...head(),
 			h("h1", {}, q.stem),
 			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o))),
-			h("p", { class: "muted small" }, n.why ? `Why now: ${n.why}` : ""),
-			h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later"),
+			first && n?.why ? h("p", { class: "muted small" }, COPY.why(n.why)) : null,
+			first && n ? h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later") : null,
 		),
 	);
 }
 
-function handoff(n, answer) {
+/** "N more on your laptop": the laptop opens the same round, with every answer given here, at the next question. */
+async function handover(r) {
+	const first = r.answers[0];
+	await event("handover", r.nudge?.id ?? null, {
+		lectureId: r.nudge?.lectureId ?? r.questions[0].lectureId,
+		round: r.questions.map(ref),
+		answers: r.answers,
+		// Where a laptop from before v2.1 looks for the first answer.
+		...(first ? { questionId: first.questionId, choice: first.choice, correct: first.correct } : {}),
+	});
+	unsave(r.questions.map((q) => q.id));
+	show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("p", {}, COPY.onLaptopNote), h("button", { class: "btn", onclick: () => render() }, "OK")));
+}
+
+/** "Done for now" and "Save the rest for later": what is left waits, here and on the laptop. Nothing is overdue (R-6). */
+async function save(r) {
+	const rest = r.questions.slice(r.answers.length);
+	local.set("saved", rest.length ? { total: r.total, done: r.base + r.answers.length, label: unitLabel(rest[0], r.nudge), questions: rest } : null);
+	await event("done_for_now", r.nudge?.id ?? null, { saved: rest.map(ref) });
+	show(h("main", {}, h("h1", {}, COPY.saved), " ", h("p", {}, COPY.savedLine(rest.length)), h("button", { class: "btn", onclick: () => render() }, "OK")));
+}
+
+/** The hand-off as it was before v2.1: one answer, and the laptop builds the rest. */
+function handoffOld(n, answer) {
 	const more = n.more ?? 4;
 	return h("div", { class: "row" },
 		h("button", { class: "btn primary", onclick: async () => {
-			await event("handover", n.id, { ...(answer || {}), lectureId: n.lectureId });
-			show(h("main", {}, h("h1", {}, "It's waiting on your laptop."), h("p", {}, "Open LockedIn on your laptop: your answer is already there."), h("button", { class: "btn", onclick: () => render() }, "OK")));
+			await event("handover", n.id, { ...(answer ? { questionId: answer.questionId, choice: answer.choice, correct: answer.correct } : {}), lectureId: n.lectureId });
+			show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("p", {}, COPY.onLaptopNote), h("button", { class: "btn", onclick: () => render() }, "OK")));
 		} }, COPY.more(more)),
 		h("button", { class: "btn", onclick: async () => { await event("done_for_now", n.id); render(); } }, COPY.done),
+	);
+}
+
+// ─── the study block (v2.1 part B; lo-fi task 2, version B, without focus) ──
+const hm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const blockStart = (b) => new Date(`${b.date}T${b.start}:00`);
+const shortDay = (date) => new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" });
+const box = (...kids) => h("div", { class: "note" }, ...kids);
+const line = (label, text) => h("p", {}, h("b", {}, label), " ", text);
+
+/** The block's start: its goal and first step, then "Take the first step" or "Not now". */
+function blockScreen(b) {
+	const start = blockStart(b);
+	show(
+		h("main", {},
+			bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
+			box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+			h("div", { class: "row" },
+				h("button", { class: "btn primary", onclick: () => { void event("focus_start", null, { blockId: b.id }); blockRunning(b); } }, COPY.block.take),
+				h("button", { class: "btn", onclick: () => blockLater(b) }, COPY.block.notNow),
+			),
+		),
+	);
+}
+
+/** The block running: how long is left, the step that happens on the laptop, and the phone put down. */
+function blockRunning(b) {
+	const end = blockStart(b).getTime() + b.minutes * 60_000;
+	const left = Math.max(0, Math.min(b.minutes, Math.round((end - Date.now()) / 60_000)));
+	show(
+		h("main", {},
+			bar(COPY.block.title),
+			h("h1", {}, COPY.block.left(left)),
+			b.onLaptop ? box(line(COPY.block.firstStep, b.onLaptop)) : null,
+			h("p", { class: "muted" }, COPY.block.phoneDown),
+			h("div", { class: "row" },
+				h("button", { class: "btn primary", onclick: async () => {
+					await event("handover", null, { blockId: b.id });
+					show(h("main", {}, h("h1", {}, COPY.onLaptop), " ", h("button", { class: "btn", onclick: () => render() }, "OK")));
+				} }, COPY.block.openLaptop),
+				h("button", { class: "btn", onclick: async () => {
+					await event("focus_end", null, { blockId: b.id });
+					show(h("main", {}, bar(COPY.block.title, "ended"), box(h("b", {}, COPY.block.ended), " ", COPY.block.endedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
+				} }, COPY.block.end),
+			),
+		),
+	);
+}
+
+/** "Not now": the times the laptop found free. The relay moves the block's notification, laptop open or not. */
+function blockLater(b) {
+	const moves = b.moves || [];
+	if (!moves.length) return show(h("main", {}, bar(COPY.block.title, "move it"), h("p", {}, COPY.block.noGap), h("button", { class: "btn", onclick: () => render() }, "OK")));
+	const move = async (m) => {
+		await event("plan_move", null, { blockId: b.id, date: m.date, start: m.start, fireAt: new Date(`${m.date}T${m.start}:00`).toISOString(), title: COPY.block.nudgeTitle(shortDay(m.date), m.start) });
+		// The schedule this phone holds shows the move at once.
+		const s = await kv("schedule");
+		if (s?.blocks) await kv("schedule", { ...s, blocks: s.blocks.map((x) => (x.id === b.id ? { ...x, date: m.date, start: m.start, moved: true } : x)) });
+		show(h("main", {}, bar(COPY.block.title, "moved"), box(h("b", {}, COPY.block.moved(m.label)), " ", COPY.block.movedLine), h("button", { class: "btn", onclick: () => render() }, "OK")));
+	};
+	show(
+		h("main", {},
+			bar(COPY.block.title, "move it"),
+			h("h1", {}, COPY.block.when), " ",
+			h("p", { class: "muted" }, COPY.block.whenLine),
+			h("div", { class: "options" }, moves.map((m) => h("button", { class: m.kind === "next" ? "btn ghost" : "btn option", onclick: () => move(m) }, m.kind === "next" ? COPY.block.pickForMe : m.label))),
+		),
 	);
 }
 
@@ -337,6 +568,158 @@ function blockRow(b) {
 	return row;
 }
 
+// ─── your week and Settings (v2.1 part C; lo-fi task 3) ────────────────────
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const when = (x) => `${x.date} ${x.start}`;
+const blockLabel = (b) => `Study ${b.start}${b.focus?.title ? ` · ${b.focus.title}` : ""}`;
+
+/** The week: lectures as plain lines, blocks as buttons that open to "Move" and "Remove", then "Add a block", "Settings" and "Looks good". */
+function weekSection(s) {
+	const from = todayKey();
+	const st = {
+		blocks: (s.blocks || []).filter((b) => b.status !== "removed" && b.date >= from).map((b) => ({ ...b })),
+		free: [...(s.week.free || [])],
+		lectures: (s.week.lectures || []).filter((l) => l.date >= from),
+		minutes: s.week.blockMinutes || 50,
+		nudges: s.week.nudgesPerDay ?? 1,
+		open: null, moving: false, undo: null,
+	};
+	const el = h("section", { class: "card" });
+	const moment = (x) => new Date(`${x.date}T${x.start}:00`).toISOString();
+	const title = (x) => COPY.block.nudgeTitle(shortDay(x.date), x.start);
+
+	const move = async (b, f) => {
+		await event("plan_move", null, { blockId: b.id, date: f.date, start: f.start, fireAt: moment(f), title: title(f) });
+		st.free = st.free.filter((x) => when(x) !== when(f));
+		Object.assign(b, { date: f.date, start: f.start, moved: true });
+		Object.assign(st, { open: null, moving: false, undo: null });
+		draw();
+	};
+	const remove = async (b) => {
+		await event("plan_remove", null, { blockId: b.id });
+		st.blocks = st.blocks.filter((x) => x.id !== b.id);
+		Object.assign(st, { open: null, moving: false, undo: b });
+		draw();
+	};
+	const undo = async () => {
+		const b = st.undo;
+		await event("plan_tick", null, { blockId: b.id, restore: true });
+		st.blocks.push(b);
+		st.undo = null;
+		draw();
+	};
+	const add = async () => {
+		const f = st.free[0];
+		if (!f) return;
+		const b = { id: `phone-${uuid().replace(/-/g, "").slice(0, 12)}`, date: f.date, start: f.start, minutes: st.minutes, status: "accepted", focus: null, moved: true };
+		await event("plan_add", null, { blockId: b.id, date: b.date, start: b.start, minutes: b.minutes, fireAt: moment(b), title: title(b) });
+		st.free = st.free.slice(1);
+		st.blocks.push(b);
+		Object.assign(st, { open: b.id, moving: false, undo: null });
+		draw();
+	};
+	const looksGood = async () => {
+		for (const b of st.blocks.filter((x) => x.status === "proposed")) {
+			await event("plan_tick", null, { blockId: b.id });
+			b.status = "accepted";
+		}
+		weekSet(st, s);
+	};
+
+	const row = (x) => {
+		if (!x.id) return h("li", { class: "wk static" }, h("b", {}, shortDay(x.date)), " ", `${x.title} ${x.start}`);
+		const isOpen = st.open === x.id;
+		return h("li", { class: "wk" },
+			h("button", { class: "btn wkrow", "aria-expanded": isOpen ? "true" : "false", onclick: () => { Object.assign(st, { open: isOpen ? null : x.id, moving: false }); draw(); } },
+				h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
+			x.why ? h("p", { class: "muted small" }, x.why) : null,
+			isOpen && !st.moving ? h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => { st.moving = true; draw(); } }, COPY.week.move), h("button", { class: "btn small", onclick: () => remove(x) }, COPY.week.remove)) : null,
+			isOpen && st.moving ? h("div", { class: "stack" }, h("p", { class: "muted small" }, COPY.week.moveTo), h("div", { class: "row" },
+				st.free.map((f) => h("button", { class: "btn small chip", onclick: () => move(x, f) }, `${shortDay(f.date)} ${f.start}`)),
+				h("button", { class: "btn small chip dashed", onclick: () => { st.moving = false; draw(); } }, COPY.week.cancel))) : null,
+		);
+	};
+	const draw = () => {
+		const rows = [...st.lectures, ...st.blocks].sort((a, b) => when(a).localeCompare(when(b)));
+		// replaceChildren writes "null" for a missing child, so the missing ones are taken out first.
+		el.replaceChildren(...[
+			h("h2", {}, COPY.week.title), " ",
+			h("p", { class: "muted small" }, COPY.week.count(st.blocks.length)),
+			rows.length ? h("ul", { class: "week" }, rows.map(row)) : null,
+			st.undo ? h("p", { class: "muted small" }, COPY.week.removed(shortDay(st.undo.date)), " ", h("button", { class: "btn small", onclick: undo }, COPY.week.undo)) : null,
+			h("div", { class: "row" },
+				h("button", { class: "btn", onclick: add, disabled: st.free.length === 0 }, COPY.week.add),
+				h("button", { class: "btn", onclick: () => settingsScreen(st, () => render()) }, COPY.settings.title),
+				h("button", { class: "btn primary", onclick: looksGood }, COPY.week.looksGood),
+			),
+		].filter((x) => x != null));
+	};
+	draw();
+	return el;
+}
+
+/** "Looks good": the week is set (lo-fi "tdone"). */
+function weekSet(st, s) {
+	const n = st.blocks.length;
+	const rows = [...st.blocks].sort((a, b) => when(a).localeCompare(when(b)));
+	show(
+		h("main", {},
+			bar(COPY.week.title, "set"),
+			box(h("b", {}, COPY.week.set), " ", COPY.week.setCount(n)),
+			rows.length ? h("ul", { class: "week" }, rows.map((b) => h("li", { class: "wk static" }, h("b", {}, shortDay(b.date)), " ", blockLabel(b).replace(/^Study /, "")))) : null,
+			h("p", { class: "muted" }, st.nudges > 0 ? COPY.week.willNudge : COPY.week.nudgesOff, " ", COPY.week.changeAnyTime),
+			h("div", { class: "row" },
+				h("button", { class: "btn", onclick: () => settingsScreen(st, () => weekSet(st, s)) }, COPY.settings.title),
+				h("button", { class: "btn primary", onclick: () => render() }, "OK"),
+			),
+		),
+	);
+}
+
+/** Settings (lo-fi "set"): nudges per day, what LockedIn uses, and this phone's own switches. */
+function settingsScreen(st, back) {
+	const set = async (n) => {
+		st.nudges = n;
+		await event("prefs", null, { nudgesPerDay: n });
+		settingsScreen(st, back);
+	};
+	show(
+		h("main", {},
+			bar(COPY.settings.title),
+			h("b", {}, COPY.settings.nudges),
+			h("div", { class: "seg", role: "group", "aria-label": COPY.settings.nudges }, [0, 1, 2].map((n) => h("button", { class: "btn small", "aria-pressed": st.nudges === n ? "true" : "false", onclick: () => set(n) }, String(n)))),
+			h("p", { class: "muted small" }, COPY.settings.nudgeLine[st.nudges]),
+			box(h("b", {}, COPY.settings.uses), " ", COPY.settings.usesLines.flatMap((l) => [h("span", { class: "line" }, l), " "])),
+			thisPhone(),
+			h("button", { class: "btn primary", onclick: back }, COPY.settings.done),
+		),
+	);
+}
+
+/** This phone's own switches: notifications, what the relay holds, unpair. */
+function thisPhone() {
+	return [
+		h("p", {}, local.get("pushOn", false) ? "Notifications are on." : h("button", { class: "btn", onclick: async () => { try { await enablePush(); local.set("pushOn", true); render(); } catch (e) { alert(e.message); } } }, "Turn on notifications")),
+		h("p", { class: "small" }, h("b", {}, "What the relay holds: "), COPY.holds),
+		h("button", { class: "btn ghost", onclick: async () => {
+			if (!confirm("Unpair this phone? Questions stop coming here.")) return;
+			try { await api("", { method: "DELETE" }); } catch {}
+			await kv("pair", null);
+			local.set("queue", []);
+			PAIR = null;
+			render();
+		} }, "Unpair this phone"),
+	];
+}
+
+/** The week as it was shown before v2.1: a list with Keep and ✕, and Settings folded away. */
+function oldWeek(blocks) {
+	return [
+		h("section", { class: "card" }, h("h2", {}, "This week"), blocks.length ? h("ul", { class: "blocks" }, blocks.map(blockRow)) : h("p", { class: "muted" }, "No study blocks yet. Plan your week on your laptop.")),
+		h("details", { class: "card" }, h("summary", {}, "Settings"), thisPhone()),
+	];
+}
+
 async function home() {
 	const s = await schedule();
 	if (s.unpaired) {
@@ -350,26 +733,17 @@ async function home() {
 	const question = pending.find((n) => n.kind === "N-1" || n.opens === "question");
 	const checkin = pending.find((n) => n.kind === "N-5");
 	const blocks = (s.blocks || []).filter((b) => b.status !== "removed");
+	const saved = local.get("saved", null);
 	show(
 		h("main", {},
 			s.offline ? h("p", { class: "note" }, COPY.offline) : null,
 			h("h1", {}, "LockedIn"),
-			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question, s) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
+			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
-			h("section", { class: "card" }, h("h2", {}, "This week"), blocks.length ? h("ul", { class: "blocks" }, blocks.map(blockRow)) : h("p", { class: "muted" }, "No study blocks yet. Plan your week on your laptop.")),
-			h("details", { class: "card" },
-				h("summary", {}, "Settings"),
-				h("p", {}, local.get("pushOn", false) ? "Notifications are on." : h("button", { class: "btn", onclick: async () => { try { await enablePush(); local.set("pushOn", true); render(); } catch (e) { alert(e.message); } } }, "Turn on notifications")),
-				h("p", { class: "small" }, h("b", {}, "What the relay holds: "), COPY.holds),
-				h("button", { class: "btn ghost", onclick: async () => {
-					if (!confirm("Unpair this phone? Questions stop coming here.")) return;
-					try { await api("", { method: "DELETE" }); } catch {}
-					await kv("pair", null);
-					local.set("queue", []);
-					PAIR = null;
-					render();
-				} }, "Unpair this phone"),
-			),
+			// Your week (v2.1 part C). A laptop or relay from before v2.1 sends no week: the blocks are listed as they were.
+			...(s.week ? [weekSection(s)] : oldWeek(blocks)),
 		),
 	);
 }
@@ -399,7 +773,13 @@ async function render() {
 		history.replaceState(null, "", "/p");
 		const s = await schedule(false);
 		const n = (s.nudges || []).find((x) => x.id === id) || ((await schedule()).nudges || []).find((x) => x.id === id);
-		if (n) return n.kind === "N-5" ? home() : questionScreen(n, s);
+		if (n) {
+			// A block's notification opens the block (v2.1), when the laptop sent what the block screen shows.
+			const fresh = n.blockId ? await schedule() : null;
+			const b = n.blockId ? (fresh?.blocks || []).find((x) => x.id === n.blockId) : null;
+			if (b?.goal) return blockScreen(b);
+			return n.kind === "N-5" ? home() : questionScreen(n);
+		}
 	}
 	return home();
 }

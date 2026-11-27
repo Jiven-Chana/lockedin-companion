@@ -58,6 +58,10 @@ export interface RuntimeState {
 	replayedPhoneEvents?: string[];
 	/** Facilitator "send a question to the phone now": kept in every upload until it expires (real time). */
 	phoneNowNudge?: Record<string, unknown> & { id: string; expiresAt: string };
+	/** v2.1 (V-46): questions left with "Done for now" or "Save the rest for later"; they follow the next notification's own question. */
+	phoneSaved?: { lectureId: string; questionId: string }[];
+	/** The largest notification the relay accepts, from its last answer. Unset for a relay deployed before v2.1. */
+	relayNudgeChars?: number;
 }
 
 const FILES = {

@@ -10,7 +10,9 @@ import {
 	blockWhy,
 	CHECKIN_RULES,
 	DEFAULT_PREFS,
+	freeTimes,
 	lastWeekSummary,
+	moveTimes,
 	NUDGE_TEXT,
 	PLAN_COPY,
 	PLAN_RULES,
@@ -127,6 +129,63 @@ describe("why a block is where it is (V-45, AFF-G)", () => {
 	it("a block the student made or moved has no reason; a lecture of a module without a name uses its code", () => {
 		assert.equal(blockWhy(block("2026-11-24", "10:00"), modules), null);
 		assert.equal(blockWhy({ ...block("2026-11-24", "10:00"), placed: { by: "after-lecture", module: "NC" } }, modules), "right after your NC lecture");
+	});
+});
+
+describe("moving a block from the phone (v2.1 part B; lo-fi: three times and \"Pick for me: next free gap\")", () => {
+	// Thursday 26 Nov 2026, 14:05: the block that has just started is being put off.
+	const now = at(26, 14, 5);
+	const mine: StudyBlock = { ...block("2026-11-26", "14:00"), id: "mine" };
+	const ask = (over: Partial<Parameters<typeof moveTimes>[0]> = {}) => moveTimes({ block: mine, now, lectures: [], quietHours: DEFAULT_PREFS.quietHours, blocks: [mine], ...over });
+	const show = (m: ReturnType<typeof moveTimes>) => m.map((x) => `${x.kind} ${x.date} ${x.start}`);
+
+	it("offers later today, this evening, tomorrow morning, and the earliest free time of all", () => {
+		// The planner's own times: on the hour through a free stretch, never sooner than ten minutes from now.
+		assert.deepEqual(show(ask()), ["today 2026-11-26 16:00", "evening 2026-11-26 18:00", "tomorrow 2026-11-27 08:00", "next 2026-11-26 15:00"]);
+	});
+
+	it("never offers a time on a lecture, a commitment, another block or in quiet hours", () => {
+		const lectures = [lecture("gt", "GT", 26, 16, 2), lecture("hci", "HCI", 27, 8, 4)];
+		const blocks = [mine, { ...block("2026-11-26", "14:30"), id: "other" }];
+		const routine = { energy: [], commitments: [{ label: "Shift", weekdays: [4], start: "18:00", end: "21:00" }] };
+		const m = ask({ lectures, blocks, routine });
+		// Today: another block until 15:20, a lecture 16:00 to 18:00, a shift until 21:00, then too little time before quiet hours.
+		// Tomorrow morning is a lecture, so "tomorrow" is the first free time after it.
+		assert.deepEqual(show(m), ["tomorrow 2026-11-27 12:15", "next 2026-11-27 12:15"]);
+	});
+
+	it("late at night there is only tomorrow, and the next free gap is the same time", () => {
+		const m = ask({ now: at(26, 21, 30) });
+		assert.deepEqual(show(m), ["tomorrow 2026-11-27 08:00", "next 2026-11-27 08:00"]);
+	});
+
+	it("a week with no room says so by offering nothing", () => {
+		const routine = { energy: [], commitments: [{ label: "Away", weekdays: [1, 2, 3, 4, 5, 6, 7], start: "08:00", end: "22:00" }] };
+		assert.deepEqual(ask({ routine }), []);
+	});
+
+	it("each time has the lo-fi's label", () => {
+		assert.deepEqual(ask().map((x) => PLAN_COPY.moveLabel(x.kind, x.start)), ["Today 16:00", "This evening 18:00", "Tomorrow 08:00", "next free gap"]);
+	});
+});
+
+describe("free times for the week on the phone (v2.1 part C: \"Move to a free gap\", \"Add a block\")", () => {
+	const now = at(26, 14, 5); // Thursday
+	const ask = (over: Partial<Parameters<typeof freeTimes>[0]> = {}) => freeTimes({ now, lectures: [], quietHours: DEFAULT_PREFS.quietHours, blocks: [], minutes: 50, days: 3, ...over }).map((f) => `${f.date} ${f.start}`);
+
+	it("one a day, the planner's pick: the earliest, or inside the student's energy when they gave it", () => {
+		assert.deepEqual(ask(), ["2026-11-26 15:00", "2026-11-27 08:00", "2026-11-28 08:00"]);
+		assert.deepEqual(ask({ routine: { energy: ["evening"], commitments: [] } }), ["2026-11-26 17:00", "2026-11-27 17:00", "2026-11-28 17:00"]);
+	});
+
+	it("a block already there is in the way, even one that is only suggested; a removed one is not", () => {
+		const blocks = [block("2026-11-27", "08:00", "proposed"), block("2026-11-28", "08:00", "removed")];
+		assert.deepEqual(ask({ blocks }), ["2026-11-26 15:00", "2026-11-27 09:00", "2026-11-28 08:00"]);
+	});
+
+	it("a day with no room is left out", () => {
+		const routine = { energy: [], commitments: [{ label: "Away", weekdays: [5], start: "08:00", end: "22:00" }] };
+		assert.deepEqual(ask({ routine }), ["2026-11-26 15:00", "2026-11-28 08:00"]);
 	});
 });
 

@@ -16,8 +16,10 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.1** | 24 Nov 2026 | tag `lockedin-v1.1` on `main` | Progress as a learning score over time with module attribution, attention on gaps and milestones; the Week page as a timetable whose study blocks can be dragged (V-34 to V-38). The first slice of the v2.0 polish | [`v1.1-release.md`](v1.1-release.md), [`v1.1-plan.md`](v1.1-plan.md), [`v1.1-research.md`](v1.1-research.md) |
 | **v1.1.1** | 24 Nov 2026 | tag `lockedin-v1.1.1` on `main` | Four defects in v1.1: a study block can be started (Start, or its notification), a stopped session is offered again on Today, confidence is four taps with none preselected, and a block names its first step (V-44) | [`v1.1-release.md`](v1.1-release.md) section 6 |
 | **v2.0** | 25 Nov 2026 | tag `lockedin-v2.0` on `main` | Shipped: Learn and Practise as two modes, gaps by idea with new questions written around them, three notes per module that the tutor reads and the student can edit, and a first run on the student's own material (V-39 to V-67). The phone, diagrams, Me and motion moved to v2.1 (V-67) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md), [`DECISIONS.md`](DECISIONS.md) V-39 to V-67 |
-| **v2.1** | planned | branch to be cut from `main` | In this order (V-67): the phone brought closer to the lo-fi, diagrams drawn by LockedIn (V-33), Me in a few lines with "Advanced" and the clutter list, motion. Not planned in detail yet | [`v2.0-direction.md`](v2.0-direction.md) sections 9, 10, 12, 13 and 14 |
-| **v3.0** | later | — | Not specified yet: the desktop app, a native phone app, code clean-up | — |
+| **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
+| **v2.2** | planned | branch `feat/v2.2` | What the lo-fi test (T18, LF-1 to LF-21) changes in the features. Being planned | `v2.2-plan.md` (to come) |
+| **v3.0** | later | — | The look chosen by the look test (four designs made in parallel), on the laptop and the phone, with what v2.1 left: Me in a few lines, the clutter list, icons, motion, diagrams drawn by LockedIn (V-70) | — |
+| **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
 
@@ -219,4 +221,33 @@ A session is now one of two things, and says which. **Learn** is the AI tutor: i
 - **Later, not in v2.1:** Today as one next step, the Week screen's Undo, add and calendar export, and Your courses (one drop for everything, chapters that span weeks, real week numbers).
 - **Known and small:** the planner fills the earliest days first; the session plan is a plain list until it is drawn; `/api/stt/token` is asked for even with no voice key; Today's card for a week-long session shows its first lecture's title; Practise's done screen has no "Learn this".
 - **Owed to the group:** design-log rows for V-41, V-45, V-46, V-48 and V-49, and a `LIT` id for interleaving.
+
+---
+
+## v2.1: the phone, closer to the lo-fi (27 Nov 2026)
+
+Tag `lockedin-v2.1`. The plan, with the lo-fi wording each screen uses, is [`v2.1-plan.md`](v2.1-plan.md); the decisions are [`DECISIONS.md`](DECISIONS.md) V-67 to V-70.
+
+### In one paragraph
+The phone now does what the team's lo-fi v13 shows it doing, outside the four choices the lo-fi test was run to settle. The notification says why it came. After the first question the student chooses: carry on on the laptop, keep going on the phone, or stop, and what is left is saved with "Nothing is overdue". A study block's notification opens the block on the phone, where it can be started, opened on the laptop, or moved to a later time. The week is on the phone: move, remove with Undo, add, "Looks good". Settings on the phone set notifications per day, and 0 stops them at once. Changes made on the phone hold with the laptop closed.
+
+### What changed in how it works
+- **A question carries its round** (`phone-round.ts`, `ScheduledNudge.round`): the rest of the questions travel with the first one, and the laptop opens the same round at the next question.
+- **The relay moves things itself** (`relay/src/relay.ts`): a moved block's notification is re-timed on the relay, the week is edited there, and 0 notifications a day is enforced there.
+- **The relay takes larger uploads** and tells the laptop its limits, so an older relay or phone still works with a newer partner.
+- **New and changed calls and events** are in [`API.md`](API.md) and `relay/README.md`.
+
+### How it was checked
+- 1,053 companion tests: the rules, the laptop against the real relay code, and the phone app run in a simulated phone.
+- Every new phone screen in Chrome at phone size against a stand-in relay.
+- The relay was deployed on 25 Nov and Jiven tried the phone app on his iPhone on 26 Nov. He reported no functional fault, and that the phone app looks plain.
+
+### What was not checked
+- No written checklist was run on the iPhone: which screens were opened on 26 Nov is not recorded.
+- Whether students like it: that is the hi-fi test.
+
+### What is still missing
+- **Decided by the lo-fi test, for v2.2:** answering on the lock screen, "Where are you?", focus levels, and the smaller findings (LF-1 to LF-21).
+- **Moved to v3.0 (V-70):** the phone's look, Me in a few lines with "Advanced", the clutter list, icons, motion, and diagrams drawn by LockedIn.
+- **v4.0:** the desktop app.
 

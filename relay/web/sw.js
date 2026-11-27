@@ -63,7 +63,9 @@ self.addEventListener("push", (e) => {
 			// A push must always show something (iOS and Chrome require it).
 			if (!due.length) return self.registration.showNotification("LockedIn", { body: "Something's ready for you.", tag: "lockedin", data: {} });
 			for (const n of due) {
-				await self.registration.showNotification(n.title || "LockedIn", { body: n.body, tag: n.id, data: { id: n.id }, icon: "/icon-192.png", badge: "/icon-192.png" });
+				// The reason is on the notification itself (v2.1; lo-fi task 1: "Why now: lecture ended, you're free till 15:00").
+				const body = n.why ? `${n.body}\nWhy now: ${n.why}` : n.body;
+				await self.registration.showNotification(n.title || "LockedIn", { body, tag: n.id, data: { id: n.id }, icon: "/icon-192.png", badge: "/icon-192.png" });
 				shown.push(n.id);
 			}
 			await kv("shown", shown.slice(-200));
