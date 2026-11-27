@@ -17,7 +17,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v1.1.1** | 24 Nov 2026 | tag `lockedin-v1.1.1` on `main` | Four defects in v1.1: a study block can be started (Start, or its notification), a stopped session is offered again on Today, confidence is four taps with none preselected, and a block names its first step (V-44) | [`v1.1-release.md`](v1.1-release.md) section 6 |
 | **v2.0** | 25 Nov 2026 | tag `lockedin-v2.0` on `main` | Shipped: Learn and Practise as two modes, gaps by idea with new questions written around them, three notes per module that the tutor reads and the student can edit, and a first run on the student's own material (V-39 to V-67). The phone, diagrams, Me and motion moved to v2.1 (V-67) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md), [`DECISIONS.md`](DECISIONS.md) V-39 to V-67 |
 | **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
-| **v2.2** | planned | branch `feat/v2.2` | What the lo-fi test (T18, LF-1 to LF-21) changes in the features. Being planned | `v2.2-plan.md` (to come) |
+| **v2.2** | 27 Nov 2026 | branch `feat/v2.2`, tag `lockedin-v2.2` once merged | Built: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Not yet on a real phone | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
 | **v3.0** | later | — | The look chosen by the look test (four designs made in parallel), on the laptop and the phone, with what v2.1 left: Me in a few lines, the clutter list, icons, motion, diagrams drawn by LockedIn (V-70) | — |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
@@ -250,4 +250,37 @@ The phone now does what the team's lo-fi v13 shows it doing, outside the four ch
 - **Decided by the lo-fi test, for v2.2:** answering on the lock screen, "Where are you?", focus levels, and the smaller findings (LF-1 to LF-21).
 - **Moved to v3.0 (V-70):** the phone's look, Me in a few lines with "Advanced", the clutter list, icons, motion, and diagrams drawn by LockedIn.
 - **v4.0:** the desktop app.
+
+---
+
+## v2.2: what the lo-fi test changed (27 Nov 2026)
+
+The plan, with each finding and what became of it, is [`v2.2-plan.md`](v2.2-plan.md); the decisions are [`DECISIONS.md`](DECISIONS.md) V-71 to V-75.
+
+### In one paragraph
+The lo-fi test (T18, four testers, 25 Nov) reported on 27 Nov, and v2.2 makes the feature changes it points to. The notification is shorter. "Nudge", which a tester had to ask about, is "notification". Moving a block no longer needs explaining: Move and Remove are on every block on the phone, and the laptop says blocks can be dragged. A study block's start can be told where the student is, as an option: bed or café asks "now or later?", and on the move the block's questions can be answered on the phone one at a time. One request from the look test is built too: "Re-plan the rest of my week". Answer buttons on the lock screen and focus levels were tested in the lo-fi and are not built; a web app cannot do either.
+
+### What changed in how it works
+- **A block that is near carries its questions** (`PhoneBlockLines.round`, `svc.phoneBlockRound`): up to five from its unit's bank, for today's and tomorrow's blocks, dropped from the furthest block first if the week would not fit the relay (`fitBlocks`).
+- **The phone remembers what it has asked of a block** (its own storage), so a block moved after two answers carries on at the third.
+- **The place is one new phone event,** `block_where`. The laptop writes it to the event log and does nothing else with it.
+- **The re-plan is a pure rule** (`openBlocks`, `replanWeek` in `plan-week.ts`) behind `POST /plan/replan`; `DELETE` undoes it on the day it was made.
+- **The relay needs a deploy:** it must accept `block_where`, and the deploy publishes the phone app's new screens.
+
+### How it was checked
+- 1,099 companion tests: the re-plan as tables of cases and through the service, the block's questions and the place event against the real relay code, and every new phone screen run in a simulated phone.
+- The phone screens in Chrome at phone size against a stand-in relay with made-up questions: the chips, bed's "now or later?", two answers on the move, the rest moved, the week, Settings.
+- The Week screen in Chrome on a copy of Jiven's own data: seven unstarted blocks moved (three into next week), the line still there after a reload, and Undo putting all seven back. Progress's link opens the week.
+
+### What was not checked
+- Nothing here has run on a real phone or against the deployed relay.
+- The notification's new wording was checked in the simulated service worker only, not as a real notification.
+- The reasoning box's new wording and Me's renamed settings were not opened in Chrome; they are text changes covered by the type check.
+- Whether students want any of it: that is the hi-fi test.
+
+### What is still missing
+- **Declared, needing a native app:** answer buttons on the lock screen (LF-1), focus levels and the shield (LF-5 to LF-7).
+- **Asked for and not built:** a study circle or leaderboard (LF-15), a question in any free gap for courses without lectures (LF-17).
+- **v3.0:** the look, on the laptop and the phone. **v4.0:** the desktop app.
+- **Owed to the group:** design-log rows for V-71 to V-75, each of which acts on a finding before T19 has agreed it.
 
