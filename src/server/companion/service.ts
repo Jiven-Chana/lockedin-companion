@@ -39,7 +39,7 @@ import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
 import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, openBlocks, pacedUnits, placementProblem, proposeWeek, replanWeek } from "../../core/companion/plan-week.ts";
-import type { PhoneBlockLines, PhoneWeek } from "../../core/companion/sync.ts";
+import type { PhoneBlockLines, PhonePractisePool, PhoneWeek } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
 import { ideaKeyOf, pickPractise, type IdeaStanding, type PractiseCandidate } from "../../core/companion/practise.ts";
@@ -1419,6 +1419,23 @@ export class CompanionService {
 			moves: moveTimes({ block, now: this.now(), lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks().filter((b) => b.status !== "removed") })
 				.map((m) => ({ ...m, label: PLAN_COPY.moveLabel(m.kind, m.start) })),
 		};
+	}
+
+	/**
+	 * "Practise" on the phone's home screen (v2.3 part B): for each module
+	 * with question banks, the questions the laptop's own Practise would ask
+	 * next (mixed across ideas, weighted to gaps, least asked first), so the
+	 * phone can ask them with the laptop closed. Chosen again at every upload.
+	 */
+	phonePractise(): PhonePractisePool[] {
+		const profile = this.requireProfile();
+		return profile.modules.flatMap((m) => {
+			const questions = this.practisePicks(m.code, PHONE_RULES.practisePool, new Set()).flatMap((p) => {
+				const q = this.packs?.bank(p.lectureId)?.find((x) => x.id === p.questionId);
+				return q ? [this.asNudgeQuestion(p.lectureId, q)] : [];
+			});
+			return questions.length > 0 ? [{ module: m.code, name: m.name, questions }] : [];
+		});
 	}
 
 	/**

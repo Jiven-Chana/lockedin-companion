@@ -8,7 +8,7 @@
 
 import QRCode from "qrcode";
 import { HANDOFF_COPY, NUDGE_TEXT, PHONE_RULES, PHONE_TEST_COPY, PLAN_COPY } from "../../core/companion/policy.ts";
-import { fitBlocks, fitNudge, type RoundRef } from "../../core/companion/phone-round.ts";
+import { fitBlocks, fitNudge, fitPractise, type RoundRef } from "../../core/companion/phone-round.ts";
 import { applyPlanEdits, eventsToReplay, nextVersion, scheduleFingerprint, type PhoneEvent, type PlanEdit, type RelaySchedule } from "../../core/companion/sync.ts";
 import { FEELINGS, proposeTarget } from "../../core/companion/checkin.ts";
 import type { ScheduledNudge } from "../../core/companion/nudges.ts";
@@ -260,12 +260,17 @@ export class PhoneLink {
 			const round = stored.status !== "removed" && b.date >= today && b.date <= nearUntil ? this.svc.phoneBlockRound(stored) : [];
 			return { ...base, ...lines, ...(round.length > 0 ? { round } : {}) };
 		});
+		const maxWeek = this.store.runtime().relayBlocksChars ?? PHONE_RULES.blocksChars;
+		const fitted = fitBlocks(blocks, week ? JSON.stringify(week).length + PHONE_RULES.blocksSlackChars : 0, maxWeek);
+		// "Practise" on the phone's home screen (v2.3 part B): a pool per module, in whatever room the blocks and the week leave.
+		const practise = newRelay ? fitPractise(this.svc.phonePractise(), JSON.stringify(fitted).length + (week ? JSON.stringify(week).length : 0) + PHONE_RULES.blocksSlackChars, maxWeek) : [];
 		return {
 			timeZone: this.svc.timeZone(),
 			// The week beside the blocks (v2.1 part C), for a relay that knows what to do with it.
 			...(week ? { week } : {}),
+			...(practise.length > 0 ? { practise } : {}),
 			nudges: withRounds,
-			blocks: fitBlocks(blocks, week ? JSON.stringify(week).length + PHONE_RULES.blocksSlackChars : 0, this.store.runtime().relayBlocksChars ?? PHONE_RULES.blocksChars),
+			blocks: fitted,
 		};
 	}
 

@@ -42,6 +42,14 @@ export interface PhoneWeek {
 	blockMinutes: number;
 }
 
+/** A module's questions kept on the phone for "Practise" (v2.3 part B): chosen by the laptop's own Practise rule. */
+export interface PhonePractisePool {
+	module: string;
+	/** The module as the student knows it: "Game Theory". */
+	name: string;
+	questions: NudgeQuestion[];
+}
+
 /** The upload body (relay PUT /schedule). */
 export interface RelaySchedule {
 	version: number;
@@ -50,6 +58,8 @@ export interface RelaySchedule {
 	blocks: (Pick<StudyBlock, "id" | "date" | "start" | "minutes" | "status"> & { focus?: { title: string; module: string } | null } & Partial<PhoneBlockLines>)[];
 	/** v2.1 part C: what the phone's week screen needs beside the blocks. Only sent to a relay that knows it. */
 	week?: PhoneWeek;
+	/** v2.3 part B: questions the phone can ask by itself, per module ("Practise" on its home screen). */
+	practise?: PhonePractisePool[];
 }
 
 /** Versions only go up: the next one is now in ms, or one more than the last if the clock went back. */

@@ -28,7 +28,7 @@ const nudge = (over: Record<string, unknown> = {}) => ({
 /** A stand-in for the maths library the phone app loads (v2.3): it wraps what it is given, and refuses "\bad". */
 const fakeKatex = { renderToString: (tex: string, o: { displayMode: boolean }) => { if (tex.includes("\\bad")) throw new Error("can't draw"); return `<span class="katex" data-display="${o.displayMode}">${tex}</span>`; } };
 
-async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unknown; open?: string; local?: Record<string, unknown>; katex?: boolean } = {}) {
+async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unknown; open?: string; local?: Record<string, unknown>; katex?: boolean; practise?: unknown[] } = {}) {
 	const { document, Event: DomEvent } = parseHTML(fs.readFileSync(path.join(WEB, "index.html"), "utf-8"));
 	const local = new Map<string, string>(Object.entries({ pushOn: true, ...(opts.local ?? {}) }).map(([k, v]) => [k, JSON.stringify(v)]));
 	const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -43,7 +43,7 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unkno
 		caches: { open: async () => ({ match: async (k: string) => (kv.has(k) ? new Response(kv.get(k)!) : undefined), put: async (k: string, r: Response) => void kv.set(k, await r.text()), delete: async (k: string) => kv.delete(k) }) },
 		fetch: async (url: string, init: { method?: string; body?: string } = {}) => {
 			if (url.endsWith("/events") && init.method === "POST") events.push(...JSON.parse(init.body!));
-			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: opts.blocks ?? [], ...(opts.week ? { week: opts.week } : {}) } : {}), { status: 200 });
+			return new Response(JSON.stringify(url.endsWith("/schedule") ? { nudges: opts.nudges ?? [nudge()], blocks: opts.blocks ?? [], ...(opts.week ? { week: opts.week } : {}), ...(opts.practise ? { practise: opts.practise } : {}) } : {}), { status: 200 });
 		},
 		Notification: { permission: "granted", requestPermission: async () => "granted" },
 		crypto, Response, URLSearchParams, Date, JSON, console, setTimeout, atob, alert: () => {}, confirm: () => true,
@@ -688,5 +688,88 @@ describe("the maths library is copied into the phone app at deploy (v2.3 part C)
 		const html = fs.readFileSync(path.join(WEB, "index.html"), "utf-8");
 		assert.ok(html.indexOf("/vendor/katex/katex.min.js") > 0 && html.indexOf("/vendor/katex/katex.min.js") < html.indexOf("/app.js"));
 		assert.match(html, /\/vendor\/katex\/katex\.min\.css/);
+	});
+});
+
+describe("Practise from the home screen (v2.3 part B)", () => {
+	const pq = (m: string, n: number) => ({ id: `${m}-q${n}`, lectureId: `${m}-unit`, stem: `${m} question ${n}?`, options: ["Right", "Wrong A", "Wrong B"], correct: 0, explanation: `Because ${n}.`, slides: [3], unit: `${m} unit`, module: m });
+	const pool = (m: string, name: string, n: number) => ({ module: m, name, questions: Array.from({ length: n }, (_, i) => pq(m, i + 1)) });
+	const home = (practise: unknown[] | undefined, local: Record<string, unknown> = {}) => open({ nudges: [], practise, local });
+	const key = (p: { questions: { id: string }[] }) => p.questions.map((q) => q.id).join("|");
+	/** The card's buttons (the home screen has its own "Unpair this phone" below). */
+	const modules = (p: Awaited<ReturnType<typeof open>>) => p.buttons().filter((b) => b !== "Unpair this phone");
+
+	it("the card has a button for each module that has questions", async () => {
+		const p = await home([pool("HCI", "HCI", 10), pool("GT", "Game Theory", 10)]);
+		assert.match(p.text(), /Practise Five questions, any time\./);
+		assert.deepEqual(modules(p), ["HCI", "Game Theory"]);
+	});
+
+	it("with no questions on the phone there is no card", async () => {
+		for (const practise of [undefined, []]) assert.doesNotMatch((await home(practise)).text(), /Practise/);
+	});
+
+	it("a round is five questions, one at a time: the result, then another one", async () => {
+		const p = await home([pool("GT", "Game Theory", 10)]);
+		await p.tap("Game Theory");
+		assert.match(p.text(), /^Practise Game Theory · 0 of 5 done ?GT question 1\?/);
+		await p.tap("Wrong A");
+		assert.match(p.text(), /Not quite: Right\. Because 1\./);
+		assert.match(p.text(), /GT unit · slide 3/);
+		assert.deepEqual(p.buttons(), ["Another one", "Done for now"]);
+		assert.deepEqual(of(p.events, "answered")[0]?.payload, { practise: true, module: "GT", lectureId: "GT-unit", questionId: "GT-q1", choice: 1, correct: false });
+		for (let i = 2; i <= 5; i++) {
+			await p.tap("Another one");
+			assert.match(p.text(), new RegExp(`^Practise Game Theory · ${i - 1} of 5 done ?GT question ${i}\\?`));
+			await p.tap("Right");
+		}
+		assert.deepEqual(p.buttons(), ["That's all 5"]);
+		await p.tap("That's all 5");
+		assert.match(p.text(), /Practise Five questions, any time\./, "back on the home screen, with more to do");
+		assert.equal(of(p.events, "answered").length, 5);
+	});
+
+	it("\"Done for now\" ends the round; nothing is saved for later and nothing else is sent", async () => {
+		const p = await home([pool("GT", "Game Theory", 10)]);
+		await p.tap("Game Theory");
+		await p.tap("Right");
+		await p.tap("Done for now");
+		assert.match(p.text(), /Practise Five questions, any time\./);
+		assert.equal(p.saved(), null);
+		assert.deepEqual(p.events.map((e) => e.type), ["answered"]);
+	});
+
+	it("the next round carries on with questions not yet asked from this pool", async () => {
+		const gt = pool("GT", "Game Theory", 10);
+		const p = await home([gt], { practised: { GT: { key: key(gt), ids: ["GT-q1", "GT-q2", "GT-q3"] } } });
+		await p.tap("Game Theory");
+		assert.match(p.text(), /0 of 5 done ?GT question 4\?/);
+	});
+
+	it("with fewer than five left, the round is what is left", async () => {
+		const p = await home([pool("GT", "Game Theory", 2)]);
+		await p.tap("Game Theory");
+		assert.match(p.text(), /0 of 2 done/);
+		await p.tap("Right");
+		await p.tap("Another one");
+		await p.tap("Right");
+		assert.deepEqual(p.buttons(), ["That's all 2"]);
+	});
+
+	it("a module with nothing left has no button; with nothing left anywhere the card says when more arrive", async () => {
+		const [hci, gt] = [pool("HCI", "HCI", 2), pool("GT", "Game Theory", 2)];
+		const some = await home([hci, gt], { practised: { HCI: { key: key(hci), ids: ["HCI-q1", "HCI-q2"] } } });
+		assert.deepEqual(modules(some), ["Game Theory"]);
+		const none = await home([hci, gt], { practised: { HCI: { key: key(hci), ids: ["HCI-q1", "HCI-q2"] }, GT: { key: key(gt), ids: ["GT-q1", "GT-q2"] } } });
+		assert.match(none.text(), /You've answered every question on this phone\. More arrive when LockedIn is next open on your laptop\./);
+		assert.deepEqual(modules(none), []);
+	});
+
+	it("a new pool from the laptop starts fresh: the laptop decides what comes back", async () => {
+		const old = pool("GT", "Game Theory", 2);
+		const fresh = { ...old, questions: [pq("GT", 2), pq("GT", 7)] };
+		const p = await home([fresh], { practised: { GT: { key: key(old), ids: ["GT-q1", "GT-q2"] } } });
+		await p.tap("Game Theory");
+		assert.match(p.text(), /0 of 2 done ?GT question 2\?/);
 	});
 });

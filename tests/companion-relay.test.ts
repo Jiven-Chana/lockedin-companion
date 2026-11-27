@@ -272,7 +272,7 @@ describe("the week changed on the phone (v2.1 part C): it holds with the laptop 
 		const s = await setup();
 		const r = await s.call("PUT", `/v1/pairs/${s.pairId}/schedule`, s.laptopSecret, { version: 1, nudges: [], blocks });
 		assert.deepEqual(r.body.limits, { nudgeChars: LIMITS.payloadChars, blocksChars: LIMITS.blocksChars });
-		assert.equal(LIMITS.blocksChars, 60_000);
+		assert.equal(LIMITS.blocksChars, 200_000);
 	});
 });
 

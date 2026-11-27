@@ -979,6 +979,8 @@ export const PHONE_RULES = {
 	roundSize: 5,
 	/** Questions kept by "Done for now" and "Save the rest for later": at most the rest of one round. */
 	savedMax: 4,
+	/** Practise from the phone's home screen (v2.3): this many questions per module are kept on the phone, chosen again at every upload. */
+	practisePool: 10,
 	/** A block's questions for "On the move" (v2.2) are sent for today's blocks and this many days ahead; later blocks get theirs nearer the day. */
 	blockRoundDaysAhead: 1,
 	/** The week's size limit on a relay that has not said its own (v2.1's relay: 60,000). */

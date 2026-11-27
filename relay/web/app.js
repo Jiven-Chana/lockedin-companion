@@ -53,6 +53,12 @@ const COPY = {
 		doneSoFar: (d, n) => `${d} of ${n} done. `,
 		already: (d, n) => `You've already done ${d} of ${n}. `,
 	},
+	// "Practise" on the home screen (v2.3 part B): questions the laptop left on this phone, a round at a time.
+	practise: {
+		title: "Practise",
+		lead: "Five questions, any time.",
+		none: "You've answered every question on this phone. More arrive when LockedIn is next open on your laptop.",
+	},
 	// "Where are you?" on a block's start (v2.2 part C): the lo-fi's wording (task 2, version A), made optional. Never location: the student says.
 	where: {
 		ask: "Where are you?",
@@ -723,6 +729,52 @@ function blockRow(b) {
 	return row;
 }
 
+// ─── Practise from the home screen (v2.3 part B) ───────────────────────────
+/** A round's length: the laptop's own (PHONE_RULES.roundSize, "Question 1 of 5"). */
+const PRACTISE_ROUND = 5;
+// What this phone has asked from a module's pool. A different pool from the laptop starts fresh:
+// the laptop decides what comes back, by the same rule as Practise there.
+const poolKey = (p) => p.questions.map((q) => q.id).join("|");
+const practiseAsked = (p) => { const m = local.get("practised", {})[p.module]; return m && m.key === poolKey(p) ? m.ids : []; };
+const practiseLeft = (p) => p.questions.filter((q) => !practiseAsked(p).includes(q.id));
+function practiseRemember(p, questionId) {
+	const all = local.get("practised", {});
+	all[p.module] = { key: poolKey(p), ids: [...practiseAsked(p), questionId] };
+	local.set("practised", all);
+}
+
+/** The card on the home screen: a button per module with questions left; none at all when the laptop sent no questions. */
+function practiseCard(s) {
+	const pools = (s.practise || []).filter((p) => p.questions?.length);
+	if (!pools.length) return null;
+	const open = pools.filter((p) => practiseLeft(p).length > 0);
+	return h("section", { class: "card" },
+		h("h2", {}, COPY.practise.title), " ",
+		h("p", { class: "muted small" }, open.length ? COPY.practise.lead : COPY.practise.none),
+		open.length ? h("div", { class: "row" }, open.map((p) => h("button", { class: "btn", onclick: () => practiseRound(p) }, p.name))) : null,
+	);
+}
+
+/** One question at a time: the result, then "Another one" or "Done for now". Nothing is saved for later: the pool is still there. */
+function practiseRound(p, round = { total: Math.min(PRACTISE_ROUND, practiseLeft(p).length), done: 0 }) {
+	const q = practiseLeft(p)[0];
+	if (!q || round.done >= round.total) return render();
+	const head = () => bar(COPY.practise.title, `${p.name} · ${COPY.doneOf(round.done, round.total)}`);
+	const choose = (i) => {
+		void event("answered", null, { practise: true, module: p.module, lectureId: q.lectureId, questionId: q.id, choice: i, correct: i === q.correct });
+		practiseRemember(p, q.id);
+		round.done++;
+		const ways = round.done < round.total
+			? h("div", { class: "row" },
+					h("button", { class: "btn primary", onclick: () => practiseRound(p, round) }, COPY.another),
+					h("button", { class: "btn", onclick: () => render() }, COPY.done),
+				)
+			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => render() }, COPY.thatsAll(round.total)));
+		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), ways));
+	};
+	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
+}
+
 // ─── your week and Settings (v2.1 part C; lo-fi task 3) ────────────────────
 const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const when = (x) => `${x.date} ${x.start}`;
@@ -901,6 +953,7 @@ async function home() {
 			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
 			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
+			practiseCard(s),
 			// Your week (v2.1 part C). A laptop or relay from before v2.1 sends no week: the blocks are listed as they were.
 			...(s.week ? [weekSection(s)] : oldWeek(blocks)),
 		),
