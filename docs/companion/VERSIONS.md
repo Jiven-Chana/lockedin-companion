@@ -18,7 +18,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v2.0** | 25 Nov 2026 | tag `lockedin-v2.0` on `main` | Shipped: Learn and Practise as two modes, gaps by idea with new questions written around them, three notes per module that the tutor reads and the student can edit, and a first run on the student's own material (V-39 to V-67). The phone, diagrams, Me and motion moved to v2.1 (V-67) | [`v2.0-plan.md`](v2.0-plan.md), [`v2.0-direction.md`](v2.0-direction.md), [`DECISIONS.md`](DECISIONS.md) V-39 to V-67 |
 | **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
 | **v2.2** | 27 Nov 2026 | tag `lockedin-v2.2` on `main` (PR #16) | Shipped: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Jiven ran the checklist on his iPhone on 27 Nov | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
-| **v2.3** | 27 Nov 2026 | branch `feat/v2.3`, tag `lockedin-v2.3` once merged | Built: a phone that can be used by itself. A block opens from the phone's week, "Practise" on the phone's home screen, maths drawn on the phone, and Today on the laptop says what was answered on the phone (V-76 to V-79). The relay is deployed; not yet checked on a real phone | [`v2.3-plan.md`](v2.3-plan.md), [`DECISIONS.md`](DECISIONS.md) V-76 to V-79 |
+| **v2.3** | 27 Nov 2026 | tag `lockedin-v2.3` on `main` (PR #17) | Shipped: a phone that can be used by itself. A block opens from the phone's week, "Practise" on the phone's home screen, maths drawn on the phone, and Today on the laptop says what was answered on the phone (V-76 to V-79). Jiven checked it on his iPhone on 27 Nov | [`v2.3-plan.md`](v2.3-plan.md), [`DECISIONS.md`](DECISIONS.md) V-76 to V-79 |
 | **v3.0** | later | — | The look chosen by the look test (four designs made in parallel), on the laptop and the phone, with what v2.1 left: Me in a few lines, the clutter list, icons, motion, diagrams drawn by LockedIn (V-70) | — |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
@@ -308,7 +308,7 @@ After the v2.2 check on his iPhone, Jiven found the phone too thin: a notificati
 - On a copy of Jiven's data: the pools the laptop would send (two modules, ten questions each, about 10,000 characters), and the Today line in Chrome.
 
 ### What was not checked
-- Nothing here has run on a real phone. The relay was deployed on 27 Nov and serves the new phone app and the maths library; the iPhone checklist in the plan had not been run when this was written.
+- Jiven reported on 27 Nov that he had run the plan's iPhone checklist after the relay deploy. Which steps he ran, and what step 8 (maths and Practise with no connection) showed, is not recorded.
 - Maths with no connection was not tried: the files are kept for it, but only a real phone in flight mode shows whether it works.
 - None of Jiven's 127 bank questions contains maths today, so maths was only seen on made-up questions.
 
