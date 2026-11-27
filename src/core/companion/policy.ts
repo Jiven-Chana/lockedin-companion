@@ -538,7 +538,7 @@ export const SETUP_COPY = {
 	},
 	timetable: {
 		title: "Your timetable",
-		lead: "Paste your timetable link and your modules appear. LockedIn nudges you after a lecture, never during one.",
+		lead: "Paste your timetable link and your modules appear. LockedIn sends you a question after a lecture, never during one.",
 		label: "Timetable link",
 		placeholder: "https://… or webcal://…",
 		reading: "Reading your timetable…",
@@ -854,6 +854,10 @@ export const MOTION = {
  * describes it.
  */
 export const SESSION_COPY = {
+	/** The reasoning box (v2.2, LF-13: two testers asked whether it was required). It stays open and says it can be skipped. */
+	reasoning: "Your reasoning",
+	reasoningOptional: "(optional)",
+	reasoningSkip: (reader: "feedback" | "tutor") => `Skip this if you like. If you say why, ${reader === "tutor" ? "your tutor reads it" : "the feedback uses it"}.`,
 	/** Where you are in the set: the question you are on, not how many are behind you (lo-fi task 1). */
 	position: (n: number, total: number) => `Question ${n} of ${total}`,
 	/** The done screen (R-6; design log 23 Nov): no score. It names what comes back, and the next block. */

@@ -228,7 +228,7 @@ describe("what was saved (Jiven, 25 Nov: a card, and next after the next notific
 	});
 });
 
-describe("the notification itself (lo-fi: \"Why now\" on the lock screen)", () => {
+describe("the notification itself (v2.2: the lead line and the question, nothing else)", () => {
 	async function push(nudges: unknown[]) {
 		const shown: { title: string; body: string }[] = [];
 		const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -251,9 +251,9 @@ describe("the notification itself (lo-fi: \"Why now\" on the lock screen)", () =
 		return shown;
 	}
 
-	it("says why now under the question; a notification with no reason is left as it was", async () => {
+	it("is the lead line and the question; the reason stays on the question screen", async () => {
 		const cases = [
-			{ name: "a question with a reason", n: nudge(), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?\nWhy now: lecture ended, you're free till 15:00" } },
+			{ name: "a question with a reason", n: nudge(), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?" } },
 			{ name: "no reason", n: nudge({ why: undefined }), want: { title: "GT just finished. One question:", body: "Nash equilibrium: question 1?" } },
 		];
 		for (const c of cases) assert.deepEqual(await push([c.n]), [c.want], c.name);
@@ -314,7 +314,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.match(p.text(), /When suits you better\? The rest of the block moves there\. Nothing is marked missed\./);
 		assert.deepEqual(p.buttons(), ["Today 16:00", "This evening 18:00", "Tomorrow 08:00", "Pick for me: next free gap"]);
 		await p.tap("Tomorrow 08:00");
-		assert.match(p.text(), /Moved to Tomorrow 08:00\. LockedIn will nudge you then, and not before\./);
+		assert.match(p.text(), /Moved to Tomorrow 08:00\. LockedIn will notify you then, and not before\./);
 		const [m] = of(p.events, "plan_move");
 		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start], ["blk1", tomorrowKey, "08:00"]);
 		assert.equal(m?.payload.fireAt, new Date(`${tomorrowKey}T08:00:00`).toISOString(), "the relay is told the moment, on this phone's clock");
@@ -420,10 +420,10 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		await p.tap("Looks good");
 		assert.deepEqual(of(p.events, "plan_tick").map((e) => e.payload), [{ blockId: "blk-b" }]);
 		assert.match(p.text(), /Your week is set\. 2 study blocks\./);
-		assert.match(p.text(), /LockedIn will nudge you when each one starts\. You can change them any time\./);
+		assert.match(p.text(), /LockedIn will notify you when each one starts\. You can change them any time\./);
 		const off = await home({ week: week({ nudgesPerDay: 0 }) });
 		await off.tap("Looks good");
-		assert.match(off.text(), /Nudges are off, so LockedIn won't buzz\. Your blocks are still here\. You can change them any time\./);
+		assert.match(off.text(), /Notifications are off, so LockedIn won't buzz\. Your blocks are still here\. You can change them any time\./);
 		const one = await home({ blocks: [blocks()[0]] });
 		await one.tap("Looks good");
 		assert.match(one.text(), /Your week is set\. One study block\./);
@@ -432,7 +432,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	it("Settings is reached from the week: nudges per day, and what LockedIn uses", async () => {
 		const p = await home();
 		await p.tap("Settings");
-		assert.match(p.text(), /Nudges per day/);
+		assert.match(p.text(), /Notifications per day/);
 		assert.match(p.text(), /One a day, and it's the first question\./);
 		assert.match(p.text(), /What LockedIn uses Timetable: yes Lecture slides: yes Location: never\./);
 		await p.tap("0");

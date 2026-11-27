@@ -42,11 +42,11 @@ const COPY = {
 		whenLine: "The rest of the block moves there. Nothing is marked missed.",
 		pickForMe: "Pick for me: next free gap",
 		moved: (to) => `Moved to ${to}.`,
-		movedLine: "LockedIn will nudge you then, and not before.",
+		movedLine: "LockedIn will notify you then, and not before.",
 		noGap: "No free gap is left this week.",
 		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
 	},
-	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3).
+	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3), with "notification" for "nudge" (v2.2, LF-11).
 	week: {
 		title: "Your week",
 		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Tap one to move or remove it." : `${n} suggested blocks in your free gaps. Tap one to move or remove it.`),
@@ -61,13 +61,13 @@ const COPY = {
 		looksGood: "Looks good",
 		set: "Your week is set.",
 		setCount: (n) => (n === 0 ? "No study blocks this week." : n === 1 ? "One study block." : `${n} study blocks.`),
-		willNudge: "LockedIn will nudge you when each one starts.",
-		nudgesOff: "Nudges are off, so LockedIn won't buzz. Your blocks are still here.",
+		willNudge: "LockedIn will notify you when each one starts.",
+		nudgesOff: "Notifications are off, so LockedIn won't buzz. Your blocks are still here.",
 		changeAnyTime: "You can change them any time.",
 	},
 	settings: {
 		title: "Settings",
-		nudges: "Nudges per day",
+		nudges: "Notifications per day",
 		nudgeLine: ["LockedIn won't buzz. Your blocks stay in your week.", "One a day, and it's the first question.", "Up to two a day. Never repeated."],
 		uses: "What LockedIn uses",
 		usesLines: ["Timetable: yes", "Lecture slides: yes", "Location: never."],

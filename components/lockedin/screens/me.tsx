@@ -129,9 +129,9 @@ export function MeScreen() {
 
 			{prefs ? (
 				<section className="li-card li-stack" aria-labelledby="nd" style={{ gap: 20 }}>
-					<h2 id="nd" className="li-h2">Nudges and sessions</h2>
+					<h2 id="nd" className="li-h2">Notifications and sessions</h2>
 					<div className="li-row" style={{ gap: 28, alignItems: "flex-start" }}>
-						<Seg label="Nudges a day" value={prefs.nudgesPerDay} options={[[0, "Off"], [1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
+						<Seg label="Notifications a day" value={prefs.nudgesPerDay} options={[[0, "Off"], [1, "One"], [2, "Two"]]} onChange={(v) => savePrefs({ nudgesPerDay: v })} />
 						<Seg label="Sessions start with" value={prefs.defaultMode} options={[["question-first", "Question me first"], ["show-first", "Show me first"]]} onChange={(v) => savePrefs({ defaultMode: v })} />
 					</div>
 					<div className="li-row" style={{ gap: 20 }}>
@@ -172,7 +172,7 @@ export function MeScreen() {
 				<span className="li-muted">Everything LockedIn keeps lives on this laptop. Delete it all in one click; your lecture slides stay.</span>
 				{confirmDelete ? (
 					<div className="li-row">
-						<b>Delete your profile, sessions, answers and nudges?</b>
+						<b>Delete your profile, sessions, answers and notifications?</b>
 						<button type="button" className="li-btn primary" onClick={async () => { await lockedIn.deleteAll(); router.replace("/app/welcome"); }}>Yes, delete everything</button>
 						<button type="button" className="li-btn" onClick={() => setConfirmDelete(false)}>Keep it</button>
 					</div>

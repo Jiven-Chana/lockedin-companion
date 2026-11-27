@@ -399,8 +399,8 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 													</div>
 												</div>
 												<label className="li-stack" style={{ gap: 6 }}>
-													<b>Why? <span className="li-muted" style={{ fontWeight: 400 }}>(optional, your tutor reads it)</span></b>
-													<input className="li-input" value={why} onFocus={() => { target.current = "why"; }} onChange={(e) => setWhy(e.target.value)} placeholder="Because…" />
+													<b>{SESSION_COPY.reasoning} <span className="li-muted" style={{ fontWeight: 400 }}>{SESSION_COPY.reasoningOptional}</span></b>
+													<input className="li-input" value={why} onFocus={() => { target.current = "why"; }} onChange={(e) => setWhy(e.target.value)} placeholder={SESSION_COPY.reasoningSkip("tutor")} />
 												</label>
 											</>
 										) : null}
