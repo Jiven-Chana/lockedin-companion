@@ -34,3 +34,4 @@ xai-credentials.json*
 /runs/
 # The "delete all my data" route is source, not runtime data (data/ above matches any depth)
 !/app/api/companion/data/
+relay/web/vendor/

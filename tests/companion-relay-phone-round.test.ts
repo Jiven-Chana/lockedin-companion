@@ -7,7 +7,9 @@
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import vm from "node:vm";
@@ -23,7 +25,10 @@ const nudge = (over: Record<string, unknown> = {}) => ({
 	question: q(1), round: [q(2), q(3), q(4), q(5)], more: 4, fireAt: "2026-11-24T13:05:00.000Z", sentAt: "2026-11-24T13:05:10.000Z", expiresAt: "2099-01-01T00:00:00.000Z", ...over,
 });
 
-async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unknown; open?: string; local?: Record<string, unknown> } = {}) {
+/** A stand-in for the maths library the phone app loads (v2.3): it wraps what it is given, and refuses "\bad". */
+const fakeKatex = { renderToString: (tex: string, o: { displayMode: boolean }) => { if (tex.includes("\\bad")) throw new Error("can't draw"); return `<span class="katex" data-display="${o.displayMode}">${tex}</span>`; } };
+
+async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unknown; open?: string; local?: Record<string, unknown>; katex?: boolean } = {}) {
 	const { document, Event: DomEvent } = parseHTML(fs.readFileSync(path.join(WEB, "index.html"), "utf-8"));
 	const local = new Map<string, string>(Object.entries({ pushOn: true, ...(opts.local ?? {}) }).map(([k, v]) => [k, JSON.stringify(v)]));
 	const kv = new Map<string, string>([["/kv/pair", JSON.stringify(PAIR)]]);
@@ -42,6 +47,7 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unkno
 		},
 		Notification: { permission: "granted", requestPermission: async () => "granted" },
 		crypto, Response, URLSearchParams, Date, JSON, console, setTimeout, atob, alert: () => {}, confirm: () => true,
+		...(opts.katex ? { katex: fakeKatex } : {}),
 	});
 	vm.runInContext(fs.readFileSync(path.join(WEB, "app.js"), "utf-8"), context);
 	const settle = () => new Promise((r) => setTimeout(r, 30));
@@ -615,5 +621,72 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		const p = await open({ nudges: [], blocks: blocks() });
 		assert.match(p.text(), /This week/);
 		assert.ok(p.buttons().includes("✓ Keep"));
+	});
+});
+
+describe("maths on the phone (v2.3 part C)", () => {
+	const mq = (over: Record<string, unknown>) => ({ ...q(1), ...over });
+	const asked = (question: Record<string, unknown>, katex = true) => open({ nudges: [nudge({ question, body: question.stem, round: [] })], open: "N-1:gt-lecture", katex });
+	const drawn = (p: Awaited<ReturnType<typeof open>>) => [...p.app.querySelectorAll(".katex")].map((x) => [x.textContent, x.getAttribute("data-display")]);
+
+	it("draws the maths in a question, its options and its explanation, and leaves the words alone", async () => {
+		const p = await asked(mq({ stem: "What is $x^2$ when $x = 3$?", options: ["$9$", "$6$", "three"], explanation: "Because $3 \\times 3 = 9$." }));
+		assert.deepEqual(drawn(p), [["x^2", "false"], ["x = 3", "false"], ["9", "false"], ["6", "false"]]);
+		assert.equal(p.app.querySelector("h1")?.textContent, "What is x^2 when x = 3?");
+		await p.tap("6");
+		assert.match(p.text(), /Not quite: 9\. Because 3 \\times 3 = 9\./);
+		assert.doesNotMatch(p.text(), /\$/, "no raw markup is left on the screen");
+	});
+
+	const cases: { name: string; stem: string; want: (string | null)[][]; text?: RegExp }[] = [
+		{ name: "prices stay words", stem: "It costs $5 and $10. Which is cheaper?", want: [], text: /It costs \$5 and \$10\./ },
+		{ name: "a formula on its own line", stem: "Solve $$\\frac{1}{2}x = 4$$ for x.", want: [["\\frac{1}{2}x = 4", "true"]] },
+		{ name: "the other way of writing maths", stem: "Is \\(a+b\\) equal to \\[b+a\\]?", want: [["a+b", "false"], ["b+a", "true"]] },
+		{ name: "markup that can't be drawn shows as it was typed", stem: "What is $\\bad{x}$ and $y$?", want: [["y", "false"]], text: /What is \$\\bad\{x\}\$ and y\?/ },
+		{ name: "a question with no maths is untouched", stem: "Which is the main purpose of a persona?", want: [], text: /Which is the main purpose of a persona\?/ },
+	];
+	for (const c of cases) {
+		it(c.name, async () => {
+			const p = await asked(mq({ stem: c.stem }));
+			assert.deepEqual(drawn(p), c.want);
+			if (c.text) assert.match(p.text(), c.text);
+		});
+	}
+
+	it("without the maths library the question still shows, as typed", async () => {
+		const p = await asked(mq({ stem: "What is $x^2$?" }), false);
+		assert.match(p.text(), /What is \$x\^2\$\?/);
+		await p.tap("Right");
+		assert.match(p.text(), /✓ Right\./);
+	});
+
+	it("questions on the move are drawn the same way", async () => {
+		const pad = (n: number) => String(n).padStart(2, "0");
+		const now = new Date(Date.now() - 60_000);
+		const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+		const block = { id: "b", date, start: `${pad(now.getHours())}:${pad(now.getMinutes())}`, minutes: 50, status: "accepted", focus: null, goal: "5 questions, about 10 min", firstStep: null, onLaptop: null, why: null, moves: [], round: [mq({ stem: "Is $p < 0.05$ significant?" })] };
+		const p = await open({ nudges: [], blocks: [block], week: { lectures: [], free: [], nudgesPerDay: 1, blockMinutes: 50 }, katex: true });
+		await p.tap([...p.buttons()].find((b) => b.includes("Study"))!);
+		await p.tap("On the move");
+		await p.tap("Answer one question now");
+		assert.deepEqual(drawn(p), [["p < 0.05", "false"]]);
+	});
+});
+
+describe("the maths library is copied into the phone app at deploy (v2.3 part C)", () => {
+	it("the script writes the library, its styles and its fonts, and a list the phone keeps for offline use", () => {
+		const out = fs.mkdtempSync(path.join(os.tmpdir(), "phone-vendor-"));
+		execFileSync(process.execPath, [path.join(WEB, "..", "scripts", "vendor.mjs"), out]);
+		const list = JSON.parse(fs.readFileSync(path.join(out, "katex", "files.json"), "utf-8")) as string[];
+		assert.ok(list.includes("/vendor/katex/katex.min.js") && list.includes("/vendor/katex/katex.min.css"));
+		assert.ok(list.filter((f) => f.endsWith(".woff2")).length >= 15, "the fonts are listed");
+		for (const f of list) assert.ok(fs.existsSync(path.join(out, f.replace("/vendor/", ""))), f);
+		assert.ok(!fs.readdirSync(path.join(out, "katex", "fonts")).some((f) => !f.endsWith(".woff2")), "only the font format phones use");
+	});
+
+	it("the page loads the library before the app, and the app still starts if it is not there", () => {
+		const html = fs.readFileSync(path.join(WEB, "index.html"), "utf-8");
+		assert.ok(html.indexOf("/vendor/katex/katex.min.js") > 0 && html.indexOf("/vendor/katex/katex.min.js") < html.indexOf("/app.js"));
+		assert.match(html, /\/vendor\/katex\/katex\.min\.css/);
 	});
 });

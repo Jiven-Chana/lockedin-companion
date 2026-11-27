@@ -165,6 +165,40 @@ const h = (tag, attrs = {}, ...kids) => {
 	return el;
 };
 const show = (...nodes) => $app.replaceChildren(...nodes);
+
+// ─── maths (v2.3 part C) ────────────────────────────────────────────────────
+// $$…$$ and \[…\] on their own line, \(…\) and $…$ in a sentence. Inline $…$ follows the laptop's rule
+// (src/core/companion/prose.ts, pandoc's), so prices ("$5 and $10") stay words.
+const MATHS = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\((.+?)\\\)|(\$(?=[^\s$])(?:[^$\n\\]|\\.)*?[^\s$\\]\$(?!\d)|\$[^\s$]\$(?!\d))/g;
+/**
+ * A question's text with its maths drawn: words as they are, each piece of maths as an element.
+ * Without the library (it is copied in at deploy), or for markup it can't draw, the text shows as typed.
+ * The library runs with trust off, so what it returns holds no links and no HTML of the question's own.
+ */
+function rich(text) {
+	const s = String(text ?? "");
+	const K = globalThis.katex;
+	if (!K) return [s];
+	const out = [];
+	let last = 0;
+	for (const m of s.matchAll(MATHS)) {
+		const display = m[1] !== undefined || m[2] !== undefined;
+		let html;
+		try {
+			html = K.renderToString(m[1] ?? m[2] ?? m[3] ?? m[4].slice(1, -1), { displayMode: display, throwOnError: true, trust: false, strict: "ignore", output: "html" });
+		} catch {
+			continue;
+		}
+		if (m.index > last) out.push(s.slice(last, m.index));
+		const el = document.createElement("span");
+		el.className = display ? "math block" : "math";
+		el.innerHTML = html;
+		out.push(el);
+		last = m.index + m[0].length;
+	}
+	if (last < s.length) out.push(s.slice(last));
+	return out;
+}
 /** A static SVG from ICONS as a node. Never called with anything a server sent. */
 const icon = (name) => {
 	const t = document.createElement("template");
@@ -387,7 +421,7 @@ function unsave(ids, done) {
 const resultBox = (q, choice) => {
 	const right = choice === q.correct;
 	return h("p", { class: right ? "result right" : "result" },
-		h("b", {}, right ? COPY.right : COPY.wrong(q.options[q.correct])), " ", q.explanation,
+		h("b", {}, right ? COPY.right : rich(COPY.wrong(q.options[q.correct]))), " ", rich(q.explanation),
 		q.slides?.length ? h("span", { class: "src" }, COPY.slide(q.unit, q.slides[0])) : null,
 	);
 };
@@ -396,7 +430,7 @@ function questionScreen(n) {
 	void event("opened", n.id, { kind: n.kind });
 	if (!n.question) {
 		// No question in this nudge (the v1 fallback): the laptop is where it continues.
-		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, n.body), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
+		return show(h("main", {}, h("p", { class: "eyebrow" }, n.title), h("h1", {}, rich(n.body)), h("p", { class: "muted" }, n.why ? COPY.why(n.why) : ""), handoffOld(n, null)));
 	}
 	// A laptop from before v2.1 sends no round: one question here, the rest there, as it was.
 	const old = !Array.isArray(n.round);
@@ -444,14 +478,14 @@ function ask(r, first) {
 							h("button", { class: "btn primary", onclick: next }, COPY.another),
 							h("button", { class: "btn", onclick: () => save(r) }, COPY.saveRest),
 						);
-		show(h("main", {}, ...head(), h("h1", {}, q.stem), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
+		show(h("main", {}, ...head(), h("h1", {}, rich(q.stem)), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
 	};
 
 	show(
 		h("main", {},
 			...head(),
-			h("h1", {}, q.stem),
-			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o))),
+			h("h1", {}, rich(q.stem)),
+			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))),
 			first && n?.why ? h("p", { class: "muted small" }, COPY.why(n.why)) : null,
 			first && n ? h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later") : null,
 		),
@@ -593,9 +627,9 @@ function onTheMove(b) {
 					h("button", { class: "btn", onclick: () => blockLater(b, done) }, COPY.saveRest),
 				)
 			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => moveAllDone(b) }, COPY.thatsAll(total)));
-		show(h("main", {}, head(), h("h1", {}, q.stem), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
+		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
 	};
-	show(h("main", {}, head(), h("h1", {}, q.stem), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, o)))));
+	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
 }
 
 /** Every question of the block answered on the move: the block is done, and the laptop is told it was started. */
@@ -863,7 +897,7 @@ async function home() {
 		h("main", {},
 			s.offline ? h("p", { class: "note" }, COPY.offline) : null,
 			h("h1", {}, "LockedIn"),
-			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, question.body), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, rich(question.body)), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
 			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
 			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,
