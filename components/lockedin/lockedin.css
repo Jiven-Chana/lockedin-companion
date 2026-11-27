@@ -300,11 +300,38 @@ button.li-hero:active .li-hero-cta { transform: translate(4px, 4px); box-shadow:
 .li-diagram-large svg { width: 100%; height: auto; max-width: none; }
 
 
-/* ── concept map ──────────────────────────────────────────────────── */
-.li-map svg { width: 100%; max-width: 100% !important; height: auto; max-height: 560px; }
-.li-map g.node:hover rect, .li-map g.node:hover polygon { filter: brightness(0.96); }
-.li-map .node { cursor: pointer; }
-.li-map .node:focus { outline: none; }
+/* ── maps drawn by LockedIn (v3.0, V-33): rows of blocks, links as straight ink lines behind them ── */
+.li-map-box { overflow-x: auto; padding: 4px 0 10px; }
+.li-map { position: relative; margin: 0 auto; }
+.li-map-links { position: absolute; inset: 0; overflow: visible; }
+.li-map-links path { fill: none; stroke: var(--li-ink); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.li-map-links polygon { fill: var(--li-ink); }
+/* A link that closes a loop goes round the outside, and is dashed. */
+.li-map-links g[data-loop] path { stroke-dasharray: 7 6; }
+.li-map-col { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+/* One idea: a button, so it has the hard shadow. Where the student stands is a shape and a word, with a colour that means the same everywhere. */
+.li-idea { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px 10px 14px; text-align: left; border: var(--li-edge-w) solid var(--li-on); border-radius: 16px; background: var(--li-on-card); color: var(--li-on); box-shadow: 5px 5px 0 var(--li-edge); transition: transform 90ms ease, box-shadow 90ms ease; }
+button.li-idea:hover { transform: translate(-1px, -1px); box-shadow: 6px 6px 0 var(--li-edge); }
+button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 var(--li-edge); }
+.li-idea[aria-pressed="true"] { outline: 3px solid var(--li-ink); outline-offset: 3px; }
+.li-idea b { font-family: var(--li-font-display); font-weight: 800; font-size: 1em; line-height: 1.15; letter-spacing: -0.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.li-idea-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.li-idea-slide { font-size: 0.74em; font-weight: 700; white-space: nowrap; }
+.li-idea .li-status { font-size: 0.74em; background: var(--li-on-card); color: var(--li-on); border-color: var(--li-on); }
+.li-idea[data-s="solid"] { background: var(--li-mint); }
+.li-idea[data-s="solid"] .li-status { background: var(--li-on); color: var(--li-on-card); }
+.li-idea[data-s="shaky"] { background: linear-gradient(90deg, var(--li-mint) 0 10px, var(--li-on-card) 10px); padding-left: 22px; }
+.li-idea[data-s="shaky"] .li-status { background: var(--li-on-card); padding-left: 8px; }
+.li-idea[data-s="revisit"] { background: var(--li-lilac); }
+.li-idea[data-s="notyet"] { background: transparent; color: var(--li-ink); border-style: dashed; border-color: var(--li-ink); box-shadow: none; }
+.li-idea[data-s="notyet"] .li-status { background: transparent; color: var(--li-ink); border-color: var(--li-ink); }
+/* A block in a diagram that is not a concept map: it only shows something, so it is flat. */
+.li-idea.plain { background: var(--li-card); color: var(--li-ink); border-color: var(--li-edge); box-shadow: none; justify-content: center; }
+.li-map-col .li-idea { position: static; flex-direction: row-reverse; align-items: center; justify-content: space-between; min-height: 58px; }
+.li-map-col .li-idea b { flex: 1 1 auto; }
+/* The ideas arrive in order the first time; one whose standing changed pulses once. */
+.li-idea-in { animation: li-rise var(--li-m-medium) ease-out both; animation-delay: calc(var(--i, 0) * var(--li-m-stagger)); }
+.li-idea-pulse { animation: li-node-pulse 600ms ease-out 1; }
 
 /* ── facilitator ──────────────────────────────────────────────────── */
 .li-log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
@@ -478,18 +505,23 @@ button.li-hero:active .li-hero-cta { transform: translate(4px, 4px); box-shadow:
 .li-say textarea { resize: none; }
 /* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
 .li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
-.li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 0; }
-.li-plan li + li::before { content: ""; position: absolute; left: 13px; top: -9px; height: 18px; border-left: 2px solid currentColor; opacity: 0.35; }
-.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 999px; border: 2px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; opacity: 0.55; }
-.li-plan li[data-state="done"] .li-plan-mark { opacity: 1; }
-.li-plan li[data-state="current"] .li-plan-mark { opacity: 1; border-width: 3px; }
-.li-plan li[data-state="current"] .li-plan-title { font-weight: 700; }
-.li-plan li[data-state="todo"] .li-plan-title { opacity: 0.75; }
-.li-plan-word { font-size: 0.75em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+.li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 16px; border: var(--li-edge-w) dashed var(--li-quiet); color: var(--li-quiet); }
+.li-plan li + li::before { content: ""; position: absolute; left: 27px; top: -17px; height: 14px; border-left: var(--li-edge-w) solid var(--li-ink); }
+.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 9px; border: 2px dashed currentColor; display: inline-flex; align-items: center; justify-content: center; }
+.li-plan-mark svg { width: 16px; height: 16px; }
+.li-plan-title { flex: 1 1 auto; font-weight: 700; }
+.li-plan li[data-state="done"] { border-style: solid; border-color: var(--li-on); background: var(--li-mint); color: var(--li-on); }
+.li-plan li[data-state="done"] .li-plan-mark { border-style: solid; background: var(--li-on); color: var(--li-on-card); border-color: var(--li-on); }
+.li-plan li[data-state="current"] { border-style: solid; border-color: var(--li-on); background: var(--li-mod); color: var(--li-on); }
+.li-plan li[data-state="current"] .li-plan-mark { border-style: solid; background: var(--li-on-card); }
+.li-plan li[data-state="current"] .li-plan-title { font-family: var(--li-font-display); font-weight: 800; font-size: 1.1em; }
+.li-plan-word { font-size: 0.8em; font-weight: 700; padding: 1px 9px; border-radius: 999px; border: 2px solid currentColor; }
 .li-tabs { display: inline-flex; gap: 6px; }
-.li-tabs button { min-height: 40px; padding: 0 16px; border-radius: 999px; border: 2px solid var(--li-deep-line); background: transparent; color: var(--li-deep-ink); font-weight: 700; }
-.li-tabs button[aria-selected="true"] { background: var(--li-deep-ink); color: var(--li-deep); border-color: var(--li-deep-ink); }
+.li-tabs { border: var(--li-edge-w) solid var(--li-edge); border-radius: 14px; overflow: hidden; gap: 0; }
+.li-tabs button { min-height: 40px; padding: 0 16px; border: none; border-right: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); font-weight: 700; }
+.li-tabs button:last-child { border-right: none; }
+.li-tabs button[aria-selected="true"] { background: var(--li-ink); color: var(--li-paper); }
 
 /* ─── the first run (v2.0 step 7, V-45): one column, one main action per step ─── */
 .li-setup { min-height: 100vh; width: 100%; max-width: 760px; margin: 0 auto; padding: 48px 24px 64px; display: flex; flex-direction: column; gap: 24px; }

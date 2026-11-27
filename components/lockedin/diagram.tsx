@@ -1,27 +1,43 @@
 "use client";
 
 /**
- * One mermaid diagram in teacher prose, an explainer or feedback (v0.1
- * F-103). Rendered with securityLevel "strict" and themed from the live
- * Focus tokens (light, dark, high contrast), as the concept map is.
- * Mermaid is loaded only when a diagram appears. If a diagram can't be
- * drawn, its source is shown with a short note instead. Tap to enlarge.
+ * One diagram in teacher prose, an explainer or feedback (F-103; v3.0).
+ * A diagram that is plain boxes and arrows is drawn by LockedIn, as the
+ * concept map is (V-33). Anything else is drawn by mermaid, with
+ * securityLevel "strict" and the look's own colours (light, dark, high
+ * contrast). Mermaid is loaded only when such a diagram appears. If a
+ * diagram can't be drawn, its source is shown with a short note instead.
+ * Tap to enlarge.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import { safeMermaid, tokenHex } from "@/src/core";
+import { parseSimpleFlow, safeMermaid, tokenHex } from "@/src/core";
+import { BlocksMap } from "./blocks-map";
 import { useLockedInOptional } from "./root";
 
 let renders = 0;
 
 export function Diagram({ source }: { source: string }) {
+	// Plain boxes and arrows: LockedIn draws it, with the same rule and the same blocks as the concept map.
+	const flow = parseSimpleFlow(source);
+	if (flow) {
+		return (
+			<figure className="li-diagram">
+				<BlocksMap nodes={flow.nodes} edges={flow.edges} label="Diagram" block={(n, { style }) => <div key={n.id} className="li-idea plain" style={style}><b>{n.label}</b></div>} />
+			</figure>
+		);
+	}
+	return <MermaidDiagram source={source} />;
+}
+
+function MermaidDiagram({ source }: { source: string }) {
 	const root = useLockedInOptional();
 	const box = useRef<HTMLDivElement>(null);
 	const [svg, setSvg] = useState<string | null>(null);
 	const [failed, setFailed] = useState(false);
 	const [open, setOpen] = useState(false);
 	const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-	const themeKey = root ? `${root.scheme}-${root.appearance.theme}-${root.appearance.hue}` : "none";
+	const themeKey = root ? `${root.scheme}-${root.appearance.theme}` : "none";
 
 	useEffect(() => {
 		let cancelled = false;
@@ -39,21 +55,21 @@ export function Diagram({ source }: { source: string }) {
 					themeVariables: {
 						fontFamily: "Atkinson Hyperlegible, system-ui, sans-serif",
 						fontSize: "15px",
-						background: v("surface"),
-						primaryColor: v("soft"),
-						primaryBorderColor: v("accent"),
+						background: v("card"),
+						primaryColor: v("card"),
+						primaryBorderColor: v("edge"),
 						primaryTextColor: v("ink"),
-						secondaryColor: v("surface"),
-						tertiaryColor: v("surface"),
-						lineColor: v("muted"),
+						secondaryColor: v("sand"),
+						tertiaryColor: v("card"),
+						lineColor: v("ink"),
 						textColor: v("ink"),
-						noteBkgColor: v("soft"),
+						noteBkgColor: v("sand"),
 						noteTextColor: v("ink"),
 						// Mind maps and timelines colour each branch from cScale0–11 (black by default in "base"): one calm tone instead.
-						...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [[`cScale${i}`, v("soft")], [`cScaleLabel${i}`, v("ink")], [`cScalePeer${i}`, v("accent")]]).flat()),
-						// …and its root from git0 (the accent, like a primary button).
-						git0: v("accent"),
-						gitBranchLabel0: v("accent-ink"),
+						...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [[`cScale${i}`, v("sand")], [`cScaleLabel${i}`, v("ink")], [`cScalePeer${i}`, v("edge")]]).flat()),
+						// …and its root from git0: mint, with ink on it.
+						git0: v("mint"),
+						gitBranchLabel0: v("on"),
 					},
 				});
 				// Labels are quoted first, so one with brackets in it ("calculate d(A)") can't be a syntax error (v1.0.1).
