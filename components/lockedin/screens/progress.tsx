@@ -21,8 +21,8 @@ import { MILESTONE_GROUPS, PROGRESS_COPY, type ScoreRange } from "@/src/core";
 import { lockedIn, type ProgressAttention, type ProgressData, type ProgressPoint } from "../api";
 import { GapsByIdea } from "../gaps";
 import { useData } from "../hooks";
-import { StatusTag } from "../icons";
-import { Tint } from "../root";
+import { Icon, ModuleMark, StatusTag } from "../icons";
+import { Tint, useLockedIn } from "../root";
 import { pointTitle, ScoreChart } from "../score-chart";
 import { PageHead } from "../shell";
 
@@ -59,9 +59,29 @@ function PointDetail({ p, range, data }: { p: ProgressPoint; range: ScoreRange; 
 	);
 }
 
-/** The module's colour as a dot: the only tinted thing on a Progress card (v1.0 V-1). */
-function ModuleDot({ code }: { code: string }) {
-	return <Tint module={code} style={{ display: "inline-flex" }}><span className="li-dot" style={{ background: "var(--li-accent)" }} /></Tint>;
+/**
+ * Where the score came from, as a ring: one arc per module, in its colour,
+ * sized by its points. A ring shows the split at a glance; a tester said it
+ * "makes a dip bearable" because it shows why (look test, 27 Nov). The rows
+ * beside it carry the same numbers as words.
+ */
+function Ring({ parts }: { parts: { code: string; colour: string; value: number }[] }) {
+	const total = parts.reduce((n, p) => n + p.value, 0);
+	const R = 54, C = 2 * Math.PI * R;
+	let at = 0;
+	return (
+		<svg width="168" height="168" viewBox="0 0 140 140" role="img" aria-label="Where your score came from, by module" style={{ flex: "none" }}>
+			<circle cx="70" cy="70" r={R} fill="none" stroke="var(--li-sand)" strokeWidth="26" strokeDasharray={total ? undefined : "6 8"} />
+			{total ? parts.filter((p) => p.value > 0).map((p) => {
+				const len = (p.value / total) * C;
+				const arc = <circle key={p.code} className={`li-mod-${p.colour}`} cx="70" cy="70" r={R} fill="none" stroke="var(--li-mod)" strokeWidth="26" strokeDasharray={`${Math.max(0, len - 2).toFixed(2)} ${(C - Math.max(0, len - 2)).toFixed(2)}`} strokeDashoffset={(-at).toFixed(2)} transform="rotate(-90 70 70)" />;
+				at += len;
+				return arc;
+			}) : null}
+			<circle cx="70" cy="70" r={R + 13} fill="none" stroke="var(--li-edge)" strokeWidth="2.5" />
+			<circle cx="70" cy="70" r={R - 13} fill="none" stroke="var(--li-edge)" strokeWidth="2.5" />
+		</svg>
+	);
 }
 
 export function ProgressScreen() {
@@ -72,6 +92,7 @@ export function ProgressScreen() {
 	const [picked, setPicked] = useState<Partial<Record<ScoreRange, number>>>({});
 	const [busy, setBusy] = useState<string | null>(null);
 	const p = progress.data;
+	const { moduleLook } = useLockedIn();
 
 	async function start(spec: { kind: "retest" | "try-now" | "post-lecture"; lectureId: string; nodes?: string[] }, extra?: object) {
 		setBusy(spec.lectureId);
@@ -96,95 +117,125 @@ export function ProgressScreen() {
 	// Ideas to revisit: the module that needs attention first (V-36).
 	const first = p.attention.find((a) => a.kind === "module")?.module ?? null;
 
+	const attention = p.attention;
+	const ideas = p.score.ideasTotal;
+	const rangeWord = range === "week" ? "this week" : range === "month" ? "the last 30 days" : "this term";
+
 	return (
 		<>
-			<PageHead eyebrow="Progress" title="Where you are">
-				<div className="li-row" style={{ marginTop: 12 }}><Link className="li-btn" href="/app/plan">{PROGRESS_COPY.seeWeek}</Link></div>
-			</PageHead>
+			<div className="li-row" style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
+				<PageHead eyebrow="Progress" icon={<Icon.progress />} title="Where you are" />
+				{/* The week is one tap from Progress (v2.2; asked for in the look test). */}
+				<Link className="li-btn" href="/app/plan"><Icon.calendar />{PROGRESS_COPY.seeWeek}</Link>
+			</div>
 			{p.welcomeBack ? (
-				<Tint>
-					<button type="button" className="li-hero" onClick={() => start({ kind: "try-now", lectureId: p.welcomeBack!.spec.lectureId }, p.welcomeBack!.spec)}>
-						<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-							<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>Welcome back</span>
-							<span className="li-hero-title">{p.welcomeBack.text}</span>
-							<span style={{ opacity: 0.9 }}>Nothing has gone anywhere.</span>
-						</span>
-						<span className="li-hero-cta">Start</span>
-					</button>
-				</Tint>
+				<button type="button" className="li-hero plain" onClick={() => start({ kind: "try-now", lectureId: p.welcomeBack!.spec.lectureId }, p.welcomeBack!.spec)}>
+					<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+						<span className="li-eyebrow">Welcome back</span>
+						<span className="li-hero-title" style={{ fontSize: "2em" }}>{p.welcomeBack.text}</span>
+						<span>Nothing has gone anywhere.</span>
+					</span>
+					<span className="li-btn primary big" style={{ marginLeft: "auto" }}>Start<Icon.arrow /></span>
+				</button>
 			) : null}
 
-			<section className="li-card li-stack" aria-labelledby="sc" style={{ gap: 14 }}>
-				<div className="li-row" style={{ alignItems: "flex-end" }}>
-					<div style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
-						<h2 id="sc" className="li-eyebrow" style={{ margin: 0 }}>{PROGRESS_COPY.score}</h2>
-						<span className="li-row" style={{ gap: 12, alignItems: "baseline" }}>
-							<b className="li-display li-score">{p.score.now.toLocaleString("en-GB")}</b>
-							{p.score.weekChange !== 0 ? <span className="li-chip">{PROGRESS_COPY.thisWeek(p.score.weekChange)}</span> : null}
-							<span className="li-muted">{p.score.ideasSecured} of {p.score.ideasTotal} ideas secured{p.score.fading ? ` · ${p.score.fading} fading` : ""}</span>
-						</span>
-					</div>
-					<div className="li-row" role="group" aria-label="Range" style={{ gap: 6 }}>
-						{RANGES.map((r) => <button key={r} type="button" className="li-chip" data-on={r === range ? "true" : "false"} aria-pressed={r === range} onClick={() => setRange(r)}>{PROGRESS_COPY.ranges[r]}</button>)}
-					</div>
-				</div>
-				<ScoreChart points={points} range={range} selected={selected} onSelect={(i) => setPicked((s) => ({ ...s, [range]: i }))} />
-				<div className="li-row li-small li-muted" style={{ gap: 18 }}>
-					<span className="li-row" style={{ gap: 6 }}><i className="li-key li-key-you" />You</span>
-					{p.score.term.target > 0 ? <span className="li-row" style={{ gap: 6 }} title={PROGRESS_COPY.steadyPaceHelp}><i className="li-key li-key-pace" />{PROGRESS_COPY.steadyPace}: {PROGRESS_COPY.steadyPaceHelp.charAt(0).toLowerCase()}{PROGRESS_COPY.steadyPaceHelp.slice(1)}</span> : null}
-					<span className="li-row" style={{ gap: 6 }}>◆ A milestone</span>
-				</div>
-				<div aria-live="polite">{points[selected] ? <PointDetail p={points[selected]!} range={range} data={p} /> : null}</div>
-			</section>
-
-			<div className="li-progress-two">
-				<section className="li-card li-stack" aria-labelledby="wf" style={{ gap: 12 }}>
-					<h2 id="wf" className="li-h2">{PROGRESS_COPY.whereFrom} <span className="li-muted li-small" style={{ fontWeight: 400 }}>· {range === "week" ? "this week" : range === "month" ? "the last 30 days" : "this term"}</span></h2>
-					{p.modules.map((m) => {
-						const share = m.shares[range];
-						return (
-							<div key={m.code} className="li-share">
-								<span className="li-row" style={{ gap: 8, flexWrap: "nowrap" }}>
-									<ModuleDot code={m.code} />
-									<b style={{ flexGrow: 1, minWidth: 0 }}>{m.name}</b>
-									<span className="li-small li-muted" style={{ whiteSpace: "nowrap" }}>{m.hasMaterial ? minutesText(share.minutes) : "no material yet"}</span>
-									<b style={{ minWidth: 52, textAlign: "right" }}>{share.points.toLocaleString("en-GB")}</b>
-								</span>
-								<Tint module={m.code}><span className="li-bar"><span style={{ width: `${(share.points / maxPoints) * 100}%` }} /></span></Tint>
-							</div>
-						);
-					})}
+			{/* Progress first; what to do about it comes after (look test, 27 Nov). */}
+			<div className="li-progress-top">
+				<section className="li-panel ink li-stack" aria-labelledby="sc" style={{ gap: 14 }}>
+					<h2 id="sc" className="li-eyebrow" style={{ margin: 0, color: "inherit" }}><Icon.progress />{PROGRESS_COPY.score}</h2>
+					<span className="li-row" style={{ gap: 14, alignItems: "flex-end" }}>
+						<b className="li-numeral li-score">{p.score.now.toLocaleString("en-GB")}</b>
+						{p.score.weekChange !== 0 ? <span className="li-chip li-on-mint" style={{ fontSize: "1em", padding: "4px 14px", marginBottom: 10 }}>{p.score.weekChange > 0 ? <Icon.up /> : null}{PROGRESS_COPY.thisWeek(p.score.weekChange)}</span> : null}
+					</span>
+					{/* Blocks you can count: one per idea, mint when it is secured. With very many ideas, a bar says the same. */}
+					{ideas > 0 && ideas <= 90
+						? <span className="li-count" aria-hidden="true">{Array.from({ length: ideas }, (_, i) => <i key={i} data-on={String(i < p.score.ideasSecured)} />)}</span>
+						: ideas > 0 ? <span className="li-bar" aria-hidden="true"><span style={{ width: `${(p.score.ideasSecured / ideas) * 100}%` }} /></span> : null}
+					<b>{p.score.ideasSecured} of {ideas} ideas secured{p.score.fading ? ` · ${p.score.fading} fading` : ""}</b>
 				</section>
 
-				<section className="li-card li-stack" aria-labelledby="na" style={{ gap: 12 }}>
-					<h2 id="na" className="li-h2">{PROGRESS_COPY.attention}</h2>
-					{p.attention.length === 0 ? <span className="li-muted">{PROGRESS_COPY.nothingNeeds}</span> : null}
-					{p.attention.map((a: ProgressAttention) => (
-						<div key={a.kind} className="li-attention">
-							<span>{a.text}</span>
-							{a.action.session
-								? <button type="button" className="li-btn primary" disabled={busy !== null} onClick={() => start(a.action.session!)}>{a.action.label}</button>
-								: <Link className="li-btn" href={a.action.href ?? "/app/library"}>{a.action.label}</Link>}
+				<section className="li-card li-stack" aria-label="Your score over time" style={{ gap: 12 }}>
+					<div className="li-row" style={{ justifyContent: "space-between" }}>
+						<div className="li-row li-small" style={{ gap: 18 }}>
+							<span className="li-row" style={{ gap: 6 }}><i className="li-key li-key-you" />You</span>
+							{p.score.term.target > 0 ? <span className="li-row" style={{ gap: 6 }} title={PROGRESS_COPY.steadyPaceHelp}><i className="li-key li-key-pace" />{PROGRESS_COPY.steadyPace}</span> : null}
+							<span className="li-row" style={{ gap: 6 }}><Icon.flag />A milestone</span>
+						</div>
+						<div className="li-seg" role="group" aria-label="Range">
+							{RANGES.map((r) => <button key={r} type="button" aria-pressed={r === range} onClick={() => setRange(r)}>{PROGRESS_COPY.ranges[r]}</button>)}
+						</div>
+					</div>
+					<ScoreChart points={points} range={range} selected={selected} onSelect={(i) => setPicked((s) => ({ ...s, [range]: i }))} />
+					<div aria-live="polite">{points[selected] ? <PointDetail p={points[selected]!} range={range} data={p} /> : null}</div>
+					{p.score.term.target > 0 ? <span className="li-small li-muted">{PROGRESS_COPY.steadyPace}: {PROGRESS_COPY.steadyPaceHelp.charAt(0).toLowerCase()}{PROGRESS_COPY.steadyPaceHelp.slice(1)}</span> : null}
+				</section>
+			</div>
+
+			<div className="li-progress-two">
+				<section className="li-card li-stack" aria-labelledby="wf" style={{ gap: 14 }}>
+					<h2 id="wf" className="li-h2">{PROGRESS_COPY.whereFrom} · {rangeWord}</h2>
+					<div className="li-row" style={{ gap: 24, alignItems: "center", flexWrap: "nowrap" }}>
+						<Ring parts={p.modules.map((m) => ({ code: m.code, colour: moduleLook(m.code).colour, value: m.shares[range].points }))} />
+						<div className="li-stack" style={{ gap: 10, flexGrow: 1, minWidth: 0 }}>
+							{p.modules.map((m) => {
+								const share = m.shares[range];
+								return (
+									<div key={m.code} className="li-row" style={{ gap: 10, flexWrap: "nowrap" }}>
+										<ModuleMark module={m.code} small />
+										<span style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
+											<b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</b>
+											<span className="li-small li-muted li-row" style={{ gap: 5, flexWrap: "nowrap" }}>{m.hasMaterial ? <><Icon.time />{minutesText(share.minutes)}</> : "no material yet"}</span>
+										</span>
+										<b className="li-numeral" style={{ fontSize: "1.5em" }}>{share.points.toLocaleString("en-GB")}</b>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				</section>
+
+				<section className="li-card li-stack" aria-labelledby="ms" style={{ gap: 12 }}>
+					<h2 id="ms" className="li-h2">{PROGRESS_COPY.milestones} · {PROGRESS_COPY.earned(earned.length, p.milestones.length)}</h2>
+					{(Object.keys(MILESTONE_GROUPS) as (keyof typeof MILESTONE_GROUPS)[]).map((g) => (
+						<div key={g} className="li-stack" style={{ gap: 8 }}>
+							<span className="li-small"><b>{MILESTONE_GROUPS[g]}</b></span>
+							<div className="li-milestones">
+								{p.milestones.filter((m) => m.group === g).map((m) => (
+									<div key={m.id} className="li-milestone" data-earned={m.earnedAt ? "true" : "false"}>
+										<span className="li-tickbox" aria-hidden="true">{m.earnedAt ? <Icon.check /> : null}</span>
+										<b>{m.title}</b>
+										<span className="li-small">{m.earnedAt ? new Date(m.earnedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : m.how}</span>
+									</div>
+								))}
+							</div>
 						</div>
 					))}
 				</section>
 			</div>
 
-			<section className="li-card li-stack" aria-labelledby="ms" style={{ gap: 14 }}>
-				<h2 id="ms" className="li-h2">{PROGRESS_COPY.milestones} <span className="li-muted li-small" style={{ fontWeight: 400 }}>· {PROGRESS_COPY.earned(earned.length, p.milestones.length)}</span></h2>
-				{(Object.keys(MILESTONE_GROUPS) as (keyof typeof MILESTONE_GROUPS)[]).map((g) => (
-					<div key={g} className="li-stack" style={{ gap: 8 }}>
-						<span className="li-eyebrow">{MILESTONE_GROUPS[g]}</span>
-						<div className="li-milestones">
-							{p.milestones.filter((m) => m.group === g).map((m) => (
-								<div key={m.id} className="li-milestone" data-earned={m.earnedAt ? "true" : "false"}>
-									<b>{m.earnedAt ? "◆ " : ""}{m.title}</b>
-									<span className="li-small">{m.earnedAt ? new Date(m.earnedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : m.how}</span>
-								</div>
-							))}
+			{/* What to do next: the first thing as a panel in its module's colour, the rest as rows. */}
+			<section className="li-stack" aria-labelledby="na" style={{ gap: 12 }}>
+				<h2 id="na" className="li-h2">{PROGRESS_COPY.attention}</h2>
+				{attention.length === 0 ? <div className="li-card li-muted">{PROGRESS_COPY.nothingNeeds}</div> : null}
+				{attention.map((a: ProgressAttention, i) => {
+					const action = a.action.session
+						? <button type="button" className={`li-btn${i === 0 ? " primary big" : ""}`} disabled={busy !== null} onClick={() => start(a.action.session!)}>{a.action.label}<Icon.arrow /></button>
+						: <Link className={`li-btn${i === 0 ? " primary big" : ""}`} href={a.action.href ?? "/app/library"}>{a.action.label}<Icon.arrow /></Link>;
+					return i === 0 ? (
+						<Tint key={a.kind} module={a.module}>
+							<div className={a.module ? "li-panel li-stack" : "li-card li-stack"} style={{ gap: 14, alignItems: "flex-start" }}>
+								{a.module ? <span className="li-eyebrow"><ModuleMark module={a.module} small onColour />{a.module}</span> : null}
+								<span className="li-h2" style={{ fontSize: "1.9em" }}>{a.text}</span>
+								{action}
+							</div>
+						</Tint>
+					) : (
+						<div key={a.kind} className="li-card li-attention">
+							<span>{a.text}</span>
+							{action}
 						</div>
-					</div>
-				))}
+					);
+				})}
 			</section>
 
 			{/* Gaps by idea (V-39): module, then idea, then the questions missed. */}

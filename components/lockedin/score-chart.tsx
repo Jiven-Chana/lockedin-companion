@@ -56,12 +56,6 @@ export function ScoreChart({ points, range, selected, onSelect }: { points: Prog
 	return (
 		<div className="li-chart">
 			<svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${PROGRESS_COPY.score}, ${PROGRESS_COPY.ranges[range].toLowerCase()}`} onKeyDown={(e) => { if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); } else if (e.key === "ArrowRight") { e.preventDefault(); move(1); } }}>
-				<defs>
-					<linearGradient id={`fill-${uid}`} x1="0" x2="0" y1="0" y2="1">
-						<stop offset="0" stopColor="var(--li-accent)" stopOpacity="0.28" />
-						<stop offset="1" stopColor="var(--li-accent)" stopOpacity="0" />
-					</linearGradient>
-				</defs>
 				{grid.map((v) => (
 					<g key={v}>
 						<line x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} className="li-chart-grid" />
@@ -73,7 +67,7 @@ export function ScoreChart({ points, range, selected, onSelect }: { points: Prog
 					return text ? <text key={p.date} x={x(i)} y={H - 10} textAnchor="middle" className="li-chart-axis" data-on={i === selected ? "true" : "false"}>{text}</text> : null;
 				})}
 				{pace ? <polyline points={pace} className="li-chart-pace" /> : null}
-				{area ? <path d={area} fill={`url(#fill-${uid})`} /> : null}
+				{area ? <path d={area} className="li-chart-area" /> : null}
 				{line ? <polyline points={line} className="li-chart-line" /> : null}
 				{points.map((p, i) => {
 					const cy = p.future ? (p.pace === null ? y(0) : y(p.pace)) : y(p.score);
@@ -84,7 +78,7 @@ export function ScoreChart({ points, range, selected, onSelect }: { points: Prog
 							<rect x={x(i) - Math.max(8, (W - PAD.left - PAD.right) / Math.max(1, n - 1) / 2)} y={PAD.top} width={Math.max(16, (W - PAD.left - PAD.right) / Math.max(1, n - 1))} height={H - PAD.top - PAD.bottom} fill="transparent" />
 							{here ? <line x1={x(i)} x2={x(i)} y1={PAD.top} y2={H - PAD.bottom} className="li-chart-cursor" /> : null}
 							{!p.future ? <circle cx={x(i)} cy={cy} r={here ? 6 : range === "month" ? 2.5 : 4} className="li-chart-dot" /> : here ? <circle cx={x(i)} cy={cy} r={4} className="li-chart-dot-future" /> : null}
-							{p.milestones.length > 0 && !p.future ? <path d={`M${x(i)},${cy - 20} l6,6 l-6,6 l-6,-6 Z`} className="li-chart-milestone" /> : null}
+							{p.milestones.length > 0 && !p.future ? <path d={`M${x(i) - 1},${cy - 30} v20 M${x(i)},${cy - 30} h13 l-4,5 l4,5 h-13 Z`} className="li-chart-milestone" /> : null}
 						</g>
 					);
 				})}
