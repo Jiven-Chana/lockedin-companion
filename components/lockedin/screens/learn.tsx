@@ -15,12 +15,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, moduleHue, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type SessionView } from "@/src/core";
+import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type SessionView } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, usePoll } from "../hooks";
 import { LearnPlan } from "../learn-plan";
 import { MicButton, useMic } from "../mic";
 import { InlineProse, Prose } from "../prose";
+import { Bars, Icon } from "../icons";
 import { Tint } from "../root";
 import { SlidePage } from "../slide-page";
 
@@ -309,20 +310,33 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const label = !q ? null : q.guess ? LEARN_COPY.guess : q.kind === "write" ? LEARN_COPY.yourTurn : q.kind === "quiz" ? LEARN_COPY.check : null;
 
 	return (
-		<Tint hue={moduleHue(view.lecture.module)}>
+		<Tint module={view.lecture.module}>
 			<div className="li-focus li-learn">
 				<div className="li-focus-top">
-					<button type="button" className="li-x" aria-label="Stop for now" title="Stop for now. It is saved with its plan." onClick={stop}>✕</button>
-					<span style={{ display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
-						<b className="li-display" style={{ fontSize: "1.25em" }}><span className="li-mode" data-study="learn">{LEARN_COPY.moduleButton}</span> {view.lecture.module} · {view.lecture.title}</b>
-						<span className="li-small" style={{ color: "var(--li-deep-muted)" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : timeUp ? `${where} · ${LEARN_COPY.timeUp(learn.minutes)}` : where}</span>
+					<span className="li-mode" data-study="learn"><Icon.learn />{LEARN_COPY.moduleButton}</span>
+					<span style={{ display: "flex", flexDirection: "column", gap: 6, flexGrow: 1, minWidth: 0 }}>
+						<b className="li-display" style={{ fontSize: "1.5em", lineHeight: 1.1 }}>{view.lecture.module} · {view.lecture.title}</b>
+						{/* Where you are, as labelled steps: the idea you are on and the next one are named. "Idea 2 of 4" as small text was the last thing a tester noticed. */}
+						{plan && plan.index > 0 && view.status !== "done" ? (
+							<span className="li-steps" role="img" aria-label={where}>
+								{plan.nodes.map((n, i) => (
+									<i key={n.id} data-state={n.state}>
+										{n.state === "done" ? <Icon.check /> : n.state === "current" ? <>now: {n.title}</> : plan.nodes[i - 1]?.state === "current" ? <>next: {n.title}</> : null}
+									</i>
+								))}
+							</span>
+						) : <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : where}</span>}
+						{timeUp && view.status !== "done" ? <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{LEARN_COPY.timeUp(learn.minutes)}</span> : null}
 					</span>
-					{plan ? <button type="button" className="li-learn-tool" aria-pressed={panel === "plan"} onClick={() => setPanel(panel === "plan" ? null : "plan")}>{LEARN_COPY.planTab}</button> : null}
-					<button type="button" className="li-learn-tool" aria-pressed={panel === "slide"} onClick={() => setPanel(panel === "slide" ? null : "slide")}>{LEARN_COPY.slideTab}</button>
-					{left !== null && !timeUp && view.status !== "done" ? <b aria-label={`${left} minutes left`}>{LEARN_COPY.minutesLeft(left)}</b> : null}
+					{plan ? <button type="button" className="li-x" aria-pressed={panel === "plan"} onClick={() => setPanel(panel === "plan" ? null : "plan")}><Icon.plan />{LEARN_COPY.planTab}</button> : null}
+					<button type="button" className="li-x" aria-pressed={panel === "slide"} onClick={() => setPanel(panel === "slide" ? null : "slide")}><Icon.slide />{LEARN_COPY.slideTab}</button>
+					{left !== null && !timeUp && view.status !== "done" ? <b className="li-row" style={{ gap: 6, flexWrap: "nowrap" }} aria-label={`${left} minutes left`}><Icon.time />{LEARN_COPY.minutesLeft(left)}</b> : null}
+					<button type="button" className="li-x" title="Stop for now. It is saved with its plan." onClick={stop}><Icon.pause />Stop for now</button>
 				</div>
 
-				<div className="li-panes" data-panel={panel ? "open" : "closed"}>
+				{/* The teaching text first, on the reading surface. The question sits beside it on a soft tint, not the full colour:
+				    a tester's eyes went to a bright question before the text (look test, 27 Nov). */}
+				<div className="li-panes" data-panel={panel || q ? "open" : "closed"}>
 					<section className="li-qcard" aria-label="Your tutor">
 						{view.status === "error" ? (
 							<>
@@ -343,7 +357,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 						{view.status !== "error" && view.status !== "preparing" ? (
 							<>
 								{learn.earlier > 0 ? <button type="button" className="li-btn ghost" style={{ alignSelf: "flex-start" }} aria-expanded={!!earlier} onClick={() => void toggleEarlier()}>{LEARN_COPY.earlier(learn.earlier)}</button> : null}
-								{earlier ? earlier.map((st, i) => <div key={i} className="li-step" style={{ opacity: 0.8, borderBottom: "1px solid var(--li-line)", paddingBottom: 14 }}>{st.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}</div>) : null}
+								{earlier ? earlier.map((st, i) => <div key={i} className="li-step" style={{ opacity: 0.85, borderBottom: "2px dashed var(--li-sand)", paddingBottom: 14 }}>{st.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}</div>) : null}
 
 								<div className="li-step" aria-live="polite">
 									{items.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}
@@ -351,7 +365,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 
 								{view.status === "done" ? (
 									<>
-										<span className="li-eyebrow">{SESSION_COPY.setFinishedShort}</span>
+										<span className="li-eyebrow"><Icon.check />{SESSION_COPY.setFinishedShort}</span>
 										<h2 className="li-q-stem">{LEARN_COPY.doneTitle(view.lecture.title)}</h2>
 										<p style={{ margin: 0 }}>{LEARN_COPY.covered(learn.covered ?? [])}</p>
 										<p style={{ margin: 0 }}>{SESSION_COPY.comingBack(view.comingBack ?? [])}</p>
@@ -361,9 +375,37 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 									</>
 								) : null}
 
-								{q ? (
-									<>
-										{label ? <span className="li-eyebrow">{label}</span> : null}
+								{view.status === "thinking" ? <div className="li-activity" style={{ padding: "8px 0" }} aria-live="polite"><span className="li-pulse" />{view.activity ?? LEARN_COPY.writing}</div> : null}
+								{sent ? <div className="li-note li-small" role="status">{LEARN_COPY.sent}</div> : null}
+
+								{view.status === "reply" ? (
+									<div className="li-row">
+										{learn.phase === "probe" ? <button type="button" className="li-btn" onClick={() => void tell({ say: "skipProbe" })} disabled={!!busy}>{LEARN_COPY.skipProbe}</button> : null}
+										{learn.finished ? <button type="button" className="li-btn primary big" onClick={finish} disabled={!!busy}>{LEARN_COPY.finish}</button> : null}
+										<button type="button" ref={carryOn} className={`li-btn${learn.finished ? "" : " primary big"}`} onClick={() => void tell({ say: learn.phase === "plan" ? "planOk" : "carryOn" })} disabled={!!busy}>{learn.phase === "plan" ? LEARN_COPY.planOk : LEARN_COPY.carryOn}<Icon.arrow /></button>
+									</div>
+								) : null}
+
+								{error ? <div className="li-note" role="alert">{error}</div> : null}
+
+								{talking ? (
+									<form className="li-say" onSubmit={(e) => { e.preventDefault(); void sendSay(); }}>
+										<textarea className="li-input" rows={1} value={say} aria-label="Ask or say something to your tutor" placeholder={mic.available ? LEARN_COPY.saySpeak : LEARN_COPY.say}
+											onFocus={() => { target.current = "say"; }} onChange={(e) => setSay(e.target.value)}
+											onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendSay(); } }} />
+										<span onPointerDown={() => { target.current = "say"; }}><MicButton mic={mic} /></span>
+										<button type="submit" className="li-btn" disabled={!say.trim() || !!busy}>{busy === "say" ? "Sending…" : "Send"}<Icon.send /></button>
+									</form>
+								) : null}
+							</>
+						) : null}
+					</section>
+
+					{panel || q ? (
+						<div className="li-stack li-learn-side" style={{ gap: 22 }}>
+							{q ? (
+								<section className="li-qcard li-ask" aria-label="Question">
+										{label ? <span className="li-eyebrow"><span className="li-mark small on-colour">{q.guess ? <Icon.question /> : <Icon.check />}</span>{label}</span> : null}
 										{/* A question is one line, or (a table, a worked set-up) several blocks. */}
 										{q.stem.includes("\n")
 											? <div className="li-q-stem" style={{ fontSize: "1.15em", fontWeight: 400 }} tabIndex={-1} ref={stem}><Prose text={q.stem} onSlide={openSlide} /></div>
@@ -373,12 +415,12 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 											<div role={q.multi ? "group" : "radiogroup"} aria-label="Answers" className="li-stack" style={{ gap: 10 }}>
 												{q.options.map((o) => (
 													<button key={o.index} type="button" role={q.multi ? "checkbox" : "radio"} aria-checked={picked.includes(o.index)} className="li-opt" onClick={() => pick(o.index)}>
-														<span className="li-kbd">{o.index}</span><span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
+														<span className="li-box" data-on={String(picked.includes(o.index))}>{o.index}</span><span style={{ flexGrow: 1 }}><InlineProse text={o.label} /></span>
 													</button>
 												))}
 												{q.kind === "quiz" ? (
-													<button type="button" role={q.multi ? "checkbox" : "radio"} aria-checked={dontKnow} className="li-opt" onClick={() => { setDontKnow(true); setPicked([]); }}>
-														<span className="li-kbd">?</span><span style={{ flexGrow: 1 }}>I don&apos;t know</span>
+													<button type="button" role={q.multi ? "checkbox" : "radio"} aria-checked={dontKnow} className="li-opt" style={{ alignSelf: "flex-start", width: "auto", minHeight: 46 }} onClick={() => { setDontKnow(true); setPicked([]); }}>
+														<Icon.question /><span>I don&apos;t know</span>
 													</button>
 												) : null}
 											</div>
@@ -395,7 +437,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 												<div className="li-stack" style={{ gap: 8 }}>
 													<b>{SESSION_COPY.confidenceAsk}</b>
 													<div role="radiogroup" aria-label="How sure you are" className="li-stops">
-														{CONFIDENCE_TAPS.map((c) => <button key={c.value} type="button" role="radio" aria-checked={conf === c.value} onClick={() => setConf(conf === c.value ? null : c.value)}>{c.label}</button>)}
+														{CONFIDENCE_TAPS.map((c, i) => <button key={c.value} type="button" role="radio" aria-checked={conf === c.value} onClick={() => setConf(conf === c.value ? null : c.value)}><Bars level={(i + 1) as 1 | 2 | 3 | 4} />{c.label}</button>)}
 													</div>
 												</div>
 												<label className="li-stack" style={{ gap: 6 }}>
@@ -407,65 +449,41 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 										{hint ? <div className="li-note" role="note"><b>Hint:</b> {hint}</div> : null}
 										{asides.map((it) => <Item key={it.id} item={it} plan={learn} onSlide={openSlide} />)}
 										<div className="li-row">
-											{view.canHint ? <button type="button" className="li-btn" onClick={askHint} disabled={!!busy || !!hint}>{busy === "hint" ? "Thinking…" : "Hint"}</button> : null}
-											{q.kind === "quiz" && learn.phase !== "probe" ? <button type="button" className="li-btn" onClick={showMe} disabled={!!busy}>{busy === "show" ? "Getting it…" : "Show me first"}</button> : null}
+											{view.canHint ? <button type="button" className="li-btn" onClick={askHint} disabled={!!busy || !!hint}><Icon.question />{busy === "hint" ? "Thinking…" : "Hint"}</button> : null}
+											{q.kind === "quiz" && learn.phase !== "probe" ? <button type="button" className="li-btn" onClick={showMe} disabled={!!busy}><Icon.eye />{busy === "show" ? "Getting it…" : "Show me first"}</button> : null}
 											{learn.phase === "probe" ? <button type="button" className="li-btn" onClick={() => void tell({ say: "skipProbe" })} disabled={!!busy}>{LEARN_COPY.skipProbe}</button> : null}
-											<button type="button" className="li-btn primary big" style={{ marginLeft: "auto" }} onClick={submit} disabled={!canSubmit || !!busy}>{busy === "answer" ? "Sending…" : q.kind === "quiz" && !q.guess ? "Check" : q.guess ? "That's my guess" : "Send"}</button>
+											<button type="button" className="li-btn primary big" style={{ marginLeft: "auto" }} onClick={submit} disabled={!canSubmit || !!busy}>{busy === "answer" ? "Sending…" : q.kind === "quiz" && !q.guess ? "Check" : q.guess ? "That's my guess" : "Send"}<Icon.arrow /></button>
 										</div>
+								</section>
+							) : null}
+					{panel ? (
+							<aside className="li-slides" aria-label={panel === "plan" ? "Plan" : "Slides"}>
+								<div className="li-row" style={{ gap: 8 }}>
+									<span className="li-tabs" role="tablist" style={{ flexGrow: 1 }}>
+										{plan ? <button type="button" role="tab" aria-selected={panel === "plan"} onClick={() => setPanel("plan")}>{LEARN_COPY.planTab}</button> : null}
+										<button type="button" role="tab" aria-selected={panel === "slide"} onClick={() => setPanel("slide")}>{LEARN_COPY.slideTab}</button>
+									</span>
+									<button type="button" className="li-icon-btn" aria-label="Close" onClick={() => setPanel(null)}><Icon.close /></button>
+								</div>
+								{panel === "plan" && plan ? <LearnPlan plan={plan} /> : null}
+								{panel === "slide" ? (
+									<>
+										<div className="li-row" style={{ gap: 8 }}>
+											<b style={{ flexGrow: 1 }}>{learn.unit ? `${learn.unit.title} · ` : ""}{slidePositionLabel(pos, hasPdf)}</b>
+											<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Previous page" : "Previous slide"} onClick={() => setSlide(pos.prev)} disabled={pos.prev === null}><span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><Icon.chevron /></span></button>
+											<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}><span style={{ display: "inline-flex", transform: "rotate(-90deg)" }}><Icon.chevron /></span></button>
+										</div>
+										<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
+											{s ? <SlidePage lectureId={unitId} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this yet.</p>}
+										</div>
+										{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
 									</>
 								) : null}
-
-								{view.status === "thinking" ? <div className="li-activity" style={{ padding: "8px 0" }} aria-live="polite"><span className="li-pulse" />{view.activity ?? LEARN_COPY.writing}</div> : null}
-								{sent ? <div className="li-note li-small" role="status">{LEARN_COPY.sent}</div> : null}
-
-								{view.status === "reply" ? (
-									<div className="li-row">
-										{learn.phase === "probe" ? <button type="button" className="li-btn" onClick={() => void tell({ say: "skipProbe" })} disabled={!!busy}>{LEARN_COPY.skipProbe}</button> : null}
-										{learn.finished ? <button type="button" className="li-btn primary big" onClick={finish} disabled={!!busy}>{LEARN_COPY.finish}</button> : null}
-										<button type="button" ref={carryOn} className={`li-btn${learn.finished ? "" : " primary big"}`} onClick={() => void tell({ say: learn.phase === "plan" ? "planOk" : "carryOn" })} disabled={!!busy}>{learn.phase === "plan" ? LEARN_COPY.planOk : LEARN_COPY.carryOn}</button>
-									</div>
-								) : null}
-
-								{error ? <div className="li-note" role="alert">{error}</div> : null}
-
-								{talking ? (
-									<form className="li-say" onSubmit={(e) => { e.preventDefault(); void sendSay(); }}>
-										<textarea className="li-input" rows={1} value={say} aria-label="Ask or say something to your tutor" placeholder={mic.available ? LEARN_COPY.saySpeak : LEARN_COPY.say}
-											onFocus={() => { target.current = "say"; }} onChange={(e) => setSay(e.target.value)}
-											onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendSay(); } }} />
-										<span onPointerDown={() => { target.current = "say"; }}><MicButton mic={mic} /></span>
-										<button type="submit" className="li-btn" disabled={!say.trim() || !!busy}>{busy === "say" ? "Sending…" : "Send"}</button>
-									</form>
-								) : null}
-							</>
+							</aside>
 						) : null}
-					</section>
-
-					{panel ? (
-						<aside className="li-slides" aria-label={panel === "plan" ? "Plan" : "Slides"}>
-							<div className="li-row" style={{ gap: 8 }}>
-								<span className="li-tabs" role="tablist" style={{ flexGrow: 1 }}>
-									{plan ? <button type="button" role="tab" aria-selected={panel === "plan"} onClick={() => setPanel("plan")}>{LEARN_COPY.planTab}</button> : null}
-									<button type="button" role="tab" aria-selected={panel === "slide"} onClick={() => setPanel("slide")}>{LEARN_COPY.slideTab}</button>
-								</span>
-								<button type="button" className="li-icon-btn" aria-label="Close" onClick={() => setPanel(null)}>✕</button>
-							</div>
-							{panel === "plan" && plan ? <LearnPlan plan={plan} /> : null}
-							{panel === "slide" ? (
-								<>
-									<div className="li-row" style={{ gap: 8 }}>
-										<b style={{ flexGrow: 1 }}>{learn.unit ? `${learn.unit.title} · ` : ""}{slidePositionLabel(pos, hasPdf)}</b>
-										<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Previous page" : "Previous slide"} onClick={() => setSlide(pos.prev)} disabled={pos.prev === null}>‹</button>
-										<button type="button" className="li-icon-btn" aria-label={hasPdf ? "Next page" : "Next slide"} onClick={() => setSlide(pos.next)} disabled={pos.next === null}>›</button>
-									</div>
-									<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
-										{s ? <SlidePage lectureId={unitId} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No slides for this yet.</p>}
-									</div>
-									{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
-								</>
-							) : null}
-						</aside>
+						</div>
 					) : null}
+
 				</div>
 			</div>
 		</Tint>

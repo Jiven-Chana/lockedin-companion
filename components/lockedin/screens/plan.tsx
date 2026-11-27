@@ -13,9 +13,10 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { moduleHue, PLACEMENT_COPY, PLAN_COPY } from "@/src/core";
+import { PLACEMENT_COPY, PLAN_COPY } from "@/src/core";
 import { ApiError, lockedIn, type CheckinData, type PlanData } from "../api";
 import { fmtTime, useData } from "../hooks";
+import { Icon } from "../icons";
 import { Tint, useLockedIn } from "../root";
 import { PageHead } from "../shell";
 import { WeekGrid } from "../week-grid";
@@ -55,7 +56,7 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 		}
 	};
 	return (
-		<Tint hue={moduleHue(b.module ?? "study")}>
+		<Tint module={b.module}>
 			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
 				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : b.notStarted ? ` · ${PLAN_COPY.replan.notStarted}` : ""}{b.moved ? <> <span className="li-chip">{PLAN_COPY.replan.moved}</span></> : null}</span>
 				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : b.module ? b.module : PLACEMENT_COPY.freeStudy}{b.reason === "gap" ? " · catch-up" : ""}</span>
@@ -189,31 +190,46 @@ export function PlanScreen() {
 
 	return (
 		<>
-			<PageHead eyebrow="Week" title="Your study week">
-				<div className="li-row" style={{ gap: 10, marginTop: 12 }}>
-					<button type="button" className="li-btn" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), -7))} aria-label="Previous week">‹</button>
-					<b>{p ? `Week of ${new Date(`${p.week}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}` : "…"}</b>
-					<button type="button" className="li-btn" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), 7))} aria-label="Next week">›</button>
+			<div className="li-row" style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
+				<PageHead eyebrow="Week" icon={<Icon.calendar />} title="Your study week">
+					<div className="li-row" style={{ gap: 10, marginTop: 10 }}>
+						<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), -7))} aria-label="Previous week"><span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><Icon.chevron /></span></button>
+						<b>{p ? `Week of ${new Date(`${p.week}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}` : "…"}</b>
+						<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), 7))} aria-label="Next week"><span style={{ display: "inline-flex", transform: "rotate(-90deg)" }}><Icon.chevron /></span></button>
+					</div>
+				</PageHead>
+				<div className="li-row" style={{ gap: 14, alignItems: "stretch" }}>
+					{/* The weekly target as blocks you can count: one per hour, mint for what is kept. */}
+					<section className="li-card li-stack" style={{ gap: 8, padding: "12px 16px" }} aria-label="Weekly target">
+						<span className="li-row" style={{ gap: 10, flexWrap: "nowrap" }}>
+							<label className="li-row" style={{ gap: 8, flexWrap: "nowrap" }}>
+								<b>Weekly target</b>
+								<select className="li-input" style={{ width: "auto", minHeight: 34, padding: "2px 8px" }} value={p?.target ?? ""} onChange={(e) => void setTarget(Number(e.target.value))}>
+									<option value="" disabled>Choose…</option>
+									{[...new Set([...TARGETS, ...(p?.target ? [p.target] : [])])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{PLAN_COPY.hours(m)}</option>)}
+								</select>
+							</label>
+							<b className="li-row" style={{ gap: 5, flexWrap: "nowrap" }}><Icon.check />{p ? `${PLAN_COPY.hours(p.committedMinutes)} kept` : ""}</b>
+						</span>
+						{p?.target ? (
+							<span className="li-hours" role="img" aria-label={`${PLAN_COPY.hours(p.committedMinutes)} kept of ${PLAN_COPY.hours(p.target)}`}>
+								{Array.from({ length: Math.ceil(p.target / 60) }, (_, i) => <i key={i}><span style={{ width: `${Math.max(0, Math.min(1, (p.committedMinutes - i * 60) / 60)) * 100}%` }} /></i>)}
+							</span>
+						) : null}
+						{p?.proposedMinutes ? <span className="li-small li-muted">{PLAN_COPY.hours(p.proposedMinutes)} suggested</span> : null}
+					</section>
+					<button type="button" className="li-btn primary big" disabled={busy || !p?.target} onClick={propose}>{busy ? "Planning…" : "Plan my week"}<Icon.arrow /></button>
 				</div>
-			</PageHead>
+			</div>
 
 			{showCheckin ? <CheckIn onDone={(w) => { setShowCheckin(false); setWeek(w); void plan.reload(); }} /> : null}
 
-			<section className="li-card li-row" style={{ gap: 16, alignItems: "center" }} aria-label="Weekly target">
-				<label className="li-row" style={{ gap: 8 }}>
-					<b>Weekly target</b>
-					<select className="li-input" style={{ width: "auto" }} value={p?.target ?? ""} onChange={(e) => void setTarget(Number(e.target.value))}>
-						<option value="" disabled>Choose…</option>
-						{[...new Set([...TARGETS, ...(p?.target ? [p.target] : [])])].sort((a, b) => a - b).map((m) => <option key={m} value={m}>{PLAN_COPY.hours(m)}</option>)}
-					</select>
-				</label>
-				<span className="li-muted" style={{ flexGrow: 1 }}>{p ? `${PLAN_COPY.hours(p.committedMinutes)} kept${p.proposedMinutes ? `, ${PLAN_COPY.hours(p.proposedMinutes)} proposed` : ""}` : ""}</span>
-				<button type="button" className="li-btn primary" disabled={busy || !p?.target} onClick={propose}>{busy ? "Planning…" : "Plan my week"}</button>
-				{p?.replan.open ? <button type="button" className="li-btn" disabled={busy} onClick={() => void replan()}>{PLAN_COPY.replan.button}</button> : null}
-				{proposals ? <button type="button" className="li-btn" onClick={async () => { await lockedIn.acceptBlocks(p!.week); void plan.reload(); }}>Keep all {proposals}</button> : null}
-				<Link className="li-btn ghost" href="/app/plan/chat">Plan my week with me (2 min)</Link>
+			<div className="li-row" style={{ gap: 10 }}>
+				{p?.replan.open ? <button type="button" className="li-btn" disabled={busy} onClick={() => void replan()}><Icon.ring />{PLAN_COPY.replan.button}</button> : null}
+				{proposals ? <button type="button" className="li-btn" onClick={async () => { await lockedIn.acceptBlocks(p!.week); void plan.reload(); }}><Icon.check />Keep all {proposals}</button> : null}
+				<Link className="li-btn ghost" href="/app/plan/chat"><Icon.say />Plan my week with me (2 min)</Link>
 				{!showCheckin ? <button type="button" className="li-btn ghost" onClick={() => setShowCheckin(true)}>Check in</button> : null}
-			</section>
+			</div>
 			{msg || p?.replan.canUndo ? (
 				<div className="li-note li-row" role="status" style={{ gap: 10, alignItems: "center" }}>
 					<span style={{ flexGrow: 1 }}>{msg ?? PLAN_COPY.replan.still(p!.replan.moved)}</span>
@@ -225,7 +241,7 @@ export function PlanScreen() {
 			{p ? (
 				<div className="li-tt-wrap li-stack" style={{ gap: 12 }}>
 					{/* Said before the timetable, not after it (v2.2, LF-10). */}
-					<p className="li-small" style={{ margin: 0 }}>{PLAN_COPY.dragHint}</p>
+					<p className="li-row" style={{ margin: 0, gap: 8 }}><Icon.move />{PLAN_COPY.dragHint}</p>
 					<WeekGrid
 						plan={p}
 						today={iso(now)}
@@ -249,7 +265,7 @@ export function PlanScreen() {
 					<div key={d.date} className="li-day" role="listitem" data-today={d.date === iso(now) ? "true" : "false"}>
 						<b>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>
 						{[
-							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} hue={moduleHue(l.module)}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
+							...lecturesOn(d.date).map((l) => ({ at: fmtTime(l.start!), key: l.id, node: <Tint key={l.id} module={l.module}><span className="li-event" data-kind={l.kind ?? "lecture"}>{fmtTime(l.start!)} {l.module} {l.title}</span></Tint> })),
 							...commitmentsOn(d.date).map((c, i) => ({ at: c.start, key: `c${i}`, node: <span key={`c${i}`} className="li-event" data-kind="commitment">{c.start} {c.label}</span> })),
 							...blocksOn(d.date).map((b) => ({ at: b.start, key: b.id, node: <BlockCard key={b.id} b={b} order={di} modules={p?.modules} onDone={() => void plan.reload()} /> })),
 						]

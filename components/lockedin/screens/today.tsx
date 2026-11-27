@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AI_COPY, HANDOFF_COPY, moduleHue, PLAN_COPY, PRACTISE_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
+import { AI_COPY, HANDOFF_COPY, PLAN_COPY, PRACTISE_COPY, SESSION_BUDGETS, SESSION_COPY, sessionKindForNudge, type SessionSpec } from "@/src/core";
 import { lockedIn } from "../api";
 import { fmtDay, fmtTime, useData, useLocalFlag, usePoll } from "../hooks";
-import { FocusRing, Icon, StatusTag } from "../icons";
+import { Icon, ModuleMark, StatusTag } from "../icons";
 import { Tint, useLockedIn } from "../root";
 import { PageHead } from "../shell";
 
@@ -64,113 +64,151 @@ export function TodayScreen() {
 	const lectures = t?.lectures ?? [];
 	const lectureTitle = (id: string) => lectures.find((l) => l.id === id)?.title;
 
-	let hero: { hue: number; eyebrow: string; title: string; sub: string; cta: string; done: number; total: number; go: () => void } | null = null;
+	// The next step, as one large panel in its module's colour (v3.0, Blocks). `module` is null when it belongs to no module.
+	let hero: { module: string | null; eyebrow: string; title: string; sub: string; cta: string; done: number; total: number; go: () => void } | null = null;
 	if (t?.banner && t.banner.sessionId) {
 		const b = t.banner;
-		hero = { hue: moduleHue(b.lectureId?.split("-")[0] ?? "HCI"), eyebrow: b.ready ? HANDOFF_COPY.ready(b.startsAt) : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: b.startsAt - 1, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
+		hero = { module: t.bannerModule, eyebrow: b.ready ? HANDOFF_COPY.ready(b.startsAt) : "Getting it ready", title: lectureTitle(b.lectureId ?? "") ?? "Your session", sub: b.text, cta: "Open", done: b.startsAt - 1, total: SESSION_BUDGETS[sessionKindForNudge(b.type)].questions, go: () => void openNudge(b.id) };
 	} else if (t?.resume) {
 		// A session you left (R-5): where it was saved, and how much is left. Opening it is what resumes it.
 		const r = t.resume;
-		hero = { hue: moduleHue(r.module), eyebrow: `${r.module} · pick up where you left off`, title: r.title, sub: r.text, cta: "Continue", done: r.answered, total: r.budget, go: () => router.push(`/app/session/${r.sessionId}`) };
+		hero = { module: r.module, eyebrow: `${r.module} · pick up where you left off`, title: r.title, sub: r.text, cta: "Continue", done: r.answered, total: r.budget, go: () => router.push(`/app/session/${r.sessionId}`) };
 	} else if (t?.welcomeBack) {
 		const wb = t.welcomeBack;
-		hero = { hue: 285, eyebrow: "Welcome back", title: SESSION_COPY.welcomeBackQuestion(), sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: wb.spec.budget.questions, go: () => void start(wb.spec) };
+		hero = { module: null, eyebrow: "Welcome back", title: SESSION_COPY.welcomeBackQuestion(), sub: "Nothing has gone anywhere. Start small.", cta: "Start", done: 0, total: wb.spec.budget.questions, go: () => void start(wb.spec) };
 	} else if (t?.tryNow) {
 		const tn = t.tryNow;
-		hero = { hue: moduleHue(tn.module), eyebrow: `${tn.module} · try it now`, title: tn.title, sub: SESSION_COPY.tryNow(), cta: "Try it", done: 0, total: tn.spec.budget.questions, go: () => void start(tn.spec) };
+		hero = { module: tn.module, eyebrow: `${tn.module} · try it now`, title: tn.title, sub: SESSION_COPY.tryNow(), cta: "Try it", done: 0, total: tn.spec.budget.questions, go: () => void start(tn.spec) };
 	} else {
 		const l = lectures.find((x) => x.hasMaterials) ?? null;
-		if (l) hero = { hue: moduleHue(l.module), eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: PRACTISE_COPY.mode, done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id, study: "practise" }) };
+		if (l) hero = { module: l.module, eyebrow: `${l.module} · today's lecture`, title: l.title, sub: SESSION_COPY.quizMe(), cta: PRACTISE_COPY.mode, done: 0, total: SESSION_BUDGETS["post-lecture"].questions, go: () => void start({ kind: "post-lecture", lectureId: l.id, study: "practise" }) };
 	}
+	const nb = t?.nextBlock ?? null;
+	const nbLive = !!nb && (nb.canStart || nb.status === "started");
+	const revisit = t?.readyToRevisit ?? 0;
 
 	return (
 		<>
-			<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} title={greeting(now)} clock />
+			<div className="li-row" style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
+				<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} icon={<Icon.today />} title={greeting(now)} clock />
+				<Link href="/app/me#look" className="li-btn"><Icon.palette />Make it yours</Link>
+			</div>
 			{ai.data && !ai.data.ready ? (
 				<div className="li-note li-row" role="status" style={{ gap: 12 }}>
 					<span style={{ flexGrow: 1 }}>{ai.data.blocker && ai.data.provider ? ai.data.blocker : AI_COPY.fallback}</span>
-					<Link href="/app/me#ai" className="li-btn">{AI_COPY.fallbackAction}</Link>
+					<Link href="/app/me#ai" className="li-btn ghost">{AI_COPY.fallbackAction}</Link>
 				</div>
 			) : null}
 			{today.error ? <div className="li-card">Couldn&apos;t load today: {today.error.message}</div> : null}
 			{/* What was done on the phone today (v2.3 part D): one quiet line, never a score. */}
-			{t?.onPhone ? <p className="li-muted" role="status" style={{ margin: 0 }}>{t.onPhone}</p> : null}
+			{t?.onPhone ? <p className="li-row" role="status" style={{ margin: 0, gap: 8 }}><Icon.phone />{t.onPhone}</p> : null}
 			<StarterCards phone={!!t?.phoneAvailable && !t.phonePaired} />
+
+			{/* The next step, and the next study block beside it. */}
 			<div className="li-grid-2">
-				<div className="li-stack" style={{ gap: 24 }}>
-					{hero ? (
-						<Tint hue={hero.hue}>
-							<button type="button" className="li-hero" onClick={hero.go} disabled={busy}>
-								<span style={{ position: "relative", display: "inline-flex" }}>
-									<FocusRing done={hero.done} total={hero.total} size={84} stroke="#ffffff" track="rgba(255,255,255,0.25)" label={`${hero.done} of ${hero.total}`} />
-									<span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff" }}><Icon.play /></span>
-								</span>
-								<span style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-									<span className="li-eyebrow" style={{ color: "inherit", opacity: 0.85 }}>{hero.eyebrow}</span>
-									<span className="li-hero-title">{hero.title}</span>
-									<span style={{ opacity: 0.9 }}>{hero.sub}</span>
-								</span>
-								<span className="li-hero-cta">{busy ? "Starting…" : hero.cta}</span>
-							</button>
-						</Tint>
-					) : today.loading ? <div className="li-card li-empty">Loading…</div> : null}
+				{hero ? (
+					<Tint module={hero.module} style={{ display: "flex" }}>
+						<section className={hero.module ? "li-hero" : "li-hero plain"} style={{ alignItems: "stretch" }} aria-label="Your next step">
+							<span style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0, flex: "1 1 auto", alignItems: "flex-start" }}>
+								<span className="li-eyebrow">{hero.module ? <ModuleMark module={hero.module} onColour /> : null}{hero.eyebrow}</span>
+								<span className="li-hero-title">{hero.title}</span>
+								<span style={{ maxWidth: "46ch" }}>{hero.sub}</span>
+								<button type="button" className="li-btn primary big" onClick={hero.go} disabled={busy} style={{ marginTop: "auto" }}>{busy ? "Starting…" : hero.cta}<Icon.arrow /></button>
+							</span>
+							<Tower done={hero.done} total={hero.total} />
+						</section>
+					</Tint>
+				) : today.loading ? <div className="li-card li-empty">Loading…</div> : <div className="li-card li-empty">Nothing is waiting. Add your slides in the Library and your first session appears here.</div>}
 
-					<section className="li-card" aria-labelledby="today-h">
-						<h2 id="today-h" className="li-h2" style={{ marginBottom: 8 }}>Today</h2>
-						{lectures.length === 0 ? <p className="li-muted" style={{ margin: 0 }}>No lectures today. A good day to revisit something, or to rest.</p> : null}
-						{lectures.map((l) => {
-							if (!l.start || !l.end) return null;
-							const ended = new Date(l.end) <= now;
-							return (
-								<div key={l.id} className="li-tl">
+				<Tint module={nb?.module} style={{ display: "flex" }}>
+					<section className={nb?.module ? "li-panel li-stack" : "li-card li-stack"} style={{ width: "100%", gap: 12 }} aria-labelledby="nb-h">
+						<h2 id="nb-h" className="li-eyebrow" style={{ margin: 0 }}>{nb?.module ? <ModuleMark module={nb.module} onColour /> : <Icon.calendar />}Next study block</h2>
+						{nb ? (
+							<>
+								<span className="li-numeral" style={{ fontSize: "2.9em" }}>{fmtDay(nb.start, now)} {fmtTime(nb.start)}</span>
+								<b>{[nb.module, nb.minutes ? `${nb.minutes} min` : null, nb.status === "started" ? PLAN_COPY.startedNote : null].filter(Boolean).join(" · ")}</b>
+								{nb.firstStep ? <span className="li-card li-row" style={{ padding: "10px 14px", borderRadius: 14, gap: 10 }}><Icon.slide />{nb.firstStep}</span> : null}
+								<span style={{ flexGrow: 1 }} />
+								{/* Today's block is started here, or from its notification (V-44). Both ways on look pressable: a tester missed the quiet one. */}
+								{nbLive ? <button type="button" className="li-btn" onClick={() => void startBlock(nb.blockId, nb.mode?.study)}>{nb.mode?.study === "practise" ? <Icon.practise /> : <Icon.learn />}{nb.mode?.label ?? (nb.status === "started" ? "Open" : PLAN_COPY.start)}</button> : null}
+								{nbLive && nb.mode?.other ? <button type="button" className="li-btn" onClick={() => void startBlock(nb.blockId, nb.mode!.other!.study)}>{nb.mode.other.study === "practise" ? <Icon.practise /> : <Icon.learn />}{nb.mode.other.label}</button> : null}
+								{!nbLive ? <Link href="/app/plan" className="li-btn"><Icon.calendar />See your week</Link> : null}
+							</>
+						) : (
+							<>
+								<p className="li-muted" style={{ margin: 0 }}>None yet. Plan your week and your study blocks appear here.</p>
+								<span style={{ flexGrow: 1 }} />
+								<Link href="/app/plan" className="li-btn"><Icon.calendar />Plan your week</Link>
+							</>
+						)}
+					</section>
+				</Tint>
+			</div>
+
+			{/* Today's lectures, what is ready to revisit, and the week so far. */}
+			<div className="li-today-three">
+				<section className="li-card" aria-labelledby="today-h">
+					<h2 id="today-h" className="li-h2" style={{ marginBottom: 6 }}>Today</h2>
+					{lectures.length === 0 ? <p className="li-muted" style={{ margin: 0 }}>No lectures today. A good day to revisit something, or to rest.</p> : null}
+					{lectures.map((l) => {
+						if (!l.start || !l.end) return null;
+						const ended = new Date(l.end) <= now;
+						return (
+							<div key={l.id} className="li-tl">
+								<ModuleMark module={l.module} />
+								<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 									<span className="li-tl-time">{fmtTime(l.start)}–{fmtTime(l.end)}</span>
-									<Tint hue={moduleHue(l.module)}><span className="li-dot" style={{ display: "block", background: "var(--li-accent)" }} /></Tint>
-									<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-										<Link href={`/app/library/${l.id}`}><b>{l.module} · {l.title}</b></Link>
-										<span className="li-small li-muted">{l.kind === "event" ? "Timetabled" : ended ? (l.attended === false ? "You weren't there · it'll be offered this evening" : "Lecture · ended") : "Lecture · coming up"}</span>
-									</span>
-									{l.kind !== "event" && l.status !== "not-started" ? <StatusTag status={l.status === "revisit" ? "revisit" : "answered"} /> : null}
-									{l.kind !== "event" && ended ? (
-										<button type="button" className="li-btn ghost li-small" onClick={async () => { await lockedIn.missed(l.id, l.attended !== false); void today.reload(); }}>
-											{l.attended === false ? "Actually, I was there" : "I wasn't there"}
-										</button>
-									) : null}
-								</div>
-							);
-						})}
-					</section>
-				</div>
+									<Link href={`/app/library/${l.id}`} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.module} · {l.kind === "event" ? l.title : "Lecture"}</Link>
+								</span>
+								{l.kind !== "event" && l.status !== "not-started" ? <StatusTag status={l.status === "revisit" ? "revisit" : "answered"} /> : null}
+								<span className="li-chip">{l.kind === "event" ? "timetabled" : ended ? (l.attended === false ? "you weren't there" : "ended") : "coming up"}</span>
+								{l.kind !== "event" && ended ? (
+									<button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(l.id, l.attended !== false); void today.reload(); }}>
+										{l.attended === false ? "Actually, I was there" : "I wasn't there"}
+									</button>
+								) : null}
+							</div>
+						);
+					})}
+				</section>
 
-				<div className="li-stack">
-					<Link href="/app/progress" className="li-card flat" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-						<h2 className="li-h2" style={{ fontSize: "1.1em" }}>{t?.readyToRevisit ? `${t.readyToRevisit} ${t.readyToRevisit === 1 ? "idea" : "ideas"} ready to revisit` : "Nothing to revisit yet"}</h2>
-						<span className="li-small li-muted">{t?.readyToRevisit ? "They come back in a short retest. No rush." : "Misses from your sessions show up here, never as \"overdue\"."}</span>
-					</Link>
-					<section className="li-card flat" aria-labelledby="week-h">
-						<h2 id="week-h" className="li-h2" style={{ fontSize: "1.1em", marginBottom: 8 }}>This week</h2>
-						<div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
-							<span style={{ display: "flex", flexDirection: "column" }}><b className="li-display" style={{ fontSize: "1.8em" }}>{progress.data?.week.sessions ?? "–"}</b><span className="li-small li-muted">sessions</span></span>
-							<span style={{ display: "flex", flexDirection: "column" }}><b className="li-display" style={{ fontSize: "1.8em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><span className="li-small li-muted">questions answered</span></span>
-						</div>
-					</section>
-					<div className="li-card flat li-row" style={{ background: "var(--li-soft)", borderColor: "transparent" }}>
-						<span style={{ color: "var(--li-accent-text)" }}><Icon.calendar /></span>
-						<Link href="/app/plan" style={{ display: "flex", flexDirection: "column", flexGrow: 1, color: "inherit", textDecoration: "none" }}>
-							<b>Next study block</b>
-							<span className="li-small li-muted">{t?.nextBlock ? `${fmtDay(t.nextBlock.start, now)} ${fmtTime(t.nextBlock.start)}${t.nextBlock.status === "started" ? ` · ${PLAN_COPY.startedNote}` : ""}` : "None yet. Plan your week."}</span>
-							{t?.nextBlock?.firstStep ? <span className="li-small">{t.nextBlock.firstStep}</span> : null}
-						</Link>
-						{/* Today's block is started here, or from its notification (V-44). */}
-						{t?.nextBlock && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn primary" onClick={() => void startBlock(t.nextBlock!.blockId, t.nextBlock!.mode?.study)}>{t.nextBlock.mode?.label ?? (t.nextBlock.status === "started" ? "Open" : PLAN_COPY.start)}</button> : null}
-						{t?.nextBlock?.mode?.other && (t.nextBlock.canStart || t.nextBlock.status === "started") ? <button type="button" className="li-btn" onClick={() => void startBlock(t.nextBlock!.blockId, t.nextBlock!.mode!.other!.study)}>{t.nextBlock.mode.other.label}</button> : null}
+				<Link href="/app/progress" className="li-card li-stack" style={{ gap: 12 }} aria-label={revisit ? `${revisit} ideas ready to revisit` : "Nothing to revisit yet"}>
+					<span className="li-row" style={{ alignItems: "flex-end", gap: 12, flexWrap: "nowrap" }}>
+						<span className="li-numeral" style={{ fontSize: "5.2em" }}>{revisit}</span>
+						<span className="li-h2" style={{ paddingBottom: 6 }}>{revisit === 1 ? "idea ready to revisit" : "ideas ready to revisit"}</span>
+					</span>
+					{/* Blocks you can count: lilac is "to revisit", everywhere. */}
+					{revisit ? <span className="li-count" aria-hidden="true">{Array.from({ length: Math.min(revisit, 24) }, (_, i) => <i key={i} />)}</span> : null}
+					<span>{revisit ? "They come back in a short retest. No rush." : "What you get wrong shows up here, never as \"overdue\"."}</span>
+				</Link>
+
+				<section className="li-panel ink li-stack" style={{ gap: 14 }} aria-labelledby="week-h">
+					<h2 id="week-h" className="li-h2">This week</h2>
+					<div className="li-row" style={{ gap: 28, alignItems: "flex-start", flexWrap: "nowrap" }}>
+						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral" style={{ fontSize: "4.4em" }}>{progress.data?.week.sessions ?? "–"}</b><b>sessions</b></span>
+						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral" style={{ fontSize: "4.4em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><b>questions answered</b></span>
 					</div>
-					<Link href="/app/me" className="li-btn" style={{ alignSelf: "flex-start" }}>
-						<span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 999, background: "conic-gradient(oklch(0.6 0.16 0), oklch(0.6 0.16 120), oklch(0.6 0.16 240), oklch(0.6 0.16 360))" }} />
-						Make it yours
-					</Link>
-				</div>
+				</section>
 			</div>
 		</>
+	);
+}
+
+/**
+ * How far through: a tower of blocks, one per question or idea. The ones
+ * done are solid with a tick; the ones to come are dashed. Shape, not colour.
+ */
+function Tower({ done, total }: { done: number; total: number }) {
+	const n = Math.max(0, Math.min(6, total));
+	if (n === 0) return null;
+	const filled = Math.round((Math.min(done, total) / total) * n);
+	return (
+		<span className="li-tower" role="img" aria-label={`${done} of ${total} done`}>
+			{Array.from({ length: n }, (_, i) => {
+				const on = i >= n - filled;
+				return <i key={i} data-on={String(on)} style={{ marginLeft: i % 2 ? 0 : 18 }}>{on ? <Icon.check /> : null}</i>;
+			})}
+		</span>
 	);
 }
 
@@ -192,12 +230,13 @@ function StarterCards({ phone }: { phone: boolean }) {
 	return (
 		<div className="li-row" style={{ gap: 12, alignItems: "stretch" }} aria-label="Next steps">
 			{cards.map((c) => (
-				<div key={c.key} className="li-card flat li-row" style={{ flex: "1 1 280px", gap: 10 }}>
+				<div key={c.key} className="li-card li-row" style={{ flex: "1 1 280px", gap: 10, padding: "14px 18px", flexWrap: "nowrap" }}>
 					<Link href={c.href} style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
 						<b>{c.title}</b>
 						<span className="li-small li-muted">{c.sub}</span>
 					</Link>
-					<button type="button" className="li-btn ghost" onClick={c.dismiss} aria-label={`Dismiss ${c.title}`}>✕</button>
+					<Link href={c.href} className="li-btn ghost" aria-label={c.title}><Icon.arrow /></Link>
+					<button type="button" className="li-btn ghost" onClick={c.dismiss} aria-label={`Dismiss ${c.title}`}><Icon.close /></button>
 				</div>
 			))}
 		</div>

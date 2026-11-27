@@ -29,17 +29,23 @@ export interface PhoneBlockLines {
 	why: string | null;
 	/** Where "Not now" can move it: later today, this evening, tomorrow, and the next free gap. */
 	moves: { kind: "today" | "evening" | "tomorrow" | "next"; date: string; start: string; label: string }[];
+	/** v3.0: the block's module's colour, by name; null for free study, which has no module. */
+	colour?: string | null;
 	/** "On the move" (v2.2 part C): up to five questions from the block's unit, so they can be answered on the phone with the laptop closed. Only on blocks that are near. */
 	round?: NudgeQuestion[];
 }
 
 /** The week on the phone (v2.1 part C; lo-fi task 3): the lectures shown between the blocks, the free times a block can move to, and the nudges setting. */
 export interface PhoneWeek {
-	lectures: { date: string; start: string; title: string }[];
+	/** `minutes` and `colour` since v3.0: the phone draws a day as a timeline, each lecture at its length in its module's colour. */
+	lectures: { date: string; start: string; title: string; minutes?: number; colour?: string | null }[];
 	free: { date: string; start: string }[];
 	nudgesPerDay: 0 | 1 | 2;
 	/** A new block's length. */
 	blockMinutes: number;
+	/** v3.0: the weekly target and how much of this week is kept, for the bar above the phone's week. */
+	targetMinutes?: number | null;
+	keptMinutes?: number;
 }
 
 /** A module's questions kept on the phone for "Practise" (v2.3 part B): chosen by the laptop's own Practise rule. */
@@ -47,6 +53,8 @@ export interface PhonePractisePool {
 	module: string;
 	/** The module as the student knows it: "Game Theory". */
 	name: string;
+	/** v3.0: the module's colour, by name. */
+	colour?: string;
 	questions: NudgeQuestion[];
 }
 

@@ -91,10 +91,12 @@ export interface TodayData {
 	onboarded: boolean;
 	tryNow: { lectureId: string; title: string; module: string; spec: SessionSpec } | null;
 	lectures: LectureWithStatus[];
-	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null; mode: BlockMode | null } | null;
+	nextBlock: { blockId: string; start: string; end: string; status: StudyBlock["status"]; canStart: boolean; firstStep: string | null; mode: BlockMode | null; module: string | null; minutes: number | null } | null;
 	readyToRevisit: number;
 	welcomeBack: { text: string; spec: SessionSpec; daysAway: number } | null;
 	banner: Banner;
+	/** The waiting question's module, or null: the colour of its panel on Today (v3.0). */
+	bannerModule: string | null;
 	activeSession: string | null;
 	/** A session that was left, to pick up (R-5). */
 	resume: { sessionId: string; module: string; title: string; answered: number; budget: number; text: string } | null;
@@ -262,6 +264,7 @@ export const lockedIn = {
 	skipSetupWeek: () => api<SetupView>("/setup/week", { method: "DELETE" }),
 	setupDone: () => api<SetupView>("/setup/done", { method: "POST" }),
 	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
+	setModuleColour: (code: string, colour: string | null) => api<{ code: string; colour: string }>(`/modules/${encodeURIComponent(code)}/colour`, { method: "PUT", body: { colour } }),
 	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
 	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
 	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),

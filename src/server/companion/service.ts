@@ -38,6 +38,7 @@ import { StudyPacks } from "./study-pack.ts";
 import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
+import { MODULE_COLOUR_CHOICES, moduleLook } from "../../core/companion/look.ts";
 import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, openBlocks, pacedUnits, placementProblem, proposeWeek, replanWeek } from "../../core/companion/plan-week.ts";
 import type { PhoneBlockLines, PhonePractisePool, PhoneWeek } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
@@ -624,6 +625,25 @@ export class CompanionService {
 		this.store.saveProfile({ ...profile, modules: profile.modules.map((m) => (m.code === code ? next : m)) });
 		this.log("module_share_changed", { module: code, from: was ?? "normal", to: share });
 		return { ...next, share: share as WeekShare };
+	}
+
+	/**
+	 * A module's colour, picked in Me (v3.0). Body: { colour: one of
+	 * MODULE_COLOUR_CHOICES, or null to give it back its place in the list }.
+	 * Mint and lilac are not module colours: they mean right and to revisit.
+	 */
+	setModuleColour(code: string, body: unknown) {
+		const profile = this.requireProfile();
+		const mod = this.requireModule(code);
+		const colour = (body as { colour?: unknown } | null)?.colour;
+		if (colour !== null && !(MODULE_COLOUR_CHOICES as readonly unknown[]).includes(colour)) throw badRequest(`colour must be one of ${MODULE_COLOUR_CHOICES.join(", ")}, or null`);
+		const { colour: was, ...rest } = mod;
+		const next: ModuleInfo = colour === null ? rest : { ...rest, colour: colour as string };
+		const modules = profile.modules.map((m) => (m.code === code ? next : m));
+		this.store.saveProfile({ ...profile, modules });
+		const now = moduleLook(code, modules).colour;
+		this.log("module_colour_changed", { module: code, from: was ?? null, to: colour });
+		return { ...next, colour: now };
 	}
 
 	/**
@@ -1416,6 +1436,8 @@ export class CompanionService {
 			firstStep: !unit ? null : learn ? PHONE_BLOCK_COPY.firstStepLearn(unit) : PHONE_BLOCK_COPY.firstStep(slide),
 			onLaptop: !unit ? null : learn ? PHONE_BLOCK_COPY.onLaptopLearn(unit) : PHONE_BLOCK_COPY.onLaptop(unit, slide),
 			why: blockWhy(block, profile.modules),
+			// A block with no module of its own is free study: it has no colour, here as on the laptop's Week.
+			colour: ((m) => (m ? this.colourOf(m) : null))(block.module ?? (block.lectureId ? this.lectureById(block.lectureId)?.module : undefined)),
 			moves: moveTimes({ block, now: this.now(), lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks().filter((b) => b.status !== "removed") })
 				.map((m) => ({ ...m, label: PLAN_COPY.moveLabel(m.kind, m.start) })),
 		};
@@ -1434,7 +1456,7 @@ export class CompanionService {
 				const q = this.packs?.bank(p.lectureId)?.find((x) => x.id === p.questionId);
 				return q ? [this.asNudgeQuestion(p.lectureId, q)] : [];
 			});
-			return questions.length > 0 ? [{ module: m.code, name: m.name, questions }] : [];
+			return questions.length > 0 ? [{ module: m.code, name: m.name, colour: this.colourOf(m.code), questions }] : [];
 		});
 	}
 
@@ -1471,10 +1493,17 @@ export class CompanionService {
 			lectures: this.store.lectures()
 				.filter((l) => l.start && dateKey(new Date(l.start)) >= from && dateKey(new Date(l.start)) <= to)
 				.sort((a, b) => a.start!.localeCompare(b.start!))
-				.map((l) => ({ date: dateKey(new Date(l.start!)), start: hm(l.start!), title: (l.kind ?? "lecture") === "lecture" ? PLAN_COPY.lectureRow(profile.modules.find((m) => m.code === l.module)?.name ?? l.module) : l.title })),
+				.map((l) => ({
+					date: dateKey(new Date(l.start!)), start: hm(l.start!),
+					title: (l.kind ?? "lecture") === "lecture" ? PLAN_COPY.lectureRow(profile.modules.find((m) => m.code === l.module)?.name ?? l.module) : l.title,
+					minutes: l.end ? Math.max(15, Math.round((new Date(l.end).getTime() - new Date(l.start!).getTime()) / 60_000)) : 60,
+					colour: profile.modules.some((m) => m.code === l.module) ? this.colourOf(l.module) : null,
+				})),
 			free: freeTimes({ now, lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks: this.store.blocks(), minutes: settings.blockMinutes }),
 			nudgesPerDay: profile.prefs.nudgesPerDay,
 			blockMinutes: clampBlockMinutes(settings.blockMinutes),
+			targetMinutes: settings.weeklyTargetMinutes ?? null,
+			keptMinutes: this.plan().committedMinutes,
 		};
 	}
 
@@ -1916,7 +1945,12 @@ export class CompanionService {
 
 	private asNudgeQuestion(lectureId: string, q: BankQuestion): NudgeQuestion {
 		const unit = this.lectureById(lectureId);
-		return { id: q.id, lectureId, stem: q.stem, options: q.options, correct: q.correct, explanation: q.explanation, slides: q.slides, ...(unit ? { unit: unit.title, module: unit.module } : {}) };
+		return { id: q.id, lectureId, stem: q.stem, options: q.options, correct: q.correct, explanation: q.explanation, slides: q.slides, ...(unit ? { unit: unit.title, module: unit.module, colour: this.colourOf(unit.module) } : {}) };
+	}
+
+	/** A module's colour, by name (v3.0): what the phone is told, so a module looks the same on both devices. */
+	private colourOf(module: string): string {
+		return moduleLook(module, this.store.profile()?.modules ?? []).colour;
 	}
 
 	/**
@@ -3146,7 +3180,11 @@ export class CompanionService {
 					const b = state.blocks.find((x) => x.id === c.id);
 					const first = b ? this.firstStepOf(b) : null;
 					// Today's block can be started from Today (V-44).
-					return { blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null };
+					return {
+						blockId: c.id, start: c.start.toISOString(), end: c.end.toISOString(), status: b?.status ?? "accepted", canStart: !!b && canStartBlock(b, now), firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, mode: b ? this.blockButtons(b) : null,
+						// The block's panel on Today is in its module's colour (v3.0).
+						module: b?.module ?? (b?.lectureId ? this.lectureById(b.lectureId)?.module : undefined) ?? null, minutes: b?.minutes ?? null,
+					};
 				}
 			}
 			return null;
@@ -3166,6 +3204,8 @@ export class CompanionService {
 			readyToRevisit: gapsByIdea(state.misses, []).length,
 			welcomeBack: welcomeBack(state, now),
 			banner: this.banner(),
+			// The waiting question's module, for the colour of its panel (v3.0).
+			bannerModule: (() => { const id = this.banner()?.lectureId; return id ? (this.lectureById(id)?.module ?? null) : null; })(),
 			phonePaired: this.phone?.paired() ?? false,
 			phoneAvailable: this.phone !== null,
 			activeSession: resume?.id ?? null,

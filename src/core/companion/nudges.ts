@@ -598,6 +598,8 @@ export interface NudgeQuestion {
 	/** v2.1: the unit's title and its module, for the phone's "HCI · Lecture 7" and "Lecture 7 · slide 12". */
 	unit?: string;
 	module?: string;
+	/** v3.0: the module's colour, by name (MODULE_COLOUR_CHOICES), so the phone shows the question on that colour. */
+	colour?: string;
 }
 
 export interface ScheduledNudge {

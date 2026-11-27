@@ -17,8 +17,9 @@
  */
 
 import { useRef, useState } from "react";
-import { moduleHue, PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
+import { PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
 import type { PlanData } from "./api";
+import { Icon } from "./icons";
 import { Tint } from "./root";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -90,7 +91,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 		<div className="li-tt" role="group" aria-label="This week's timetable">
 			<div className="li-tt-head">
 				<span />
-				{days.map((d) => <b key={d.date} data-today={d.date === today ? "true" : "false"}>{d.name} <span className="li-muted li-small">{Number(d.date.slice(8))}</span></b>)}
+				{days.map((d) => <b key={d.date} data-today={d.date === today ? "true" : "false"}>{d.date === today ? <Icon.today /> : null}{d.name} {Number(d.date.slice(8))}</b>)}
 			</div>
 			<div className="li-tt-body" style={{ height }}>
 				<div className="li-tt-hours" aria-hidden="true">
@@ -105,16 +106,16 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 								const e = new Date(l.end!);
 								const a = s.getHours() * 60 + s.getMinutes();
 								return (
-									<Tint key={l.id} hue={moduleHue(l.module)} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2) }}>
-										<b>{hm(a)} {l.module}</b>
-										<span>{l.title}</span>
+									<Tint key={l.id} module={l.module} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2) }}>
+										<b>{hm(a)}</b>
+										<span className="li-tt-what"><Icon.lecture />{l.module} {(l.kind ?? "lecture") === "lecture" ? "Lecture" : l.title}</span>
 									</Tint>
 								);
 							})}
 							{plan.commitments.filter((c) => c.weekdays.includes(di + 1)).map((c, i) => (
 								<div key={`c${i}`} className="li-tt-item li-tt-commit" style={{ top: top(mins(c.start)), height: Math.max(18, (mins(c.end) - mins(c.start)) * PX_PER_MIN - 2) }}>
 									<b>{c.start}</b>
-									<span>{c.label}</span>
+									<span className="li-tt-what"><Icon.work />{c.label}</span>
 								</div>
 							))}
 						</div>
@@ -129,12 +130,13 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 						return (
 							<Tint
 								key={b.id}
-								hue={moduleHue(b.module ?? "study")}
+								module={b.module}
 								className="li-tt-item li-tt-block"
 								style={{ top: top(mins(at.start)), height: Math.max(22, b.minutes * PX_PER_MIN - 2), left: `calc(${(col * 100) / 7}% + 3px)`, right: "auto", width: `calc(${100 / 7}% - 6px)` }}
 							>
 								<div
 									className="li-tt-grab"
+									data-free={b.module ? undefined : "true"}
 									data-status={b.status}
 									data-moving={moving ? "true" : "false"}
 									data-ok={problem ? "false" : "true"}
@@ -190,8 +192,9 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 								}
 									}}
 								>
-									<b>{at.start} {label}</b>
-									<span>{b.focus ? b.focus.title : b.module ? "" : `${b.minutes} min`}{b.status === "started" ? " · started ✓" : b.notStarted ? ` · ${PLAN_COPY.replan.notStarted}` : b.moved ? ` · ${PLAN_COPY.replan.moved}` : ""}</span>
+									{/* A block's state is a word, and a finished one has a filled tick (asked for by a look-test tester). */}
+									<b className="li-tt-top">{at.start}<i>{b.status === "started" ? <><span className="li-tt-tick"><Icon.check /></span>done</> : b.notStarted ? PLAN_COPY.replan.notStarted : b.moved ? PLAN_COPY.replan.moved : b.status === "proposed" ? "suggested" : `${b.minutes} min`}</i></b>
+									<span className="li-tt-what"><Icon.learn />{label}</span>
 								</div>
 							</Tint>
 						);

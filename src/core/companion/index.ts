@@ -18,6 +18,8 @@ export * from "./timetable.ts";
 export * from "./blocks.ts";
 export * from "./scripted.ts";
 export * from "./csv.ts";
+export * from "./look.ts";
+export * from "./map-layout.ts";
 export * from "./palette.ts";
 export * from "./concept-map.ts";
 export * from "./models.ts";

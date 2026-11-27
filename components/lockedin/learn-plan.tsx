@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * A Learn session's plan (V-47; V-33: drawn by LockedIn from the tutor's
- * data): the ideas in order, each done, current or still to come. State is
- * carried by a mark and a word, never by colour alone.
+ * A Learn session's plan (V-47; v3.0, V-33): drawn by LockedIn from the
+ * tutor's data as a column of blocks, each done, the one you are on, or
+ * still to come. State is a mark and a word, never colour alone.
  */
 
 import type { LearnPlanView } from "@/src/core";
+import { Icon } from "./icons";
 
-const MARK = { done: "✓", current: "●", todo: "" } as const;
 const WORD = { done: "done", current: "now", todo: "" } as const;
 
 export function LearnPlan({ plan }: { plan: LearnPlanView }) {
@@ -16,7 +16,7 @@ export function LearnPlan({ plan }: { plan: LearnPlanView }) {
 		<ol className="li-plan" aria-label="The plan for this session">
 			{plan.nodes.map((n) => (
 				<li key={n.id} data-state={n.state} aria-current={n.state === "current" ? "step" : undefined}>
-					<span className="li-plan-mark" aria-hidden="true">{MARK[n.state]}</span>
+					<span className="li-plan-mark" aria-hidden="true">{n.state === "done" ? <Icon.check /> : n.state === "current" ? <Icon.pick /> : null}</span>
 					<span className="li-plan-title">{n.title}</span>
 					{WORD[n.state] ? <span className="li-plan-word">{WORD[n.state]}</span> : null}
 				</li>

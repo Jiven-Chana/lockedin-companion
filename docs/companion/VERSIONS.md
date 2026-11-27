@@ -19,7 +19,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
 | **v2.2** | 27 Nov 2026 | tag `lockedin-v2.2` on `main` (PR #16) | Shipped: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Jiven ran the checklist on his iPhone on 27 Nov | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
 | **v2.3** | 27 Nov 2026 | tag `lockedin-v2.3` on `main` (PR #17) | Shipped: a phone that can be used by itself. A block opens from the phone's week, "Practise" on the phone's home screen, maths drawn on the phone, and Today on the laptop says what was answered on the phone (V-76 to V-79). Jiven checked it on his iPhone on 27 Nov | [`v2.3-plan.md`](v2.3-plan.md), [`DECISIONS.md`](DECISIONS.md) V-76 to V-79 |
-| **v3.0** | later | — | The look chosen by the look test (four designs made in parallel), on the laptop and the phone, with what v2.1 left: Me in a few lines, the clutter list, icons, motion, diagrams drawn by LockedIn (V-70) | — |
+| **v3.0** | 27 Nov 2026 | branch `feat/v3.0`, tag `lockedin-v3.0` once merged | Built: the Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). Not yet on a real phone | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
@@ -316,4 +316,38 @@ After the v2.2 check on his iPhone, Jiven found the phone too thin: a notificati
 - **Not chosen (V-78):** carrying a half-done round between phone and laptop, and a faster check between them. The laptop hears from the phone once a minute while LockedIn is open.
 - **A notification cannot draw maths:** a question with maths in it shows its markup on the lock screen, and is drawn once opened.
 - **v3.0:** the week as a calendar and the phone's look. **v4.0:** the desktop app.
+
+---
+
+## v3.0: the Blocks look (27 Nov 2026)
+
+The plan, with each screen and what was changed from Blocks as drawn, is [`v3.0-plan.md`](v3.0-plan.md); the decisions are [`DECISIONS.md`](DECISIONS.md) V-80 to V-85.
+
+### In one paragraph
+The look test showed four complete looks for the same screens, and all three testers chose Blocks for the whole app. v3.0 rebuilds the laptop app and the phone app in it: thick ink outlines, a hard shadow on anything that can be pressed, a tab bar across the top, filled pictograms beside words, and a panel in a module's colour for the next step. It is changed where testers said Blocks was wrong: a wrong answer is a calm lilac card, there is no yellow by default, Progress keeps its rising line, and in Learn the text is read before the question. Every colour now means one thing and is defined once, for the laptop, the phone and the diagrams. The concept map is drawn by LockedIn as rows of blocks. It was built on three testers, where the rule written before testing asked for four of five.
+
+### What changed in how it works
+- **One colour system** (`src/core/companion/look.ts`): the colours in light, dark and high contrast, the module colours and shapes, and the CSS for the laptop (`lookCss`) and the phone (`phoneLookCss`, written into `relay/web/styles.css` by `relay/scripts/look.ts`). The one-hue generator in `palette.ts` is gone; a theme colour picked before v3.0 is read and ignored.
+- **A module's colour** is its place in the student's list, or the one picked in Me (`ModuleInfo.colour`, `PUT /modules/:code/colour`). `<Tint module>` gives a region that colour; `ModuleMark` draws its shape. The phone is sent the colour by name.
+- **The map's layout is a pure rule** (`map-layout.ts`: `layoutMap`, `linkPath`, `studyOrder`, `parseSimpleFlow`), drawn by `blocks-map.tsx`. Mermaid is still loaded for diagrams that are not plain boxes and arrows.
+- **The phone's week** is rebuilt (`weekSection` in `relay/web/app.js`); the week sent to the phone gained each lecture's length, and the target and kept minutes.
+- **The relay needs a deploy** for the phone's look. It has no new rule of its own.
+
+### How it was checked
+- 1,219 companion tests. New: the colour rules (meanings, distance between colours, contrast of text on every colour in each mode, no colour written outside `look.ts` on the laptop or the phone), the map layout on every map in the repository and 500 generated ones, the stylesheets parsing, picking a module's colour, and the phone's week.
+- In Chrome, light and dark, on a copy of Jiven's data: Today, Practise, the answer card, Learn, Progress, Week, the Library, a lecture with its concept map, and Me. The first step of setup on an empty data folder.
+- Changing tabs, timed in Chrome on the development server: each of the five tabs opens in under half a second, and no page asks the server for anything while it sits idle (a lecture whose questions are being prepared checks on them, as before). Jiven found the first build slow to change pages: Me asked for the AI status without stopping (about 25 times a second in Chrome), which held up every page opened after it. Fixed, with a test that mounts the AI panel under a parent that re-draws (`tests/companion-me-loads.test.ts`).
+- The phone in Chrome at phone size, light and dark, against a stand-in relay: the home screen, a question, an answer, a block on its day and on another day, the week on two days, and moving a block.
+
+### What was not checked
+- Nothing has run on a real phone. High contrast was not opened in Chrome. Setup was seen at step 1 only; the facilitator screen and the setup chat were not opened.
+- A tutor's diagram drawn by LockedIn (plain boxes and arrows) was tested as a rule, not seen in a live Learn session; nor was a mermaid diagram in the new colours.
+- Dragging a block on the restyled Week was not repeated with a real mouse; its rule and tests are unchanged.
+- Whether students prefer the changed design to Blocks as drawn: the changes follow what testers said, and were not shown to them.
+
+### What is still missing
+- **Not chosen for v3.0:** the clutter list (Today's starter cards, the stage-by-stage pack line).
+- **Known and small:** the Library names each week twice; two links arriving at one block join into one arrowhead only when there is room to line them up.
+- **v4.0:** the desktop app.
+- **Owed to the group:** the third tester's session in the team repo, and design-log rows for V-80 to V-85.
 

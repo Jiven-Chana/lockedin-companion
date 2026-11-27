@@ -1,109 +1,52 @@
 "use client";
 
 /**
- * A lecture's concept map (mvp1-plan F-12): the teacher's own plan format,
- * a mermaid `graph TD`, rendered with mermaid (securityLevel "strict") and
- * coloured by the student's results from the live theme tokens. Nodes are
- * clickable; an ordered list carries the same map for keyboards and screen
- * readers.
+ * A lecture's concept map (F-12; v3.0, V-33): drawn by LockedIn as rows of
+ * blocks, an idea one row below everything it builds on. Each idea is a
+ * button with where the student stands as a shape and a word (never colour
+ * alone) and its slides. Pressing one picks it, to practise that idea.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
-import { MOTION, mapToMermaid, tokenHex, type NodeStatus } from "@/src/core";
+import { useEffect, useRef } from "react";
+import type { NodeStatus } from "@/src/core";
 import type { ConceptMapData } from "./api";
+import { BlocksMap } from "./blocks-map";
 import { StatusTag } from "./icons";
-import { useLockedIn } from "./root";
 
-let renders = 0;
+/** "Slide 24 +9": the first slide, and how many more. The full list is on the lecture's slide panel. */
+export const slideWord = (slides: readonly number[]) => (slides.length === 0 ? "" : slides.length === 1 ? `Slide ${slides[0]}` : `Slide ${slides[0]} +${slides.length - 1}`);
+const WORD: Record<NodeStatus, string> = { solid: "secured", shaky: "getting there", revisit: "to revisit", notyet: "not yet" };
 
 export function ConceptMap({ data, selected, onSelect }: { data: ConceptMapData; selected: string | null; onSelect: (id: string) => void }) {
-	const { scheme, appearance } = useLockedIn();
-	const box = useRef<HTMLDivElement>(null);
-	const [svg, setSvg] = useState<string | null>(null);
-	const [failed, setFailed] = useState(false);
-	const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-
+	// Motion (F-118): the ideas arrive in order the first time; after that, one whose standing changed pulses once.
+	const last = useRef<Map<string, NodeStatus> | null>(null);
+	const changed = new Set<string>();
+	if (last.current) for (const n of data.nodes) if (last.current.has(n.id) && last.current.get(n.id) !== n.status) changed.add(n.id);
+	const first = last.current === null;
 	useEffect(() => {
-		let cancelled = false;
-		(async () => {
-			const el = box.current;
-			if (!el) return;
-			const css = getComputedStyle(el);
-			const v = (n: string) => tokenHex(css.getPropertyValue(`--li-${n}`));
-			const classDefs: Record<NodeStatus, string> = {
-				solid: `fill:${v("solid-bg")},stroke:${v("solid")},color:${v("solid-ink")},stroke-width:2px`,
-				shaky: `fill:${v("surface")},stroke:${v("solid")},color:${v("solid-ink")},stroke-width:2px,stroke-dasharray:6 3`,
-				revisit: `fill:${v("revisit-bg")},stroke:${v("revisit")},color:${v("revisit-ink")},stroke-width:2.5px`,
-				notyet: `fill:${v("surface")},stroke:${v("notyet")},color:${v("muted")},stroke-width:1.5px,stroke-dasharray:4 4`,
-			};
-			try {
-				const mermaid = (await import("mermaid")).default;
-				mermaid.initialize({
-					startOnLoad: false,
-					securityLevel: "strict",
-					theme: "base",
-					themeVariables: { fontFamily: "Atkinson Hyperlegible, system-ui, sans-serif", fontSize: "15px", lineColor: v("muted"), primaryTextColor: v("ink"), primaryColor: v("surface"), primaryBorderColor: v("line") },
-					flowchart: { curve: "basis", nodeSpacing: 36, rankSpacing: 52, padding: 14 },
-				});
-				const { svg: out } = await mermaid.render(`li-map-${uid}-${++renders}`, mapToMermaid(data.nodes, data.edges, classDefs));
-				if (!cancelled) { setSvg(out); setFailed(false); }
-			} catch (err) {
-				console.warn("[lockedin] concept map render failed:", err);
-				if (!cancelled) setFailed(true);
-			}
-		})();
-		return () => { cancelled = true; };
-	}, [data, scheme, appearance.theme, appearance.hue, uid]);
-
-	// Motion (F-118): on first open the nodes appear in order; after that, a node whose status changed pulses once.
-	const shown = useRef(false);
-	const lastStatus = useRef<Map<string, NodeStatus> | null>(null);
-	const pulse = useRef(new Set<string>());
-	useEffect(() => {
-		const prev = lastStatus.current;
-		lastStatus.current = new Map(data.nodes.map((n) => [n.id, n.status]));
-		if (prev) for (const n of data.nodes) if (prev.has(n.id) && prev.get(n.id) !== n.status) pulse.current.add(n.id);
+		last.current = new Map(data.nodes.map((n) => [n.id, n.status]));
 	}, [data]);
-	useEffect(() => {
-		const el = box.current;
-		if (!svg || !el) return;
-		const nodes = [...el.querySelectorAll<SVGGElement>("g.node")];
-		if (!shown.current) {
-			shown.current = true;
-			nodes.forEach((g, i) => {
-				g.style.animationDelay = `${i * MOTION.staggerMs}ms`;
-				g.classList.add("li-node-in");
-			});
-		} else {
-			for (const g of nodes) {
-				const id = /flowchart-(.+)-\d+$/.exec(g.id)?.[1];
-				if (id && pulse.current.has(id)) g.classList.add("li-node-pulse");
-			}
-		}
-		pulse.current = new Set();
-	}, [svg]);
-
-	function onClick(e: React.MouseEvent) {
-		const g = (e.target as Element).closest("g.node");
-		const m = g?.id ? /flowchart-(.+)-\d+$/.exec(g.id) : null;
-		if (m?.[1]) onSelect(m[1]);
-	}
 
 	return (
-		<div className="li-stack">
-			<div ref={box} className="li-map li-card flat" style={{ minHeight: 280, display: "flex", justifyContent: "center", alignItems: "center", padding: 24 }} onClick={onClick}>
-				{svg ? <div style={{ width: "100%", display: "flex", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: svg }} /> : failed ? <span className="li-muted">The map couldn&apos;t be drawn; the list below has the same ideas.</span> : <span className="li-muted">Drawing the map…</span>}
-			</div>
-			<ol aria-label="Ideas in this lecture, in order" className="li-stack" style={{ gap: 6, margin: 0, paddingLeft: 0, listStyle: "none" }}>
-				{data.nodes.map((n) => (
-					<li key={n.id}>
-						<button type="button" className="li-opt" aria-pressed={selected === n.id} onClick={() => onSelect(n.id)} style={{ minHeight: 48, padding: "8px 14px", borderColor: selected === n.id ? "var(--li-accent)" : undefined }}>
-							<span style={{ flexGrow: 1 }}>{n.title}{n.slides.length ? <span className="li-muted li-small"> · Slide {n.slides.join(", ")}</span> : null}</span>
-							<StatusTag status={n.status} />
-						</button>
-					</li>
-				))}
-			</ol>
-		</div>
+		<BlocksMap
+			nodes={data.nodes}
+			edges={data.edges}
+			label="The ideas in this lecture, and what builds on what"
+			block={(n, { style }) => (
+				<button
+					key={n.id}
+					type="button"
+					className={`li-idea${first ? " li-idea-in" : ""}${changed.has(n.id) ? " li-idea-pulse" : ""}`}
+					data-s={n.status}
+					style={style}
+					aria-pressed={selected === n.id}
+					aria-label={`${n.title}, ${WORD[n.status]}${n.slides.length ? `, ${slideWord(n.slides).toLowerCase()}` : ""}`}
+					onClick={() => onSelect(n.id)}
+				>
+					<span className="li-idea-top"><StatusTag status={n.status} /><span className="li-idea-slide">{slideWord(n.slides)}</span></span>
+					<b>{n.title}</b>
+				</button>
+			)}
+		/>
 	);
 }

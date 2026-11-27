@@ -371,6 +371,8 @@ export interface ModuleInfo {
 	readingWeeks?: number[];
 	/** This module's share of the week's blocks (V-63). Unset = normal. */
 	share?: "less" | "more";
+	/** The colour the student picked for this module (v3.0), one of MODULE_COLOUR_CHOICES. Unset = by its place in the list. */
+	colour?: string;
 }
 
 /** A module's share of the week as the student sets it: one tap, never hours (V-63). */
@@ -755,6 +757,8 @@ export const COMPANION_EVENT_TYPES = [
 	"setup_week",
 	"module_added",
 	"module_share_changed",
+	// v3.0: a module's colour picked in Me
+	"module_colour_changed",
 	"unit_renamed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];

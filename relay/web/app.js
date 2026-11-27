@@ -48,6 +48,7 @@ const COPY = {
 		// v2.3: a block opened from the week. One on another day can be looked at and moved, not started (a block starts on its own day).
 		onDay: (day, start) => `This block is on ${day} at ${start}.`,
 		moveIt: "Move it",
+		remove: "Remove",
 		back: "Back",
 		// v2.2 part C: questions already answered on the move, said on the move screen and after a move (lo-fi "blklater", "blkmoved").
 		doneSoFar: (d, n) => `${d} of ${n} done. `,
@@ -85,7 +86,11 @@ const COPY = {
 	week: {
 		title: "Your week",
 		// v2.2 (LF-10): Move and Remove are on every block, so the line no longer says "Tap one".
-		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Move or remove it." : `${n} suggested blocks in your free gaps. Move or remove any of them.`),
+		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Tap it to open, move or remove it." : `${n} suggested blocks in your free gaps. Tap one to open, move or remove it.`),
+		// v3.0: the week's total above the days, and a day with nothing on it.
+		total: (kept, target) => `${hoursText(kept)} of ${hoursText(target)} kept`,
+		nothingOn: (day) => `Nothing on ${day}. A free day.`,
+		lectureUntil: (start, end) => `${start}–${end}`,
 		moved: "moved",
 		move: "Move",
 		remove: "Remove",
@@ -400,6 +405,13 @@ async function pairScreen(byCode = false) {
 /** A round is five questions at most (the lo-fi's "Question 1 of 5"; the laptop's PHONE_RULES.roundSize). */
 const ROUND = 5;
 const ref = (q) => ({ lectureId: q.lectureId, questionId: q.id });
+/** A module's colour as a class (v3.0). The laptop sends the colour's name; anything that is not a plain word is ignored. */
+const mod = (colour) => (typeof colour === "string" && /^[a-z]+$/.test(colour) ? ` mod-${colour}` : "");
+/** A panel in a module's colour, with ink text. With no colour to show, a plain reading surface. */
+const panel = (colour, ...kids) => h("div", { class: mod(colour) ? `panel${mod(colour)}` : "card" }, ...kids);
+/** How far through a round: done, the one you are on, to come. */
+const marks = (done, total) => h("span", { class: "marks", "aria-hidden": "true" }, Array.from({ length: Math.min(total, 8) }, (_, i) => h("i", { "data-state": i < done ? "done" : i === done ? "now" : "todo" })));
+const hoursText = (minutes) => { const hrs = Math.floor(minutes / 60), m = minutes % 60; return hrs && m ? `${hrs} h ${m}` : hrs ? `${hrs} h` : `${m} min`; };
 const unitLabel = (q, n) => [q?.module || n?.module, q?.unit].filter(Boolean).join(" · ");
 const bar = (title, sub) => h("header", { class: "bar" }, h("b", {}, title), " ", sub ? h("span", { class: "muted small" }, sub) : null);
 
@@ -457,7 +469,9 @@ function ask(r, first) {
 	const n = r.nudge;
 	const done = () => r.base + r.answers.length;
 	const left = () => r.questions.length - r.answers.length;
-	const head = () => (first ? [bar(COPY.app, unitLabel(q, n)), h("p", { class: "muted small" }, COPY.questionOf(1, r.total))] : [bar(COPY.app, COPY.doneOf(done(), r.total)), h("p", { class: "eyebrow" }, unitLabel(q, n))]);
+	const head = () => [first ? bar(COPY.app, unitLabel(q, n)) : bar(COPY.app, COPY.doneOf(done(), r.total))];
+	// The line above the question: "Question 1 of 5" on the first, the unit on the ones after, with the round's marks.
+	const lead = () => h("p", { class: "eyebrow row" }, first ? COPY.questionOf(1, r.total) : unitLabel(q, n), " ", marks(done(), r.total));
 
 	const choose = (i) => {
 		const answer = { questionId: q.id, lectureId: q.lectureId, choice: i, correct: i === q.correct };
@@ -484,14 +498,17 @@ function ask(r, first) {
 							h("button", { class: "btn primary", onclick: next }, COPY.another),
 							h("button", { class: "btn", onclick: () => save(r) }, COPY.saveRest),
 						);
-		show(h("main", {}, ...head(), h("h1", {}, rich(q.stem)), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
+		show(h("main", {}, ...head(), h("p", { class: "eyebrow" }, first ? COPY.questionOf(1, r.total) : unitLabel(q, n)), h("h1", {}, rich(q.stem)), resultBox(q, i), !first && !r.old && left() > 0 ? h("p", { class: "muted" }, COPY.upToYou(done(), r.total)) : null, ways));
 	};
 
 	show(
 		h("main", {},
 			...head(),
-			h("h1", {}, rich(q.stem)),
-			h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))),
+			panel(q.colour,
+				lead(),
+				h("h1", {}, rich(q.stem)),
+				h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))),
+			),
 			first && n?.why ? h("p", { class: "muted small" }, COPY.why(n.why)) : null,
 			first && n ? h("button", { class: "btn ghost", onclick: () => { void event("snoozed", n.id); render(); } }, "Later") : null,
 		),
@@ -540,22 +557,31 @@ const box = (...kids) => h("div", { class: "note" }, ...kids);
 const line = (label, text) => h("p", {}, h("b", {}, label), " ", text);
 
 /** The block's start: its goal and first step, then "Take the first step" or "Not now". */
-function blockScreen(b) {
+function blockScreen(b, ctx = null) {
 	const start = blockStart(b);
 	const W = COPY.where;
 	// The place (v2.2 part C) is optional and lives on this screen only: it shapes what comes next, and is never kept.
 	const st = { where: null, intent: null };
-	const back = () => h("button", { class: "btn ghost", onclick: () => render() }, COPY.block.back);
+	// Opened from the week (v3.0), Back returns to it, and the block can be moved to one of the week's free gaps or removed.
+	const back = () => h("button", { class: "btn ghost", onclick: () => (ctx ? ctx.back() : render()) }, COPY.block.back);
+	const removeIt = () => (ctx ? h("button", { class: "btn ghost", onclick: () => ctx.remove() }, COPY.block.remove) : null);
 	const head = () => [
 		bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
-		box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+		panel(b.colour, line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
 	];
-	// Opened from the week on another day (v2.3): what it is, why it is there, and a way to move it.
+	const moveChoices = () => show(h("main", {},
+		bar(COPY.block.title, "move it"),
+		h("h1", {}, COPY.week.moveTo),
+		h("div", { class: "row" },
+			ctx.free.map((f) => h("button", { class: "btn small chip", onclick: () => ctx.move(f) }, `${shortDay(f.date)} ${f.start}`)),
+			h("button", { class: "btn small chip dashed", onclick: () => blockScreen(b, ctx) }, COPY.week.cancel)),
+	));
+	// On another day (v2.3): what it is, why it is there, and a way to move it. A block starts on its own day.
 	if (b.date !== todayKey()) {
 		return show(h("main", {}, ...head(), ...[
 			b.why ? h("p", { class: "muted" }, b.why) : null,
 			h("p", {}, COPY.block.onDay(shortDay(b.date), b.start)),
-			h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => blockLater(b) }, COPY.block.moveIt), back()),
+			h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => (ctx ? moveChoices() : blockLater(b)) }, COPY.block.moveIt), removeIt(), back()),
 		].filter((x) => x != null)));
 	}
 	const pick = (place) => {
@@ -599,7 +625,7 @@ function blockScreen(b) {
 				h("p", { class: "muted small" }, W.note),
 			),
 			...rest().filter((x) => x != null),
-			back(),
+			h("div", { class: "row" }, removeIt(), back()),
 		),
 	);
 	draw();
@@ -635,7 +661,7 @@ function onTheMove(b) {
 			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => moveAllDone(b) }, COPY.thatsAll(total)));
 		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), done < total ? h("p", { class: "muted" }, COPY.upToYou(done, total)) : null, ways));
 	};
-	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
+	show(h("main", {}, head(), panel(q.colour ?? b.colour, h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))))));
 }
 
 /** Every question of the block answered on the move: the block is done, and the laptop is told it was started. */
@@ -751,7 +777,8 @@ function practiseCard(s) {
 	return h("section", { class: "card" },
 		h("h2", {}, COPY.practise.title), " ",
 		h("p", { class: "muted small" }, open.length ? COPY.practise.lead : COPY.practise.none),
-		open.length ? h("div", { class: "row" }, open.map((p) => h("button", { class: "btn", onclick: () => practiseRound(p) }, p.name))) : null,
+		// Each module's button is in that module's colour (v3.0), the same colour as on the laptop.
+		open.length ? h("div", { class: "row" }, open.map((p) => h("button", { class: mod(p.colour) ? `btn module${mod(p.colour)}` : "btn", onclick: () => practiseRound(p) }, p.name))) : null,
 	);
 }
 
@@ -772,7 +799,7 @@ function practiseRound(p, round = { total: Math.min(PRACTISE_ROUND, practiseLeft
 			: h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => render() }, COPY.thatsAll(round.total)));
 		show(h("main", {}, head(), h("h1", {}, rich(q.stem)), resultBox(q, i), ways));
 	};
-	show(h("main", {}, head(), h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o))))));
+	show(h("main", {}, head(), panel(q.colour ?? p.colour, h("h1", {}, rich(q.stem)), h("div", { class: "options", role: "group", "aria-label": "Answers" }, q.options.map((o, i) => h("button", { class: "btn option", onclick: () => choose(i) }, rich(o)))))));
 }
 
 // ─── your week and Settings (v2.1 part C; lo-fi task 3) ────────────────────
@@ -783,46 +810,56 @@ const blockLabel = (b) => `Study ${b.start}${b.focus?.title ? ` · ${b.focus.tit
 /** The week: lectures as plain lines, blocks as buttons that open to "Move" and "Remove", then "Add a block", "Settings" and "Looks good". */
 function weekSection(s) {
 	const from = todayKey();
+	const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+	// Today and the six days after it: the days the laptop sends.
+	const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return keyOf(d); });
 	const st = {
 		blocks: (s.blocks || []).filter((b) => b.status !== "removed" && b.date >= from).map((b) => ({ ...b })),
 		free: [...(s.week.free || [])],
 		lectures: (s.week.lectures || []).filter((l) => l.date >= from),
 		minutes: s.week.blockMinutes || 50,
 		nudges: s.week.nudgesPerDay ?? 1,
-		open: null, moving: false, undo: null,
+		target: s.week.targetMinutes ?? null,
+		kept: s.week.keptMinutes ?? null,
+		undo: null,
+		day: null,
 	};
+	const on = (date) => [...st.lectures.filter((l) => l.date === date).map((l) => ({ ...l, lecture: true })), ...st.blocks.filter((b) => b.date === date)].sort((a, b) => a.start.localeCompare(b.start));
+	// The day shown first is the first with anything on it: usually today.
+	st.day = days.find((d) => on(d).length) ?? days[0];
 	const el = h("section", { class: "card" });
 	const moment = (x) => new Date(`${x.date}T${x.start}:00`).toISOString();
 	const title = (x) => COPY.block.nudgeTitle(shortDay(x.date), x.start);
+	const endOf = (x) => hm(new Date(new Date(`${x.date}T${x.start}:00`).getTime() + (x.minutes || 60) * 60_000));
 
 	const move = async (b, f) => {
 		await event("plan_move", null, { blockId: b.id, date: f.date, start: f.start, fireAt: moment(f), title: title(f) });
 		st.free = st.free.filter((x) => when(x) !== when(f));
 		Object.assign(b, { date: f.date, start: f.start, moved: true });
-		Object.assign(st, { open: null, moving: false, undo: null });
-		draw();
+		// The week opens on the day the block went to.
+		Object.assign(st, { undo: null, day: days.includes(f.date) ? f.date : st.day });
 	};
 	const remove = async (b) => {
 		await event("plan_remove", null, { blockId: b.id });
 		st.blocks = st.blocks.filter((x) => x.id !== b.id);
-		Object.assign(st, { open: null, moving: false, undo: b });
-		draw();
+		st.undo = b;
 	};
 	const undo = async () => {
 		const b = st.undo;
 		await event("plan_tick", null, { blockId: b.id, restore: true });
 		st.blocks.push(b);
-		st.undo = null;
+		Object.assign(st, { undo: null, day: days.includes(b.date) ? b.date : st.day });
 		draw();
 	};
 	const add = async () => {
-		const f = st.free[0];
+		// On the day being looked at when it has a free time; otherwise the first free time there is.
+		const f = st.free.find((x) => x.date === st.day) ?? st.free[0];
 		if (!f) return;
 		const b = { id: `phone-${uuid().replace(/-/g, "").slice(0, 12)}`, date: f.date, start: f.start, minutes: st.minutes, status: "accepted", focus: null, moved: true };
 		await event("plan_add", null, { blockId: b.id, date: b.date, start: b.start, minutes: b.minutes, fireAt: moment(b), title: title(b) });
-		st.free = st.free.slice(1);
+		st.free = st.free.filter((x) => when(x) !== when(f));
 		st.blocks.push(b);
-		Object.assign(st, { open: b.id, moving: false, undo: null });
+		Object.assign(st, { undo: null, day: days.includes(b.date) ? b.date : st.day });
 		draw();
 	};
 	const looksGood = async () => {
@@ -832,32 +869,37 @@ function weekSection(s) {
 		}
 		weekSet(st, s);
 	};
+	// A block opens to its own screen. From there it can be moved to a free gap or removed, and Back returns here.
+	const openBlock = (b) => {
+		const homeScreen = $app.firstElementChild;
+		const back = () => { show(homeScreen); draw(); };
+		blockScreen(b, { free: st.free, back, move: async (f) => { await move(b, f); back(); }, remove: async () => { await remove(b); back(); } });
+	};
 
-	const row = (x) => {
-		if (!x.id) return h("li", { class: "wk static" }, h("b", {}, shortDay(x.date)), " ", `${x.title} ${x.start}`);
-		// Move and Remove are on the row itself (v2.2, LF-10): in the lo-fi they were behind a tap, and had to be explained.
-		const moving = st.open === x.id && st.moving;
-		const name = `${shortDay(x.date)} ${x.start}`;
-		return h("li", { class: "wk block-row" },
-			// The block's line opens the block (v2.3), when the laptop sent what its screen shows.
-			h(x.goal ? "button" : "p", x.goal ? { class: "btn wkrow", onclick: () => blockScreen(x) } : { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
-			x.why ? h("p", { class: "muted small" }, x.why) : null,
-			!moving ? h("div", { class: "row" },
-				h("button", { class: "btn small", "aria-label": `${COPY.week.move} ${name}`, onclick: () => { Object.assign(st, { open: x.id, moving: true }); draw(); } }, COPY.week.move),
-				h("button", { class: "btn small", "aria-label": `${COPY.week.remove} ${name}`, onclick: () => remove(x) }, COPY.week.remove)) : null,
-			moving ? h("div", { class: "stack" }, h("p", { class: "muted small" }, COPY.week.moveTo), h("div", { class: "row" },
-				st.free.map((f) => h("button", { class: "btn small chip", onclick: () => move(x, f) }, `${shortDay(f.date)} ${f.start}`)),
-				h("button", { class: "btn small chip dashed", onclick: () => { st.moving = false; draw(); } }, COPY.week.cancel))) : null,
-		);
+	const item = (x) => {
+		if (x.lecture) return h("li", {}, h("time", {}, x.start), " ", h("div", { class: `tl-fixed${mod(x.colour)}` }, x.title, " ", h("span", { class: "small" }, COPY.week.lectureUntil(x.start, endOf(x)))));
+		const name = x.focus ? `Study · ${x.focus.title}` : "Study";
+		const kind = x.status === "proposed" ? " proposed" : mod(x.colour) ? mod(x.colour) : " free";
+		const body = [h("span", {}, h("b", {}, name), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null), " ", h("span", { class: "small" }, `${x.minutes} min`), x.why ? [" ", h("span", { class: "small muted" }, x.why)] : null];
+		// A block from a laptop before v2.1 has nothing to open: it shows, flat.
+		return h("li", {}, h("time", {}, x.start), " ", x.goal ? h("button", { class: `btn tl-block${kind}`, onclick: () => openBlock(x) }, ...body) : h("div", { class: "tl-fixed" }, ...body));
 	};
 	const draw = () => {
-		const rows = [...st.lectures, ...st.blocks].sort((a, b) => when(a).localeCompare(when(b)));
+		const today = on(st.day);
 		// replaceChildren writes "null" for a missing child, so the missing ones are taken out first.
 		el.replaceChildren(...[
-			h("h2", {}, COPY.week.title), " ",
+			h("div", { class: "week-total" },
+				h("h2", {}, COPY.week.title), " ",
+				st.target && st.kept !== null ? h("p", { class: "small" }, h("b", {}, COPY.week.total(st.kept, st.target))) : null,
+				st.target && st.kept !== null ? h("div", { class: "hours", "aria-hidden": "true" }, Array.from({ length: Math.min(12, Math.ceil(st.target / 60)) }, (_, i) => h("i", {}, h("span", { style: `width:${Math.max(0, Math.min(1, (st.kept - i * 60) / 60)) * 100}%` })))) : null,
+			),
 			h("p", { class: "muted small" }, COPY.week.count(st.blocks.length)),
-			rows.length ? h("ul", { class: "week" }, rows.map(row)) : null,
-			st.undo ? h("p", { class: "muted small" }, COPY.week.removed(shortDay(st.undo.date)), " ", h("button", { class: "btn small", onclick: undo }, COPY.week.undo)) : null,
+			h("div", { class: "days", role: "group", "aria-label": "Days" }, days.map((d) => h("button", { class: "day", "aria-pressed": d === st.day ? "true" : "false", onclick: () => { st.day = d; draw(); } },
+				h("span", {}, shortDay(d)), " ", h("b", {}, String(Number(d.slice(8)))),
+				h("span", { class: "day-marks", "aria-hidden": "true" }, on(d).slice(0, 4).map((x) => h("i", { "data-kind": x.lecture ? "lecture" : "block" }))),
+			))),
+			today.length ? h("ul", { class: "tl" }, today.map(item)) : h("p", { class: "muted" }, COPY.week.nothingOn(shortDay(st.day))),
+			st.undo ? h("p", { class: "small" }, COPY.week.removed(shortDay(st.undo.date)), " ", h("button", { class: "btn small", onclick: undo }, COPY.week.undo)) : null,
 			h("div", { class: "row" },
 				h("button", { class: "btn", onclick: add, disabled: st.free.length === 0 }, COPY.week.add),
 				h("button", { class: "btn", onclick: () => settingsScreen(st, () => render()) }, COPY.settings.title),
@@ -949,7 +991,7 @@ async function home() {
 		h("main", {},
 			s.offline ? h("p", { class: "note" }, COPY.offline) : null,
 			h("h1", {}, "LockedIn"),
-			question ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, question.title), h("p", {}, rich(question.body)), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
+			question ? panel(question.question?.colour, h("p", { class: "eyebrow" }, question.title), h("p", {}, rich(question.body)), h("button", { class: "btn primary", onclick: () => questionScreen(question) }, "Next question")) : h("p", { class: "muted" }, nextQuestionText(s)),
 			// What "Done for now" left (v2.1): one card, no extra notification. It also follows the next notification's own question.
 			saved?.questions?.length ? h("section", { class: "card" }, h("p", { class: "eyebrow" }, saved.label), h("p", {}, COPY.savedCard(saved.questions.length)), h("button", { class: "btn primary", onclick: () => carryOn() }, COPY.carryOn)) : null,
 			checkin ? checkinCard(checkin) : null,

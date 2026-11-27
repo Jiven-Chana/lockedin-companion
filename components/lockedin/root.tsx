@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * The LockedIn root: applies the Focus theme (generated tokens, light /
- * dark / system / high contrast, text size, spacing, reduce motion), follows
- * the (demo) clock for the time-of-day layer, and shares appearance + clock
- * with every screen. Module-tinted regions use <Tint>.
+ * The LockedIn root: applies the Blocks look (light, dark, system or high
+ * contrast; text size, spacing, reduce motion), follows the (demo) clock,
+ * and shares the appearance, the clock and each module's colour and shape
+ * with every screen. A region in a module's colour uses <Tint>.
  */
 
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { MOTION, readAppearance, themeCss, timeOfDay, type FocusAppearance, type Profile } from "@/src/core";
+import { MOTION, moduleLook, readAppearance, themeCss, type FocusAppearance, type ModuleColour, type ModuleShape, type Profile } from "@/src/core";
 import { api, lockedIn } from "./api";
 
 interface RootCtx {
@@ -19,6 +19,10 @@ interface RootCtx {
 	now: Date;
 	refreshClock: () => void;
 	demo: boolean;
+	/** A module's colour and shape (v3.0): the one the student picked, else by its place in their list. */
+	moduleLook: (code: string) => { colour: ModuleColour; shape: ModuleShape };
+	/** Read the student's modules again, after one was added or its colour changed. */
+	refreshModules: () => void;
 }
 
 const Ctx = createContext<RootCtx | null>(null);
@@ -34,8 +38,19 @@ export function useLockedIn(): RootCtx {
 	return c;
 }
 
-export function LockedInRoot({ initial, demo, children }: { initial: Partial<Profile["appearance"]> | null; demo: boolean; children: React.ReactNode }) {
+type ModuleRef = { code: string; colour?: string };
+
+export function LockedInRoot({ initial, initialModules = [], demo, children }: { initial: Partial<Profile["appearance"]> | null; initialModules?: ModuleRef[]; demo: boolean; children: React.ReactNode }) {
 	const [raw, setRaw] = useState<Partial<Profile["appearance"]> | null>(initial);
+	const [modules, setModules] = useState<ModuleRef[]>(initialModules);
+	const refreshModules = useCallback(() => {
+		lockedIn.profile().then((p) => { if (p) setModules(p.modules.map((m) => ({ code: m.code, ...(m.colour ? { colour: m.colour } : {}) }))); }).catch(() => undefined);
+	}, []);
+	useEffect(() => {
+		window.addEventListener("li:refresh", refreshModules);
+		return () => window.removeEventListener("li:refresh", refreshModules);
+	}, [refreshModules]);
+	const lookOf = useCallback((code: string) => moduleLook(code, modules), [modules]);
 	const appearance = useMemo(() => readAppearance(raw), [raw]);
 	const [systemDark, setSystemDark] = useState(false);
 	const [now, setNow] = useState(() => new Date());
@@ -71,10 +86,10 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 		}
 	}, []);
 
-	// Theme and hue changes cross-fade live (F-118): colours transition for a moment after a change, never otherwise.
+	// A change of theme cross-fades live (F-118): colours transition for a moment after a change, never otherwise.
 	const [xfade, setXfade] = useState(false);
 	const lastLook = useRef<string | null>(null);
-	const look = `${appearance.theme}|${appearance.hue}`;
+	const look = appearance.theme;
 	useEffect(() => {
 		if (lastLook.current !== null && lastLook.current !== look) {
 			setXfade(true);
@@ -96,12 +111,10 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 
 	const scheme: "light" | "dark" =
 		appearance.theme === "dark" || appearance.theme === "contrast" ? "dark" : appearance.theme === "light" ? "light" : systemDark ? "dark" : "light";
-	const tod = timeOfDay(now);
-	const css = themeCss(".li-root", appearance, { tod });
+	const css = themeCss(".li-root", appearance);
 
 	return (
-		<Ctx.Provider value={{ appearance, setAppearance, scheme, now, refreshClock, demo }}>
-			{/* Time-of-day colours depend on the clock, which can differ between server and browser (#418). */}
+		<Ctx.Provider value={{ appearance, setAppearance, scheme, now, refreshClock, demo, moduleLook: lookOf, refreshModules }}>
 			<style suppressHydrationWarning>{css}</style>
 			<div
 				className="li-root"
@@ -113,7 +126,6 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 				data-place={pathname.startsWith("/app/session") ? "session" : "app"}
 				data-xfade={xfade ? "" : undefined}
 				style={motionVars}
-				data-tod={tod}
 			>
 				{children}
 			</div>
@@ -121,17 +133,13 @@ export function LockedInRoot({ initial, demo, children }: { initial: Partial<Pro
 	);
 }
 
-/** A region in a module's own colour (Auto), or the chosen seed when one is fixed. */
-export function Tint({ hue, className, children, style }: { hue: number; className?: string; children: React.ReactNode; style?: React.CSSProperties }) {
-	const { appearance, now } = useLockedIn();
-	if (appearance.hue !== "auto" || appearance.theme === "contrast") {
-		return <div className={className} style={style}>{children}</div>;
-	}
-	const cls = `li-tint-${Math.round(hue)}`;
-	return (
-		<div className={`${cls} ${className ?? ""}`} style={style}>
-			<style suppressHydrationWarning>{themeCss(`.${cls}`, appearance, { hue, tod: timeOfDay(now) })}</style>
-			{children}
-		</div>
-	);
+/**
+ * A region in a module's colour: inside it `--li-mod` is that module's block
+ * colour and `--li-mod-soft` its soft tint (look.ts). With no module, the
+ * region has no module colour and sand stands in.
+ */
+export function Tint({ module, className, children, style }: { module?: string | null; className?: string; children: React.ReactNode; style?: React.CSSProperties }) {
+	const root = useLockedInOptional();
+	const cls = module && root ? `li-mod-${root.moduleLook(module).colour}` : "";
+	return <div className={`${cls} ${className ?? ""}`.trim() || undefined} style={style}>{children}</div>;
 }

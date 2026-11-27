@@ -14,7 +14,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CALENDAR_COPY, ENERGY_TIMES, moduleHue, SETUP_COPY, SETUP_RULES, WEEK_COPY, type DetectedModule, type EnergyTime, type SetupModuleLine, type SetupView, type SetupWeek } from "@/src/core";
+import { CALENDAR_COPY, ENERGY_TIMES, SETUP_COPY, SETUP_RULES, WEEK_COPY, type DetectedModule, type EnergyTime, type SetupModuleLine, type SetupView, type SetupWeek } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn } from "../api";
 import { usePoll } from "../hooks";
@@ -125,12 +125,12 @@ function TimetableStep({ view, busy, onSave }: { view: SetupView; busy: boolean;
 			{view.modules.length + rows.length > 0 ? (
 				<div className="li-stack" style={{ gap: 8 }}>
 					{view.modules.map((m) => (
-						<Tint key={m.code} hue={moduleHue(m.code)}>
+						<Tint key={m.code} module={m.code}>
 							<div className="li-opt li-setup-module" data-on="true"><input type="checkbox" checked disabled aria-label={m.name} /><b style={{ flexGrow: 1 }}>{m.name}</b></div>
 						</Tint>
 					))}
 					{rows.map((r, i) => (
-						<Tint key={`${r.code ?? "new"}-${i}`} hue={moduleHue(r.code || r.name)}>
+						<Tint key={`${r.code ?? "new"}-${i}`} module={r.code || r.name}>
 							<div className="li-opt li-setup-module" data-on={r.on ? "true" : "false"}>
 								<input type="checkbox" aria-label={`Include ${r.name}`} checked={r.on} onChange={(e) => set(i, { on: e.target.checked })} />
 								<input className="li-input" aria-label="Module name" maxLength={SETUP_RULES.moduleNameMax} value={r.name} onChange={(e) => set(i, { name: e.target.value })} style={{ flexGrow: 1 }} />
@@ -184,7 +184,7 @@ function SlidesModule({ line, onChanged }: { line: SetupModuleLine; onChanged: (
 	const state = line.preparing > 0 ? SETUP_COPY.slides.preparing : line.units > 0 && line.ready === line.units ? SETUP_COPY.slides.ready : null;
 
 	return (
-		<Tint hue={moduleHue(line.code)}>
+		<Tint module={line.code}>
 			<section className="li-stack" style={{ gap: 8 }} aria-label={line.name}>
 				<b>{line.name}</b>
 				<label
@@ -331,7 +331,7 @@ function WeekStep({ view, onNext, onBack }: { view: SetupView; onNext: (later: b
 				{week && week.week > thisMonday ? <span className="li-small li-muted">{SETUP_COPY.week.nextWeek}</span> : null}
 				{week?.message ? <span className="li-small">{week.message}</span> : null}
 				{(week?.blocks ?? []).map((b) => (
-					<Tint key={b.id} hue={moduleHue(b.module ?? "free")}>
+					<Tint key={b.id} module={b.module ?? "free"}>
 						<div className="li-setup-block">
 							<b className="li-setup-when">{dayLabel(b.date)} · {b.start}</b>
 							<span style={{ flexGrow: 1, minWidth: 0 }}>
@@ -472,7 +472,7 @@ export function WelcomeScreen() {
 					<>
 						<h1 className="li-h1">{SETUP_COPY.end.title}</h1>
 						{view.end ? (
-							<Tint hue={moduleHue(view.end.module)}>
+							<Tint module={view.end.module}>
 								<button type="button" className="li-hero" onClick={() => void learn()} disabled={busy}>
 									<span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
 										<span className="li-hero-title">{SETUP_COPY.end.learn(view.end.title)}</span>
