@@ -38,7 +38,7 @@ import { StudyPacks } from "./study-pack.ts";
 import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
-import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, pacedUnits, placementProblem, proposeWeek } from "../../core/companion/plan-week.ts";
+import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, openBlocks, pacedUnits, placementProblem, proposeWeek, replanWeek } from "../../core/companion/plan-week.ts";
 import type { PhoneBlockLines, PhoneWeek } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
 import { closeGaps, gapsByIdea, GENERAL_IDEA, ideaKeyOfMiss, type RightAnswer } from "../../core/companion/gaps.ts";
@@ -1203,6 +1203,9 @@ export class CompanionService {
 		const lectures = this.store.lectures().filter((l) => l.start && dateKey(new Date(l.start)) >= from && dateKey(new Date(l.start)) <= to);
 		const titles = new Map(this.store.lectures().map((l) => [l.id, { title: l.title, module: l.module }]));
 		const committed = blocks.filter((b) => b.status === "accepted" || b.status === "started").reduce((n, b) => n + b.minutes, 0);
+		// "Re-plan the rest of my week" (v2.2): which kept blocks have passed unstarted, and which the last re-plan moved.
+		const open = new Set(openBlocks(this.store.blocks(), this.now()).map((b) => b.id));
+		const replanned = new Set((this.replanRecord()?.moves ?? []).map((m) => m.id));
 		return {
 			week: from,
 			target: settings.weeklyTargetMinutes,
@@ -1214,8 +1217,9 @@ export class CompanionService {
 				const focus = b.lectureId ? (titles.get(b.lectureId) ?? null) : null;
 				const first = this.firstStepOf(b);
 				// What the timetable shows on a block (V-44): its first step, and whether it can be started now.
-				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b), why: blockWhy(b, profile.modules) };
+				return { ...b, focus, module: b.module ?? focus?.module ?? null, firstStep: first ? PLAN_COPY.firstStep(first.slide) : null, canStart: canStartBlock(b, this.now()), mode: this.blockButtons(b), why: blockWhy(b, profile.modules), notStarted: open.has(b.id), moved: replanned.has(b.id) };
 			}),
+			replan: { open: open.size, moved: replanned.size, canUndo: replanned.size > 0 },
 			lectures,
 			commitments: profile.routine?.commitments ?? [],
 			// For the timetable (V-37): where a block may not go, and the modules a block can be given.
@@ -1258,6 +1262,62 @@ export class CompanionService {
 		this.store.saveBlocks([...all.filter((x) => !(x.status === "proposed" && x.date >= from && x.date <= to)), ...r.proposals]);
 		this.log("plan_proposed", { week: from, proposals: r.proposals.length, plannedMinutes: r.plannedMinutes, target, roomMinutes: r.roomMinutes, fits: r.fits, gaps: r.proposals.filter((p) => p.reason === "gap").length });
 		return { ...this.plan(from), roomMinutes: r.roomMinutes, fits: r.fits, message: r.fits ? null : PLAN_COPY.weekTooFull(r.roomMinutes) };
+	}
+
+	/**
+	 * The last re-plan, while its Undo still means something: on the day it
+	 * was made, with every block it moved still kept and still where it put it.
+	 */
+	private replanRecord() {
+		const rec = this.store.runtime().replan;
+		if (!rec || dateKey(new Date(rec.at)) !== dateKey(this.now())) return null;
+		const blocks = new Map(this.store.blocks().map((b) => [b.id, b]));
+		const intact = rec.moves.every((m) => {
+			const b = blocks.get(m.id);
+			return b?.status === "accepted" && b.date === m.to.date && b.start === m.to.start;
+		});
+		return intact ? rec : null;
+	}
+
+	/**
+	 * "Re-plan the rest of my week" (v2.2): kept blocks whose time has passed
+	 * without being started move to free times in the days left. Only ever
+	 * run when the student presses the button; nothing is called missed (R-6).
+	 */
+	replanWeek() {
+		const profile = this.requireProfile();
+		const now = this.now();
+		const blocks = this.store.blocks();
+		const r = replanWeek({ now, lectures: this.store.lectures(), ...(profile.routine ? { routine: profile.routine } : {}), quietHours: profile.prefs.quietHours, blocks });
+		if (r.moves.length > 0) {
+			const to = new Map(r.moves.map((m) => [m.id, m]));
+			const moves = blocks.filter((b) => to.has(b.id)).map((b) => ({ id: b.id, from: { date: b.date, start: b.start, ...(b.placed ? { placed: b.placed } : {}) }, to: { date: to.get(b.id)!.date, start: to.get(b.id)!.start } }));
+			this.store.saveBlocks(blocks.map((b) => {
+				const m = to.get(b.id);
+				if (!m) return b;
+				const next: StudyBlock = { ...b, date: m.date, start: m.start };
+				delete next.placed; // where it is now is not where the planner first put it, so its old reason is no longer true
+				return next;
+			}));
+			this.store.saveRuntime({ replan: { at: now.toISOString(), moves } });
+		}
+		this.log("plan_replanned", { moved: r.moves.length, nextWeek: r.nextWeek, left: r.left.length });
+		const message = r.moves.length > 0 ? `${PLAN_COPY.replan.done(r.moves.length, r.nextWeek)}${r.left.length > 0 ? ` ${PLAN_COPY.replan.noRoom}` : ""}` : r.left.length > 0 ? PLAN_COPY.replan.noRoom : null;
+		return { ...this.plan(), message };
+	}
+
+	/** One Undo for the whole re-plan: every block goes back to where it was, with the reason it had. */
+	undoReplan() {
+		const rec = this.replanRecord();
+		if (!rec) throw new CompanionError("nothing_to_undo", 409, "There is no re-plan to undo.");
+		const from = new Map(rec.moves.map((m) => [m.id, m.from]));
+		this.store.saveBlocks(this.store.blocks().map((b) => {
+			const f = from.get(b.id);
+			return f ? { ...b, date: f.date, start: f.start, ...(f.placed ? { placed: f.placed } : {}) } : b;
+		}));
+		this.store.saveRuntime({ replan: undefined });
+		this.log("plan_replan_undone", { moved: rec.moves.length });
+		return { ...this.plan(), message: PLAN_COPY.replan.undone };
 	}
 
 	/** Tick, move, start or remove one block (one action each, F-110). A move keeps its focus and first task. */

@@ -17,7 +17,7 @@
  */
 
 import { useRef, useState } from "react";
-import { moduleHue, PLACEMENT_COPY, placementProblem, type PlacementProblem } from "@/src/core";
+import { moduleHue, PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
 import type { PlanData } from "./api";
 import { Tint } from "./root";
 
@@ -191,7 +191,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 									}}
 								>
 									<b>{at.start} {label}</b>
-									<span>{b.focus ? b.focus.title : b.module ? "" : `${b.minutes} min`}{b.status === "started" ? " · started ✓" : ""}</span>
+									<span>{b.focus ? b.focus.title : b.module ? "" : `${b.minutes} min`}{b.status === "started" ? " · started ✓" : b.notStarted ? ` · ${PLAN_COPY.replan.notStarted}` : b.moved ? ` · ${PLAN_COPY.replan.moved}` : ""}</span>
 								</div>
 							</Tint>
 						);
@@ -199,7 +199,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 				</div>
 			</div>
 			<p className="li-small li-muted" role="status" aria-live="polite" style={{ margin: 0, minHeight: "1.4em" }}>
-				{note ?? "Drag a study block to any free time or day. Tap one for its options."}
+				{note ?? ""}
 			</p>
 		</div>
 	);

@@ -49,7 +49,8 @@ const COPY = {
 	// Your week and Settings (v2.1 part C): the lo-fi's wording (task 3), with "notification" for "nudge" (v2.2, LF-11).
 	week: {
 		title: "Your week",
-		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Tap one to move or remove it." : `${n} suggested blocks in your free gaps. Tap one to move or remove it.`),
+		// v2.2 (LF-10): Move and Remove are on every block, so the line no longer says "Tap one".
+		count: (n) => (n === 0 ? "No study blocks this week. That's fine too." : n === 1 ? "One suggested block in your free gaps. Move or remove it." : `${n} suggested blocks in your free gaps. Move or remove any of them.`),
 		moved: "moved",
 		move: "Move",
 		remove: "Remove",
@@ -628,13 +629,16 @@ function weekSection(s) {
 
 	const row = (x) => {
 		if (!x.id) return h("li", { class: "wk static" }, h("b", {}, shortDay(x.date)), " ", `${x.title} ${x.start}`);
-		const isOpen = st.open === x.id;
-		return h("li", { class: "wk" },
-			h("button", { class: "btn wkrow", "aria-expanded": isOpen ? "true" : "false", onclick: () => { Object.assign(st, { open: isOpen ? null : x.id, moving: false }); draw(); } },
-				h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
+		// Move and Remove are on the row itself (v2.2, LF-10): in the lo-fi they were behind a tap, and had to be explained.
+		const moving = st.open === x.id && st.moving;
+		const name = `${shortDay(x.date)} ${x.start}`;
+		return h("li", { class: "wk block-row" },
+			h("p", { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
 			x.why ? h("p", { class: "muted small" }, x.why) : null,
-			isOpen && !st.moving ? h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => { st.moving = true; draw(); } }, COPY.week.move), h("button", { class: "btn small", onclick: () => remove(x) }, COPY.week.remove)) : null,
-			isOpen && st.moving ? h("div", { class: "stack" }, h("p", { class: "muted small" }, COPY.week.moveTo), h("div", { class: "row" },
+			!moving ? h("div", { class: "row" },
+				h("button", { class: "btn small", "aria-label": `${COPY.week.move} ${name}`, onclick: () => { Object.assign(st, { open: x.id, moving: true }); draw(); } }, COPY.week.move),
+				h("button", { class: "btn small", "aria-label": `${COPY.week.remove} ${name}`, onclick: () => remove(x) }, COPY.week.remove)) : null,
+			moving ? h("div", { class: "stack" }, h("p", { class: "muted small" }, COPY.week.moveTo), h("div", { class: "row" },
 				st.free.map((f) => h("button", { class: "btn small chip", onclick: () => move(x, f) }, `${shortDay(f.date)} ${f.start}`)),
 				h("button", { class: "btn small chip dashed", onclick: () => { st.moving = false; draw(); } }, COPY.week.cancel))) : null,
 		);

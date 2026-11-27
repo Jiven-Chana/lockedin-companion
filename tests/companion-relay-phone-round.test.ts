@@ -52,6 +52,15 @@ async function open(opts: { nudges?: unknown[]; blocks?: unknown[]; week?: unkno
 		app, events, buttons,
 		text: () => (app.textContent ?? "").replace(/\s+/g, " ").trim(),
 		saved: () => JSON.parse(local.get("saved") ?? "null") as { total: number; done: number; label: string; questions: { id: string }[] } | null,
+		/** A button inside the week row whose text has `row` (v2.2: every block row has its own Move and Remove). */
+		tapIn: async (row: string, label: string) => {
+			const li = [...app.querySelectorAll("li")].find((x) => (x.textContent ?? "").replace(/\s+/g, " ").includes(row));
+			assert.ok(li, `no row with "${row}"`);
+			const b = [...li.querySelectorAll("button")].find((x) => (x.textContent ?? "").trim() === label);
+			assert.ok(b, `no button "${label}" in the row "${row}"`);
+			b.dispatchEvent(new DomEvent("click"));
+			await settle();
+		},
 		tap: async (label: string) => {
 			const b = [...app.querySelectorAll("button")].find((x) => (x.textContent ?? "").trim() === label);
 			assert.ok(b, `no button "${label}" among: ${buttons().join(" | ")}`);
@@ -359,7 +368,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	it("lists lectures and blocks in order, says how many blocks, and why a block is where it is", async () => {
 		const p = await home();
 		assert.match(p.text(), /Your week/);
-		assert.match(p.text(), /2 suggested blocks in your free gaps\. Tap one to move or remove it\./);
+		assert.match(p.text(), /2 suggested blocks in your free gaps\. Move or remove any of them\./);
 		assert.match(p.text(), new RegExp(`${short(d1)} HCI lecture 11:00`));
 		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00 · Nash equilibrium`));
 		assert.match(p.text(), /because you have energy in the afternoon/);
@@ -369,15 +378,14 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 	});
 
 	it("counts in the lo-fi's words", async () => {
-		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Tap one to move or remove it\./);
+		assert.match((await home({ blocks: [blocks()[0]] })).text(), /One suggested block in your free gaps\. Move or remove it\./);
 		assert.match((await home({ blocks: [] })).text(), /No study blocks this week\. That's fine too\./);
 	});
 
-	it("a block opens to \"Move\" and \"Remove\"; moving offers the free times and leaves a \"moved\" tag", async () => {
+	it("every block shows \"Move\" and \"Remove\" without being opened (v2.2, LF-10); moving offers the free times and leaves a \"moved\" tag", async () => {
 		const p = await home();
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
-		assert.ok(p.buttons().includes("Move") && p.buttons().includes("Remove"));
-		await p.tap("Move");
+		assert.deepEqual([p.buttons().filter((b) => b === "Move").length, p.buttons().filter((b) => b === "Remove").length], [2, 2]);
+		await p.tapIn("Study 14:00 · Nash equilibrium", "Move");
 		assert.match(p.text(), /Move to a free gap:/);
 		assert.ok(p.buttons().includes(`${short(d2)} 16:00`) && p.buttons().includes(`${short(d3)} 09:00`) && p.buttons().includes("Cancel"));
 		await p.tap(`${short(d3)} 09:00`);
@@ -385,8 +393,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		assert.deepEqual([m?.payload.blockId, m?.payload.date, m?.payload.start, m?.payload.fireAt], ["blk-a", d3, "09:00", new Date(`${d3}T09:00:00`).toISOString()]);
 		assert.match(p.text(), new RegExp(`${short(d3)} Study 09:00 · Nash equilibrium moved`));
 		// The time it took is not offered again.
-		await p.tap(`${short(d2)} Study 10:00`);
-		await p.tap("Move");
+		await p.tapIn(`${short(d2)} Study 10:00`, "Move");
 		assert.ok(!p.buttons().includes(`${short(d3)} 09:00`));
 		await p.tap("Cancel");
 		assert.equal(of(p.events, "plan_move").length, 1);
@@ -394,8 +401,7 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 
 	it("\"Remove\" can be undone, once", async () => {
 		const p = await home();
-		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
-		await p.tap("Remove");
+		await p.tapIn("Study 14:00 · Nash equilibrium", "Remove");
 		assert.deepEqual(of(p.events, "plan_remove")[0]?.payload, { blockId: "blk-a" });
 		assert.match(p.text(), new RegExp(`Removed ${short(d1)} block ·`));
 		assert.match(p.text(), /One suggested block/);

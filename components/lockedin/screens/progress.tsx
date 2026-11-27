@@ -98,7 +98,9 @@ export function ProgressScreen() {
 
 	return (
 		<>
-			<PageHead eyebrow="Progress" title="Where you are" />
+			<PageHead eyebrow="Progress" title="Where you are">
+				<div className="li-row" style={{ marginTop: 12 }}><Link className="li-btn" href="/app/plan">{PROGRESS_COPY.seeWeek}</Link></div>
+			</PageHead>
 			{p.welcomeBack ? (
 				<Tint hue={285}>
 					<button type="button" className="li-hero" onClick={() => start({ kind: "try-now", lectureId: p.welcomeBack!.spec.lectureId }, p.welcomeBack!.spec)}>

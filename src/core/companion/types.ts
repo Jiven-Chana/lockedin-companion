@@ -696,6 +696,9 @@ export const COMPANION_EVENT_TYPES = [
 	"plan_accepted",
 	"plan_moved",
 	"plan_removed",
+	// v2.2: "Re-plan the rest of my week" and its Undo
+	"plan_replanned",
+	"plan_replan_undone",
 	"setup_chat_started",
 	"setup_chat_turn",
 	"setup_chat_confirmed",

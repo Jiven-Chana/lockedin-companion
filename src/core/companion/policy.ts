@@ -143,6 +143,8 @@ export const SCORE_RULES = {
 
 /** Progress: the wording of the score, its chart and "needs attention" (v1.1). Never "behind", never a deficit number. */
 export const PROGRESS_COPY = {
+	/** The week is one tap from Progress (v2.2; asked for in the look test). */
+	seeWeek: "See your week",
 	score: "Learning score",
 	steadyPace: "Steady pace",
 	steadyPaceHelp: "A straight line to securing every idea in your study packs by the end of term.",
@@ -662,6 +664,23 @@ export const PLAN_COPY = {
 		energy: (when: "morning" | "afternoon" | "evening") => `because you have energy in the ${when}`,
 		afterLecture: (module: string) => `right after your ${module} lecture`,
 		gap: "a free gap in your day",
+	},
+	/** Above the timetable (v2.2, LF-10: moving a block had to be explained to two testers). */
+	dragHint: "Drag a study block to move it, or click it for Move and Remove.",
+	/** "Re-plan the rest of my week" (v2.2): only when the student asks. A passed block is "not started", never anything worse (R-6). */
+	replan: {
+		button: "Re-plan the rest of my week",
+		notStarted: "not started",
+		moved: "moved",
+		undo: "Undo",
+		done: (moved: number, nextWeek: number) => {
+			const what = moved === 1 ? "Moved 1 block to a free time" : `Moved ${moved} blocks to free times`;
+			return nextWeek === 0 ? `${what}.` : nextWeek === moved && moved === 1 ? `${what} next week.` : `${what}, ${nextWeek} of them next week.`;
+		},
+		noRoom: "There is no free time left for them this week or next. They stay where they are.",
+		undone: "Put back where they were.",
+		/** Beside Undo when the page is opened again after a re-plan. */
+		still: (moved: number) => (moved === 1 ? "1 block moved." : `${moved} blocks moved.`),
 	},
 	targetProposal: (minutes: number) => `Try ${PLAN_COPY.hours(minutes)} next week?`,
 	keepTarget: (minutes: number) => `Keep ${PLAN_COPY.hours(minutes)}`,

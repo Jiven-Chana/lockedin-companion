@@ -57,7 +57,7 @@ function BlockCard({ b, order, modules = [], onDone }: { b: PlanData["blocks"][n
 	return (
 		<Tint hue={moduleHue(b.module ?? "study")}>
 			<div className="li-block" data-status={b.status} style={{ "--i": order } as React.CSSProperties}>
-				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : ""}</span>
+				<span className="li-small"><b>{b.start}</b> · {b.minutes} min{b.status === "started" ? " · started ✓" : b.notStarted ? ` · ${PLAN_COPY.replan.notStarted}` : ""}{b.moved ? <> <span className="li-chip">{PLAN_COPY.replan.moved}</span></> : null}</span>
 				<span className="li-small">{b.focus ? `${b.focus.module}: ${b.focus.title}` : b.module ? b.module : PLACEMENT_COPY.freeStudy}{b.reason === "gap" ? " · catch-up" : ""}</span>
 				{b.firstStep ? <span className="li-small">{b.firstStep}</span> : null}
 				{/* The block's module (V-37): changing it makes the block study that module's next unit. */}
@@ -162,6 +162,19 @@ export function PlanScreen() {
 			setBusy(false);
 		}
 	}
+	/** "Re-plan the rest of my week" (v2.2) and its one Undo. Only ever on this button. */
+	async function replan(undo = false) {
+		setBusy(true);
+		try {
+			const r = undo ? await lockedIn.undoReplan() : await lockedIn.replanWeek();
+			setMsg(r.message);
+			void plan.reload();
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't re-plan the week");
+		} finally {
+			setBusy(false);
+		}
+	}
 	async function setTarget(minutes: number) {
 		await lockedIn.planSettings({ weeklyTargetMinutes: minutes });
 		void plan.reload();
@@ -196,15 +209,23 @@ export function PlanScreen() {
 				</label>
 				<span className="li-muted" style={{ flexGrow: 1 }}>{p ? `${PLAN_COPY.hours(p.committedMinutes)} kept${p.proposedMinutes ? `, ${PLAN_COPY.hours(p.proposedMinutes)} proposed` : ""}` : ""}</span>
 				<button type="button" className="li-btn primary" disabled={busy || !p?.target} onClick={propose}>{busy ? "Planning…" : "Plan my week"}</button>
+				{p?.replan.open ? <button type="button" className="li-btn" disabled={busy} onClick={() => void replan()}>{PLAN_COPY.replan.button}</button> : null}
 				{proposals ? <button type="button" className="li-btn" onClick={async () => { await lockedIn.acceptBlocks(p!.week); void plan.reload(); }}>Keep all {proposals}</button> : null}
 				<Link className="li-btn ghost" href="/app/plan/chat">Plan my week with me (2 min)</Link>
 				{!showCheckin ? <button type="button" className="li-btn ghost" onClick={() => setShowCheckin(true)}>Check in</button> : null}
 			</section>
-			{msg ? <div className="li-note" role="status">{msg}</div> : null}
+			{msg || p?.replan.canUndo ? (
+				<div className="li-note li-row" role="status" style={{ gap: 10, alignItems: "center" }}>
+					<span style={{ flexGrow: 1 }}>{msg ?? PLAN_COPY.replan.still(p!.replan.moved)}</span>
+					{p?.replan.canUndo ? <button type="button" className="li-btn" disabled={busy} onClick={() => void replan(true)}>{PLAN_COPY.replan.undo}</button> : null}
+				</div>
+			) : null}
 
 			{/* Wide screens: a timetable to drag blocks around (V-37). Narrow ones keep the list below, where dragging has no room. */}
 			{p ? (
 				<div className="li-tt-wrap li-stack" style={{ gap: 12 }}>
+					{/* Said before the timetable, not after it (v2.2, LF-10). */}
+					<p className="li-small" style={{ margin: 0 }}>{PLAN_COPY.dragHint}</p>
 					<WeekGrid
 						plan={p}
 						today={iso(now)}

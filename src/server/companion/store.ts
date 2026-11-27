@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { writeFileAtomicSync } from "../../store/atomic-write.ts";
 import type {
+	BlockPlaced,
 	CompanionSession,
 	CompanionState,
 	EngineName,
@@ -39,6 +40,8 @@ export interface RuntimeState {
 	phoneTestQuestions?: string[];
 	/** Whether the student's AI was ready when last checked, so `engine_ready` is logged on a change, not on every restart. */
 	aiReady?: boolean;
+	/** The last "Re-plan the rest of my week" (v2.2), so one Undo can put every block back. Only good on the day it was made. */
+	replan?: { at: string; moves: { id: string; from: { date: string; start: string; placed?: BlockPlaced }; to: { date: string; start: string } }[] };
 	/** The firm/gentle lock's "let me through" window. */
 	lockOverrideUntil?: string;
 	/** A subscribed calendar link (F-03); stays on this laptop. */
