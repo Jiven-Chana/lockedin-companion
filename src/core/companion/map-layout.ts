@@ -167,6 +167,19 @@ export function layoutMap<T extends { id: string }>(given: readonly T[], links: 
 	// Last, top to bottom once more: an idea ends up under what it builds on, so the common link is a straight line down.
 	for (let r = 1; r < rows.length; r++) place(rows[r]!, rows[r]!.map((it) => mean(it, "up") ?? it.x));
 
+	// A link passing through a row, when it is nearly above the idea it ends at, lines up with that idea if there is
+	// room: it then comes straight down and joins any other link arriving there, with one arrowhead and no kink.
+	for (const chain of chains) {
+		for (let i = chain.length - 2; i >= 1; i--) {
+			const slot = items.get(chain[i]!)!, below = items.get(chain[i + 1]!)!;
+			if (Math.abs(slot.x - below.x) >= 24 || slot.x === below.x) continue;
+			const row = rows[slot.row]!;
+			const clear = row.every((other) => other === slot || Math.abs(below.x - other.x) >= (slot.w + other.w) / 2 + o.gapX);
+			const order = row.filter((other) => other !== slot).every((other) => (other.order < slot.order) === (other.x < below.x));
+			if (clear && order) slot.x = below.x;
+		}
+	}
+
 	const loopList = edges.filter((e) => loops.has(e));
 	// Room round the outside for loops: above the first row, below the last, and a lane each down the right.
 	const pad = loopList.length ? 28 : 0;
@@ -192,11 +205,8 @@ export function layoutMap<T extends { id: string }>(given: readonly T[], links: 
 			const mid = round(a.y + o.h + o.gapY * (lane.get(a.id) ?? 0.5));
 			if (!pts.length) pts.push([a.x, a.y + o.h]);
 			const from = pts.at(-1)![0];
-			// Nearly above its idea already: come straight down into it, a little off-centre, with no kink.
-			const reach = b.w / 2 - 24;
-			const into = b.real && Math.abs(from - b.x) < Math.min(24, Math.max(0, reach)) ? from : b.x;
-			if (Math.abs(from - into) > 0.01) pts.push([from, mid], [into, mid]);
-			pts.push([into, b.real ? b.y : b.y + o.h]);
+			if (Math.abs(from - b.x) > 0.01) pts.push([from, mid], [b.x, mid]);
+			pts.push([b.x, b.real ? b.y : b.y + o.h]);
 		}
 		return { from: chain[0]!, to: chain.at(-1)!, loop: false, points: pts };
 	});

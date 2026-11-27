@@ -13,7 +13,7 @@ import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, weekLabe
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
-import { Icon, StatusTag } from "../icons";
+import { Icon, ModuleMark, StatusTag } from "../icons";
 import { LearnSheet } from "../learn-sheet";
 import { MaterialUpload } from "../material-upload";
 import { ModuleNotes } from "../module-notes";
@@ -120,7 +120,7 @@ export function LibraryScreen() {
 			</span>
 			{l.status === "revisit" ? <StatusTag status="revisit" /> : l.status === "answered" ? <StatusTag status="answered" /> : <StatusTag status="notyet" />}
 			<Link className="li-btn soft" href={`/app/library/${l.id}`}>Open</Link>
-			<button type="button" className="li-btn primary" disabled={!l.hasMaterials} onClick={() => void learn(l.id)}>{LEARN_COPY.button}</button>
+			<button type="button" className="li-btn" disabled={!l.hasMaterials} onClick={() => void learn(l.id)}><Icon.learn />{LEARN_COPY.button}</button>
 		</div>
 	);
 
@@ -145,13 +145,13 @@ export function LibraryScreen() {
 					<Tint key={m.code} module={m.code}>
 						<section className="li-stack" aria-labelledby={`m-${m.code}`}>
 							<div className="li-row">
-								<span style={{ width: 14, height: 14, borderRadius: 5, background: "var(--li-accent)" }} />
+								<ModuleMark module={m.code} />
 								<h2 id={`m-${m.code}`} className="li-h2" style={{ flexGrow: 1 }}>{m.name}</h2>
 								<WeekControl key={`${m.code}-${m.week}-${m.reading}`} mod={m} onChange={() => void course.reload()} />
 								<span className="li-small li-muted">{m.units.filter((l) => l.status !== "not-started").length} of {m.units.length} started</span>
 								{/* A quick round across the whole module (V-40): only once a unit has material to draw questions from. */}
 								{/* The two ways to study a module (V-40): the tutor, or a quick round. Each needs a unit with material. */}
-								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn primary" aria-expanded={learning === m.code} onClick={() => setLearning(learning === m.code ? null : m.code)}>{LEARN_COPY.moduleButton}</button> : null}
+								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" aria-expanded={learning === m.code} onClick={() => setLearning(learning === m.code ? null : m.code)}>{LEARN_COPY.moduleButton}</button> : null}
 								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
 								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>

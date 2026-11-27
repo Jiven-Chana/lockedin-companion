@@ -127,8 +127,8 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 				{tab === "map" ? (
 					<div className="li-grid-2">
 						<div className="li-stack">
-							<span className="li-small li-muted">✓ solid · ◐ shaky · ○ to revisit · · not yet. From your answers, never your attendance.{map.data?.source === "headings" ? " This starter map follows the slide headings; your first teaching session refines it." : ""}</span>
-							{map.data ? <ConceptMap data={map.data} selected={selected} onSelect={(node) => { setSelected(node); void lockedIn.event("map_node_clicked", { lectureId, node }); }} /> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
+							<span className="li-row li-small" style={{ gap: 8 }}><StatusTag status="solid" /><StatusTag status="shaky" /><StatusTag status="revisit" /><StatusTag status="notyet" /><span className="li-muted">From your answers, never your attendance.{map.data?.source === "headings" ? " This starter map follows the slide headings; your first teaching session refines it." : ""}</span></span>
+							{map.data ? <div className="li-card" style={{ padding: 18 }}><ConceptMap data={map.data} selected={selected} onSelect={(node) => { setSelected(node); void lockedIn.event("map_node_clicked", { lectureId, node }); }} /></div> : <div className="li-card li-empty">{map.error ? "No map for this lecture yet." : "Loading the map…"}</div>}
 						</div>
 						<aside className="li-card" style={{ position: "sticky", top: 24 }}>
 							{node ? (

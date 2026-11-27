@@ -264,6 +264,7 @@ export const lockedIn = {
 	skipSetupWeek: () => api<SetupView>("/setup/week", { method: "DELETE" }),
 	setupDone: () => api<SetupView>("/setup/done", { method: "POST" }),
 	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
+	setModuleColour: (code: string, colour: string | null) => api<{ code: string; colour: string }>(`/modules/${encodeURIComponent(code)}/colour`, { method: "PUT", body: { colour } }),
 	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
 	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
 	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),

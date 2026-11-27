@@ -23,6 +23,7 @@ import {
 	type ThinkingLevel,
 } from "@/src/core";
 import { ApiError, lockedIn, type AiFullStatus } from "../api";
+import { Icon } from "../icons";
 
 const SLOTS = ["strong", "cheap", "vision"] as const;
 type Slot = (typeof SLOTS)[number];
@@ -166,7 +167,7 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 			<div className="li-stack" style={{ gap: 14 }}>
 				{connections.map((c) => (
 					<div key={c.id} className="li-row li-note" style={{ gap: 10 }}>
-						<span style={{ color: "var(--li-accent-text)" }}>✓</span>
+						<span className="li-status solid"><Icon.check />Connected</span>
 						<span style={{ flexGrow: 1 }}>Connected: {c.label}</span>
 						<button type="button" className="li-link li-small" onClick={() => disconnect(c.id)} disabled={!!busy}>Disconnect</button>
 					</div>
@@ -214,7 +215,7 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 				{variant === "onboarding" ? <b>1. Connect</b> : <b>Connection</b>}
 				{connections.map((c) => (
 					<div key={c.id} className="li-row li-note" style={{ gap: 10 }}>
-						<span style={{ color: "var(--li-accent-text)" }}>✓</span>
+						<span className="li-status solid"><Icon.check />Connected</span>
 						<span style={{ flexGrow: 1 }}>Connected: {c.label}</span>
 						<button type="button" className="li-btn" onClick={() => disconnect(c.id)} disabled={!!busy}>Disconnect</button>
 					</div>
@@ -271,7 +272,7 @@ export function ConnectAi({ onReadyChange, onStatus, variant = "onboarding" }: {
 						const model = choice ? status.catalog.find((m) => m.provider === choice.model.provider && m.id === choice.model.id) : undefined;
 						const levels = model?.reasoning ? model.supportedLevels : [];
 						return (
-							<div key={slot} className="li-card flat" style={{ padding: 14, borderRadius: 16, borderColor: missing.includes(slot) ? "var(--li-accent)" : undefined }}>
+							<div key={slot} className="li-card flat" style={{ padding: 14, borderRadius: 16, borderStyle: missing.includes(slot) ? "dashed" : undefined }}>
 								<div className="li-stack" style={{ gap: 2, marginBottom: 8 }}>
 									<b>{SLOT_META[slot].label}</b>
 									<span className="li-small li-muted">{SLOT_META[slot].roster} ({SLOT_META[slot].agents.toLowerCase()})</span>

@@ -757,6 +757,8 @@ export const COMPANION_EVENT_TYPES = [
 	"setup_week",
 	"module_added",
 	"module_share_changed",
+	// v3.0: a module's colour picked in Me
+	"module_colour_changed",
 	"unit_renamed",
 ] as const;
 export type CompanionEventType = (typeof COMPANION_EVENT_TYPES)[number];

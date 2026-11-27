@@ -38,6 +38,7 @@ import { StudyPacks } from "./study-pack.ts";
 import type { BankQuestion } from "../../core/companion/study-pack.ts";
 import { SetupChat } from "./setup-chat.ts";
 import { PhoneLink, RelayClient } from "./phone.ts";
+import { MODULE_COLOUR_CHOICES, moduleLook } from "../../core/companion/look.ts";
 import { blockWhy, clampBlockMinutes, freeTimes, moveTimes, openBlocks, pacedUnits, placementProblem, proposeWeek, replanWeek } from "../../core/companion/plan-week.ts";
 import type { PhoneBlockLines, PhonePractisePool, PhoneWeek } from "../../core/companion/sync.ts";
 import { buildRound, savedAfter, type RoundRef } from "../../core/companion/phone-round.ts";
@@ -624,6 +625,25 @@ export class CompanionService {
 		this.store.saveProfile({ ...profile, modules: profile.modules.map((m) => (m.code === code ? next : m)) });
 		this.log("module_share_changed", { module: code, from: was ?? "normal", to: share });
 		return { ...next, share: share as WeekShare };
+	}
+
+	/**
+	 * A module's colour, picked in Me (v3.0). Body: { colour: one of
+	 * MODULE_COLOUR_CHOICES, or null to give it back its place in the list }.
+	 * Mint and lilac are not module colours: they mean right and to revisit.
+	 */
+	setModuleColour(code: string, body: unknown) {
+		const profile = this.requireProfile();
+		const mod = this.requireModule(code);
+		const colour = (body as { colour?: unknown } | null)?.colour;
+		if (colour !== null && !(MODULE_COLOUR_CHOICES as readonly unknown[]).includes(colour)) throw badRequest(`colour must be one of ${MODULE_COLOUR_CHOICES.join(", ")}, or null`);
+		const { colour: was, ...rest } = mod;
+		const next: ModuleInfo = colour === null ? rest : { ...rest, colour: colour as string };
+		const modules = profile.modules.map((m) => (m.code === code ? next : m));
+		this.store.saveProfile({ ...profile, modules });
+		const now = moduleLook(code, modules).colour;
+		this.log("module_colour_changed", { module: code, from: was ?? null, to: colour });
+		return { ...next, colour: now };
 	}
 
 	/**
