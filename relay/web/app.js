@@ -45,6 +45,10 @@ const COPY = {
 		movedLine: "LockedIn will notify you then, and not before.",
 		noGap: "No free gap is left this week.",
 		nudgeTitle: (day, start) => `${day} ${start} · your study block`,
+		// v2.3: a block opened from the week. One on another day can be looked at and moved, not started (a block starts on its own day).
+		onDay: (day, start) => `This block is on ${day} at ${start}.`,
+		moveIt: "Move it",
+		back: "Back",
 		// v2.2 part C: questions already answered on the move, said on the move screen and after a move (lo-fi "blklater", "blkmoved").
 		doneSoFar: (d, n) => `${d} of ${n} done. `,
 		already: (d, n) => `You've already done ${d} of ${n}. `,
@@ -501,6 +505,19 @@ function blockScreen(b) {
 	const W = COPY.where;
 	// The place (v2.2 part C) is optional and lives on this screen only: it shapes what comes next, and is never kept.
 	const st = { where: null, intent: null };
+	const back = () => h("button", { class: "btn ghost", onclick: () => render() }, COPY.block.back);
+	const head = () => [
+		bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
+		box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+	];
+	// Opened from the week on another day (v2.3): what it is, why it is there, and a way to move it.
+	if (b.date !== todayKey()) {
+		return show(h("main", {}, ...head(), ...[
+			b.why ? h("p", { class: "muted" }, b.why) : null,
+			h("p", {}, COPY.block.onDay(shortDay(b.date), b.start)),
+			h("div", { class: "row" }, h("button", { class: "btn primary", onclick: () => blockLater(b) }, COPY.block.moveIt), back()),
+		].filter((x) => x != null)));
+	}
 	const pick = (place) => {
 		const on = st.where !== place;
 		Object.assign(st, { where: on ? place : null, intent: null });
@@ -535,14 +552,14 @@ function blockScreen(b) {
 	};
 	const draw = () => show(
 		h("main", {},
-			bar(COPY.block.title, `${shortDay(b.date)} ${b.start}-${hm(new Date(start.getTime() + b.minutes * 60_000))}`),
-			box(line(COPY.block.goal, b.goal), b.firstStep ? line(COPY.block.firstStep, b.firstStep) : null),
+			...head(),
 			h("div", { class: "stack where" },
 				h("p", {}, h("b", {}, W.ask), " ", h("span", { class: "muted small" }, W.optional)),
 				h("div", { class: "row", role: "group", "aria-label": W.ask }, W.places.map((p) => h("button", { class: "btn small chip", "aria-pressed": st.where === p ? "true" : "false", onclick: () => pick(p) }, p))),
 				h("p", { class: "muted small" }, W.note),
 			),
 			...rest().filter((x) => x != null),
+			back(),
 		),
 	);
 	draw();
@@ -736,7 +753,8 @@ function weekSection(s) {
 		const moving = st.open === x.id && st.moving;
 		const name = `${shortDay(x.date)} ${x.start}`;
 		return h("li", { class: "wk block-row" },
-			h("p", { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
+			// The block's line opens the block (v2.3), when the laptop sent what its screen shows.
+			h(x.goal ? "button" : "p", x.goal ? { class: "btn wkrow", onclick: () => blockScreen(x) } : { class: "wkrow" }, h("b", {}, shortDay(x.date)), " ", blockLabel(x), x.moved ? " " : null, x.moved ? h("span", { class: "tag" }, COPY.week.moved) : null),
 			x.why ? h("p", { class: "muted small" }, x.why) : null,
 			!moving ? h("div", { class: "row" },
 				h("button", { class: "btn small", "aria-label": `${COPY.week.move} ${name}`, onclick: () => { Object.assign(st, { open: x.id, moving: true }); draw(); } }, COPY.week.move),

@@ -296,7 +296,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		assert.match(p.text(), new RegExp(`${start}-\\d\\d:\\d\\d`));
 		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
 		assert.match(p.text(), /First step: open slide 12, answer one question/);
-		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
 		assert.equal(p.app.querySelector("button.primary")?.textContent, "Take the first step");
 	});
 
@@ -363,7 +363,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		await p.tap("Desk");
 		assert.deepEqual(of(p.events, "block_where").map((e) => e.payload), [{ blockId: "blk1", place: "Desk" }]);
 		assert.equal(p.app.querySelector("button[aria-pressed=true]")?.textContent, "Desk");
-		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
 		await p.tap("Take the first step");
 		assert.match(p.text(), /At your desk\. Phone face down, out of reach if you can\./);
 		assert.doesNotMatch(p.text(), /Put your phone face down\./);
@@ -378,10 +378,10 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 			const p = await opened();
 			await p.tap(c.place);
 			assert.match(p.text(), /Do you want to study now, or later\?/);
-			assert.deepEqual(p.buttons(), [...PLACES, "Study now", "Later"]);
+			assert.deepEqual(p.buttons(), [...PLACES, "Study now", "Later", "Back"]);
 			await p.tap("Study now");
 			assert.match(p.text(), c.tip);
-			assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+			assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
 			await p.tap("Take the first step");
 			assert.match(p.text(), c.running);
 		});
@@ -399,7 +399,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		await p.tap("Bed");
 		await p.tap("Bed");
 		assert.equal(p.app.querySelector("button[aria-pressed=true]"), null);
-		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
 		assert.equal(of(p.events, "block_where").length, 1, "un-picking sends nothing");
 	});
 
@@ -407,7 +407,7 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		const p = await opened(withRound());
 		await p.tap("On the move");
 		assert.match(p.text(), /Not a good moment for a full block\. One question now, and the rest when you sit down\?/);
-		assert.deepEqual(p.buttons(), [...PLACES, "Answer one question now", "Just move the block"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Answer one question now", "Just move the block", "Back"]);
 		assert.equal(p.app.querySelector("button.primary")?.textContent, "Answer one question now");
 		await p.tap("Answer one question now");
 		assert.match(p.text(), /^On the move 0 of 5 done ?Lecture 7: question 1\?/);
@@ -466,7 +466,14 @@ describe("the study block on the phone (v2.1 part B; lo-fi task 2, version B, wi
 		await p.tap("On the move");
 		assert.match(p.text(), /Not a good moment for a full block\./);
 		assert.doesNotMatch(p.text(), /One question now/);
-		assert.deepEqual(p.buttons(), [...PLACES, "Just move the block"]);
+		assert.deepEqual(p.buttons(), [...PLACES, "Just move the block", "Back"]);
+	});
+
+	it("today's block opens from the week too (v2.3), exactly as from its notification", async () => {
+		const p = await open({ nudges: [], blocks: [withRound()], week: { lectures: [], free: [], nudgesPerDay: 1, blockMinutes: 50 } });
+		await p.tap(`${new Date(`${date}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" })} Study ${start} · Lecture 7`);
+		assert.match(p.text(), /Where are you\? \(optional\)/);
+		assert.deepEqual(p.buttons(), [...PLACES, "Take the first step", "Not now", "Back"]);
 	});
 
 	it("a block from a laptop before v2.1 (no goal or first step) still opens, on the laptop as before", async () => {
@@ -499,6 +506,35 @@ describe("your week on the phone (v2.1 part C; lo-fi task 3)", () => {
 		assert.ok(p.text().indexOf("HCI lecture 11:00") < p.text().indexOf("Study 14:00"), "in time order");
 		for (const label of ["Add a block", "Settings", "Looks good"]) assert.ok(p.buttons().includes(label), label);
 		assert.doesNotMatch(p.text(), /null|undefined/, "nothing missing is written out");
+	});
+
+	it("a block's line opens the block (v2.3): on another day it shows the block and offers to move it, with no way to start it early", async () => {
+		const moves = [{ kind: "tomorrow", date: d2, start: "08:00", label: "Tomorrow 08:00" }];
+		const p = await home({ blocks: [{ ...blocks()[0]!, firstStep: "open slide 3, answer one question", moves }] });
+		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+		assert.match(p.text(), /^Study block /);
+		assert.match(p.text(), /Goal: 5 questions, about 10 min/);
+		assert.match(p.text(), /First step: open slide 3, answer one question/);
+		assert.match(p.text(), /because you have energy in the afternoon/);
+		assert.match(p.text(), new RegExp(`This block is on ${short(d1)} at 14:00\\.`));
+		assert.deepEqual(p.buttons(), ["Move it", "Back"]);
+		assert.doesNotMatch(p.text(), /Where are you\?/);
+		await p.tap("Move it");
+		assert.match(p.text(), /When suits you better\?/);
+	});
+
+	it("\"Back\" from a block returns to the week, and nothing was sent", async () => {
+		const p = await home();
+		await p.tap(`${short(d1)} Study 14:00 · Nash equilibrium`);
+		await p.tap("Back");
+		assert.match(p.text(), /Your week/);
+		assert.equal(p.events.length, 0);
+	});
+
+	it("a block from a laptop before v2.1 (nothing to show) has no line to tap", async () => {
+		const p = await home({ blocks: [{ id: "old", date: d1, start: "14:00", minutes: 50, status: "accepted", focus: null }] });
+		assert.ok(!p.buttons().some((b) => b.includes("Study 14:00")));
+		assert.match(p.text(), new RegExp(`${short(d1)} Study 14:00`));
 	});
 
 	it("counts in the lo-fi's words", async () => {
