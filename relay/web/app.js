@@ -197,7 +197,7 @@ function rich(text) {
 		}
 		if (m.index > last) out.push(s.slice(last, m.index));
 		const el = document.createElement("span");
-		el.className = display ? "math block" : "math";
+		el.className = display ? "math math-block" : "math";
 		el.innerHTML = html;
 		out.push(el);
 		last = m.index + m[0].length;

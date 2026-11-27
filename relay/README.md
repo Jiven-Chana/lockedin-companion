@@ -42,6 +42,8 @@ npm run deploy                             # prints https://lockedin-relay.<acco
 
 Then set `COMPANION_RELAY_URL=https://lockedin-relay.<account>.workers.dev` on the laptop. The VAPID private key and `.dev.vars` are secrets: never commit them.
 
+**The maths library (v2.3):** `npm run deploy` first copies KaTeX from the repository's own `node_modules` into `web/vendor/` (`scripts/vendor.mjs`; the folder is not committed), so the phone draws maths with nothing loaded from another site. Run `npm install` at the repository root before the first deploy.
+
 **After any change under `relay/`** (the Worker or the phone app in `web/`), run `npm run deploy` again from the account that owns the relay. Phones pick up the new phone app the next time they open it online.
 
 ## Pairing a phone (v1.0.3)
