@@ -50,6 +50,27 @@ export interface LearnOpeningInput {
 	firstStep?: { stem: string; slide: number | null };
 	/** What LockedIn knows about the student in this module (V-53). */
 	notes?: TutorNotes;
+	/** The module's other units (v3.1): one line each, so the tutor can go to them when the goal is there. */
+	others?: LearnOtherUnit[];
+}
+
+export interface LearnOtherUnit {
+	lecture: Lecture;
+	/** The titles of its ideas, from its concept map. */
+	ideas: string[];
+	ideasFile: string | null;
+	slidesFile: string | null;
+}
+
+/** The titles of a concept map's ideas, in the order written, without their slide numbers ("· S4, S5"). */
+export function mapIdeaTitles(mermaid: string, max = Infinity): string[] {
+	const out: string[] = [];
+	for (const m of mermaid.matchAll(/[A-Za-z0-9_-]+\[(?:"([^"]+)"|([^\]"]+))\]/g)) {
+		const title = (m[1] ?? m[2] ?? "").replace(/\s*·\s*S\d+(?:\s*,\s*S\d+)*\s*$/, "").trim();
+		if (title && !out.includes(title)) out.push(title);
+		if (out.length >= max) break;
+	}
+	return out;
 }
 
 const COVERS: Record<LearnScope, (n: number) => string> = {
@@ -86,6 +107,11 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 		...(input.firstStep ? [`First step: start on the same point as "${input.firstStep.stem}"${input.firstStep.slide ? ` (Slide ${input.firstStep.slide})` : ""}.`] : []),
 	];
 	lines.push(...notesForTutor(input.notes ?? {}));
+	// The rest of the module, a line a unit (v3.1): enough to know where a topic lives and what to read for it.
+	if (input.others?.length) {
+		lines.push("", "OTHER UNITS OF THIS MODULE (read one only when what I want is in it)");
+		input.others.forEach((o, i) => lines.push([`M${i + 1}: ${unitLine(o.lecture)}`, o.ideas.length ? `ideas: ${o.ideas.join("; ")}` : null, o.ideasFile ? `IDEAS FILE: ${o.ideasFile}` : null, o.slidesFile ? `SLIDES FILE: ${o.slidesFile}` : null].filter(Boolean).join(" · ")));
+	}
 	let trimmed = false;
 	if (week) {
 		// A week in one session opens on the maps of its units; the slides are read as the plan reaches each idea.
@@ -105,11 +131,15 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 	return { text: `${lines.join("\n")}\n`, slidesTrimmed: trimmed };
 }
 
-/** Which unit a plan idea belongs to: in a week session ideas are written `u2-<slug>`. */
-export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | undefined, fallbackLectureId?: string): { lectureId: string; nodeId: string } {
-	const m = /^u(\d+)-(.+)$/.exec(nodeId);
-	const unit = m && lectureIds ? lectureIds[Number(m[1]) - 1] : undefined;
-	if (m && unit) return { lectureId: unit, nodeId: m[2]! };
+/**
+ * Which unit a plan idea belongs to. In a week session ideas are written
+ * `u2-<slug>`; an idea from one of the module's other units (v3.1, `reach`)
+ * is written `m2-<slug>`. Anything else belongs to the session's own unit.
+ */
+export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | undefined, fallbackLectureId?: string, reach?: readonly string[]): { lectureId: string; nodeId: string } {
+	const m = /^([um])(\d+)-(.+)$/.exec(nodeId);
+	const unit = m ? (m[1] === "u" ? lectureIds : reach)?.[Number(m[2]) - 1] : undefined;
+	if (m && unit) return { lectureId: unit, nodeId: m[3]! };
 	return { lectureId: lectureIds?.[0] ?? fallbackLectureId ?? "", nodeId };
 }
 

@@ -697,3 +697,55 @@ describe("the three notes (V-53)", () => {
 		assert.deepEqual(store.notes(), {});
 	});
 });
+
+describe("the whole module is in reach of a Learn session (v3.1)", () => {
+	it("a session on one unit lists the module's other units, in course order, and never another module's", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		const reach = store.session(sessionId)!.spec.learn!.reach!;
+		assert.deepEqual(reach, ["hci-w1-intro", "hci-w2-users", "hci-w4-fieldwork"]);
+		const opening = tutor.texts()[0]!;
+		assert.match(opening, /OTHER UNITS OF THIS MODULE/);
+		assert.match(opening, /^M1: .*\(week 1\).* · SLIDES FILE: .*hci-w1-intro[/\\]slides\.md$/m);
+		assert.match(opening, /^M3: .*\(week 4\).* · IDEAS FILE: .*hci-w4-fieldwork[/\\]map\.mmd · SLIDES FILE: /m);
+		assert.doesNotMatch(opening, /gt-w/);
+	});
+
+	it("when the plan moves to an idea of another unit, the slide panel follows that unit", async () => {
+		const { svc, tutor } = setup();
+		const far: PlanTree = { version: 1, nodes: [{ id: "m3-interviews", title: "Interviews" }], edges: [] };
+		tutor.react = (chatId, input) => {
+			if (input.type === "text" && /^LEARN SESSION/.test(input.text)) {
+				tutor.trees.set(chatId, far);
+				tutor.say(chatId,
+					assistant([call("pd", "probe_done", { assessment: { strands: [] } }), text("You asked for fieldwork, which is week 4.")]), result("pd", "probe_done", { ok: true }), newHandoffMessage(chatId),
+					assistant([text("I'm using the week 4 unit."), call("pi", "plan_init", { mermaid: "graph TD" })]), result("pi", "plan_init", { ok: true, tree: far }),
+					assistant([text("Interviews first (Slide 3)."), quizCall("c1", { type: "check", nodeId: "m3-interviews" })]),
+				);
+			}
+		};
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas", goal: "fieldwork from week 4" });
+		await svc.whenReady(sessionId);
+		const v = await svc.view(sessionId);
+		assert.equal(v.learn?.unit?.id, "hci-w4-fieldwork");
+		assert.equal(v.lecture.id, "hci-w3-personas", "the session is still the one that was started");
+	});
+
+	it("a week session reaches the rest of the module too", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		// Week one began on Mon 2 Nov, so 17 Nov is in teaching week 3, and two HCI units are in it.
+		const profile = store.profile()!;
+		store.saveProfile({ ...profile, modules: profile.modules.map((m) => ({ ...m, weekOneStart: "2026-11-02" })) });
+		store.saveLectures(store.allLectures().map((l) => (l.id === "hci-w4-fieldwork" ? { ...l, week: 3 } : l)));
+		const { sessionId } = svc.startLearn({ module: "HCI", week: true });
+		await svc.whenReady(sessionId);
+		const learn = store.session(sessionId)!.spec.learn!;
+		assert.deepEqual(learn.lectureIds, ["hci-w3-personas", "hci-w4-fieldwork"]);
+		assert.deepEqual(learn.reach, ["hci-w1-intro", "hci-w2-users"]);
+		assert.match(tutor.texts()[0]!, /^UNIT 2: /m);
+		assert.match(tutor.texts()[0]!, /^M2: .*\(week 2\)/m);
+	});
+});

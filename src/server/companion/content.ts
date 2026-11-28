@@ -55,6 +55,11 @@ export class CompanionContent {
 		return md ? slideTitles(md).map((s) => s.title) : [];
 	}
 
+	/** Where the lecture's concept map is kept, for the tutor to read (v3.1). */
+	conceptMapPath(lectureId: string): string | null {
+		return this.find(lectureId, "map.mmd");
+	}
+
 	/** The lecture's concept map (mermaid graph TD), if one was authored or saved. */
 	conceptMapSource(lectureId: string): string | null {
 		const p = this.find(lectureId, "map.mmd");

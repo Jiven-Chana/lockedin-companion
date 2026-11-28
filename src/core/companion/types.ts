@@ -40,6 +40,8 @@ export interface LearnSpec {
 	goal?: string;
 	/** A week in one session: every unit taught, in course order. The first is the session's `lectureId`. */
 	lectureIds?: string[];
+	/** The module's other units (v3.1), in course order: the tutor may read one when what the student wants is in it. Their ideas are written `m1-<slug>`, `m2-<slug>`. */
+	reach?: string[];
 	/** How long the sitting is meant to be: the block's length, or the student's usual block length. */
 	minutes: number;
 }

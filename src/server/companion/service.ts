@@ -28,7 +28,7 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { buildLearnOpening, learnCovers, learnNodeRef, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
+import { buildLearnOpening, learnCovers, learnNodeRef, mapIdeaTitles, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
 import { PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, TODAY_COPY, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
@@ -2394,12 +2394,17 @@ export class CompanionService {
 	/** A week in one Learn session: the header names the week, and the slide panel follows the unit of the idea being taught. */
 	private weekOf(session: CompanionSession, v: SessionView): Partial<Pick<SessionView, "lecture" | "learn">> {
 		const ids = session.spec.learn?.lectureIds;
-		if (!ids || ids.length < 2 || !v.learn) return {};
-		const first = this.lectureById(ids[0]!);
-		const at = v.learn.plan?.currentId ? this.lectureById(learnNodeRef(v.learn.plan.currentId, ids, ids[0]).lectureId) : undefined;
+		const reach = session.spec.learn?.reach;
+		if (!v.learn) return {};
+		const week = !!ids && ids.length >= 2;
+		if (!week && !reach?.length) return {};
+		const first = this.lectureById(ids?.[0] ?? session.spec.lectureId);
+		// The unit of the idea being taught: one of the week's, or another unit of the module the plan went to (v3.1).
+		const at = v.learn.plan?.currentId ? this.lectureById(learnNodeRef(v.learn.plan.currentId, ids, session.spec.lectureId, reach).lectureId) : undefined;
+		const moved = at && (week || at.id !== session.spec.lectureId) ? { unit: { id: at.id, title: at.title } } : {};
 		return {
-			lecture: { ...v.lecture, title: LEARN_COPY.weekTitle(first?.week ?? 0, ids.length) },
-			learn: { ...v.learn, ...(at ? { unit: { id: at.id, title: at.title } } : {}) },
+			...(week ? { lecture: { ...v.lecture, title: LEARN_COPY.weekTitle(first?.week ?? 0, ids!.length) } } : {}),
+			learn: { ...v.learn, ...moved },
 		};
 	}
 
@@ -2576,7 +2581,7 @@ export class CompanionService {
 			state: s.state === "stopped" || s.state === "ready" ? "active" : s.state,
 		}))!;
 		// A week in one Learn session: the idea says which unit it belongs to.
-		const ref = session.spec.learn?.lectureIds?.length && record.nodeId ? learnNodeRef(record.nodeId, session.spec.learn.lectureIds, session.spec.lectureId) : null;
+		const ref = (session.spec.learn?.lectureIds?.length || session.spec.learn?.reach?.length) && record.nodeId ? learnNodeRef(record.nodeId, session.spec.learn.lectureIds, session.spec.lectureId, session.spec.learn.reach) : null;
 		if (ref) record.nodeId = ref.nodeId;
 		const lectureId = ref?.lectureId ?? record.lectureId ?? session.spec.lectureId;
 		const miss = missFromAnswer(record, { sessionId: id, lectureId, now });
@@ -2836,7 +2841,11 @@ export class CompanionService {
 			...(mine?.where?.text ? { where: mine.where.text } : {}),
 			...(last ? { last: `${last.finished ? NOTE_COPY.finishedAt(last.lecture) : NOTE_COPY.stoppedAt(last.index, last.total, last.title, last.lecture)}${last.plan.length ? ` Its plan: ${last.plan.map((n) => `${n.title} (${n.state === "done" ? "done" : n.state === "current" ? "stopped here" : "not reached"})`).join("; ")}.` : ""}` } : {}),
 		};
-		return buildLearnOpening({ spec, lecture, ...(moduleName ? { moduleName } : {}), units, now: this.now(), notes, ...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}) });
+		const others = (spec.learn?.reach ?? []).flatMap((id) => {
+			const l = this.lectureById(id);
+			return l ? [{ lecture: l, ideas: mapIdeaTitles(this.content.conceptMapSource(id) ?? "", LEARN_RULES.reachIdeas), ideasFile: this.content.conceptMapPath(id), slidesFile: this.content.slidesPath(id) }] : [];
+		});
+		return buildLearnOpening({ spec, lecture, ...(moduleName ? { moduleName } : {}), units, others, now: this.now(), notes, ...(firstQuestion ? { firstStep: { stem: firstQuestion.stem, slide: firstQuestion.slides[0] ?? null } } : {}) });
 	}
 
 	/** A module's units that can be taught, in course order. */
@@ -2923,13 +2932,16 @@ export class CompanionService {
 			}
 		}
 		const minutes = opts.minutes ?? this.learnMinutes();
+		// The module's other units, in course order (v3.1): the tutor may go to one when the goal is there.
+		const module = this.lectureById(lectureIds[0]!)!.module;
+		const reach = this.learnUnits(module).map((u) => u.id).filter((id) => !lectureIds.includes(id)).slice(0, LEARN_RULES.reachUnits);
 		const spec: SessionSpec = {
 			kind: opts.kind ?? "learn",
 			lectureId: lectureIds[0]!,
 			mode: "question-first",
 			budget: { questions: 0, minutes },
 			study: "learn",
-			learn: { scope, minutes, ...(goal ? { goal } : {}), ...(scope === "week" ? { lectureIds } : {}) },
+			learn: { scope, minutes, ...(goal ? { goal } : {}), ...(scope === "week" ? { lectureIds } : {}), ...(reach.length ? { reach } : {}) },
 			...(nodes ? { nodes } : {}),
 			...(opts.firstQuestionId ? { firstQuestionId: opts.firstQuestionId } : {}),
 		};

@@ -308,6 +308,9 @@ export const LEARN_RULES = {
 	defaultMinutes: 50,
 	/** Slides sent in the opening message, in estimated tokens. The tutor reads the rest from the file as the plan reaches it. */
 	slideTokenBudget: 8_000,
+	/** The module's other units a session is told about (v3.1), and how many of each one's ideas are named. About 60 tokens a unit. */
+	reachUnits: 16,
+	reachIdeas: 6,
 	/** A typed goal: how many matching topics the start sheet offers. */
 	suggestions: 3,
 	/** A typed goal is at most this long. */
