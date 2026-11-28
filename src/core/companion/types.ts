@@ -275,6 +275,8 @@ export interface LearnView {
 	covered?: string[];
 	/** A week in one session: the unit the current idea belongs to. The slide panel shows its slides. */
 	unit?: { id: string; title: string };
+	/** The slide to show beside this step (v3.1): the open question's own, else the latest one the tutor cited. */
+	slideAt?: number;
 }
 
 /** The learner's answer as it arrives from the session screen. */

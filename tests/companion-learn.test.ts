@@ -14,6 +14,8 @@ import {
 	suggestForBlock,
 	tutorOwesNextStep,
 	buildLearnOpening,
+	lastSlideRef,
+	learnSlideAt,
 	mapIdeaTitles,
 	gradeAnswer,
 	isGuess,
@@ -569,5 +571,55 @@ describe("the tutor is told what else the module holds (v3.1)", () => {
 		assert.match(prompt, /`m1-<slug>`/);
 		assert.match(prompt, /say in one sentence which unit/i);
 		assert.match(prompt, /never ask them for a file: read it/);
+	});
+});
+
+/**
+ * v3.1 Part A. "Slides dont auto switch with new questions. I have 120+
+ * page slides to flick through." The panel showed the lowest slide cited in
+ * the step, never the question's own, and stopped following for good once
+ * the student picked a slide.
+ */
+describe("the slide beside a Learn step (v3.1)", () => {
+	it("the last slide named in a text, in reading order", () => {
+		assert.equal(lastSlideRef("First (Slide 12), then the proof (Slide 4)."), 4);
+		assert.equal(lastSlideRef("See (Slides 7-9) and later (Slide 3, 5)."), 3);
+		assert.equal(lastSlideRef("No slide here."), null);
+		assert.equal(lastSlideRef(undefined), null);
+	});
+
+	const tutor = (t: string) => ({ type: "tutor" as const, id: "t", text: t });
+	const done = (explanation: string) => ({ type: "answered" as const, id: "a", explanation } as never);
+	const cases: Array<[string, Parameters<typeof learnSlideAt>[0], Parameters<typeof learnSlideAt>[1], number | null]> = [
+		["the open question names its slide: that one", [tutor("We saw dominance (Slide 3).")], { stem: "On the payoff table (Slide 41), which row is dominated?" }, 41],
+		["the question names none: the latest slide the tutor cited, not the lowest", [tutor("Recall (Slide 3)."), tutor("Now the minimax objective (Slide 58), built on the discriminator (Slide 19).")], { stem: "What does the discriminator maximise?" }, 19],
+		["the question's own explanation is not looked at: it would give the answer's slide away no more than the teaching did", [tutor("Before we start.")], { stem: "Have a guess.", explanation: "Because (Slide 9)." } as { stem: string }, null],
+		["no question: the latest slide in the step", [tutor("The generator (Slide 13)."), tutor("And the prior (Slide 15).")], null, 15],
+		["an answer just explained counts as the tutor's words", [done("Right: see (Slide 22)."), tutor("Next idea.")], null, 22],
+		["nothing cited", [tutor("Hello.")], null, null],
+		["nothing at all", [], null, null],
+	];
+	for (const [name, step, q, expected] of cases) it(name, () => assert.equal(learnSlideAt(step, q), expected));
+
+	it("the screen shows that slide, and a slide the student picks holds only until the next step or question", () => {
+		const src = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "lockedin", "screens", "learn.tsx"), "utf-8");
+		assert.match(src, /const cited = learn\.slideAt \?\? /);
+		assert.match(src, /useEffect\(\(\) => \{ setSlide\(null\); \}, \[stepKey, q\?\.id\]\)/);
+	});
+
+	it("the view carries it", () => {
+		const msgs = [opening(), assistant([text("One guess first.")]), assistant([text("Strict dominance is on (Slide 3). The table is (Slide 4)."), quizCall("c1", { type: "check", nodeId: "nash" })])];
+		const v = view(msgs);
+		assert.equal(v.learn?.slideAt, 4);
+	});
+});
+
+describe("the slide beside a Practise question (v3.1)", () => {
+	const src = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "lockedin", "screens", "session.tsx"), "utf-8");
+	it("a new question shows its own slide, not one browsed to during the last answer", () => {
+		assert.match(src, /setHint\(null\);\n\t\t\t\/\/ A new question shows its own slide[^\n]*\n\t\t\tsetSlide\(null\);/);
+	});
+	it("in a round across units, the page pictured is the question's own unit's", () => {
+		assert.match(src, /<SlidePage lectureId=\{lectureId \?\? view\.lecture\.id\}/);
 	});
 });

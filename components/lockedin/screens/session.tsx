@@ -85,6 +85,8 @@ export function SessionScreen({ id }: { id: string }) {
 			setConf(null);
 			setWhy("");
 			setHint(null);
+			// A new question shows its own slide (v3.1): one browsed to during the last answer does not carry over.
+			setSlide(null);
 			qRef.current?.focus();
 		}
 	}, [showQuestion, view?.question?.id]);
@@ -411,7 +413,7 @@ export function SessionScreen({ id }: { id: string }) {
 							</div>
 							<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
 								{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</span>}
-								{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
+								{s ? <SlidePage lectureId={lectureId ?? view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 							</div>
 							{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
 							<span className="li-small li-muted">The panel follows the slide the explanation cites. Click any slide chip to open it here.</span>

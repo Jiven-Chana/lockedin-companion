@@ -16,7 +16,7 @@ import { sideSegmentId } from "../side-chat.ts";
 import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
-import { parseSlideRefs, trimSlides } from "./slides.ts";
+import { lastSlideRef, parseSlideRefs, trimSlides } from "./slides.ts";
 import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView, StudyMode } from "./types.ts";
 
 /** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
@@ -397,6 +397,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 		else if (item.type === "aside") for (const n of parseSlideRefs(item.answer)) cited.add(n);
 	}
 
+	const slideAt = learnSlideAt(step);
 	const base: SessionView = {
 		id: session.id,
 		engine: "learnharness",
@@ -418,6 +419,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 			...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
 			timeUp: !!endsAt && now.getTime() >= endsAt.getTime(),
 			finished,
+			...(slideAt !== null ? { slideAt } : {}),
 		},
 	};
 
@@ -431,7 +433,9 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	if (pending && supported) {
 		const qd = questionDataFromCall(pending.toolCallId, pending.tool, pending.input);
 		const canHint = qd.kind === "quiz" && sideSegmentId(messages as LhMessage[], pending.messageId) !== null;
-		return { ...base, status: "question", question: toSessionQuestion(qd, pending.tool), canHint };
+		const question = toSessionQuestion(qd, pending.tool);
+		const at = learnSlideAt(step, question);
+		return { ...base, status: "question", question, canHint, learn: { ...base.learn!, ...(at !== null ? { slideAt: at } : {}) } };
 	}
 	if (pending) return { ...base, status: "error", error: `unsupported_question:${pending.tool}` };
 
@@ -447,6 +451,24 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	const age = typeof newest?.timestamp === "number" ? now.getTime() - newest.timestamp : 0;
 	if (age > LEARN_RULES.stalledMs) return { ...base, status: "reply" };
 	return { ...base, status: "thinking", activity: LEARN_COPY.writing };
+}
+
+/**
+ * The slide to show beside a Learn step (v3.1): the one the open question
+ * names, else the latest one the tutor cited in the step, in reading order.
+ * Not the lowest, and not from the question's own explanation, which the
+ * student has not seen yet.
+ */
+export function learnSlideAt(step: readonly LearnItem[], question?: { stem?: string } | null): number | null {
+	const own = lastSlideRef(question?.stem);
+	if (own !== null) return own;
+	for (let i = step.length - 1; i >= 0; i--) {
+		const item = step[i]!;
+		const text = item.type === "tutor" ? item.text : item.type === "answered" ? item.explanation : item.type === "aside" ? item.answer : undefined;
+		const n = lastSlideRef(text);
+		if (n !== null) return n;
+	}
+	return null;
 }
 
 // ─── a study block: Learn or Practise ───────────────────────────────────────

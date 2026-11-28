@@ -184,6 +184,8 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	// A new step starts at its top; something added to the step is brought into view.
 	const stepKey = learn.step[0]?.type === "answered" ? learn.step[0].id : "first";
 	useEffect(() => { window.scrollTo({ top: 0 }); }, [stepKey]);
+	// A slide the student picked holds until the next step or question arrives; then the panel follows the lesson again (v3.1).
+	useEffect(() => { setSlide(null); }, [stepKey, q?.id]);
 	useEffect(() => { if (view.status === "thinking") setSent(false); }, [view.status, learn.step.length]);
 
 	const openSlide = useCallback((n: number) => { setSlide(n); setPanel("slide"); }, []);
@@ -301,7 +303,8 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const where = learn.phase === "probe" ? LEARN_COPY.finding : plan && plan.index > 0 && plan.current ? LEARN_COPY.position(plan.index, plan.total, plan.current, plan.next) : plan ? LEARN_COPY.before(plan.total) : view.goal;
 	const left = learn.endsAt ? Math.max(0, Math.ceil((new Date(learn.endsAt).getTime() - Date.now()) / 60_000)) : null;
 	const timeUp = learn.timeUp || left === 0;
-	const cited = q?.slides?.[0] ?? view.slideRefs[0];
+	// The slide beside the step (v3.1): the open question's own, else the latest one the tutor cited.
+	const cited = learn.slideAt ?? q?.slides?.[0] ?? view.slideRefs[0];
 	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 	const s = slides.find((x) => x.number === pos.number);
 	const items = learn.step.filter((i) => i.type !== "aside");
