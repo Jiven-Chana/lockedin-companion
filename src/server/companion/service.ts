@@ -901,6 +901,21 @@ export class CompanionService {
 		return this.pack(lectureId);
 	}
 
+	/**
+	 * "Rewrite questions" on a module (v3.1): each unit that has questions gets them written again, one unit at a time.
+	 * Only ever on request: it uses the student's AI. The map and the explainers are kept.
+	 */
+	rewriteQuestions(code: string): { units: number } {
+		const mod = this.requireModule(code);
+		if (!this.aiReady) throw new CompanionError("not_connected", 409, "Connect your AI to write questions.");
+		const packs = this.requirePacks();
+		const units = this.store.lectures().filter((l) => l.module === mod.code && l.hasMaterials && (packs.bank(l.id)?.length ?? 0) > 0 && !packs.isRunning(l.id));
+		if (units.length === 0) throw new CompanionError("no_questions", 409, PACK_COPY.rewrite.none);
+		for (const u of units) packs.start(u.id, { bank: true });
+		this.log("questions_rewrite", { module: mod.code, units: units.length });
+		return { units: units.length };
+	}
+
 	cancelPack(lectureId: string) {
 		assertSafeId(lectureId, "lecture id");
 		this.requirePacks().cancel(lectureId);
@@ -1937,7 +1952,9 @@ export class CompanionService {
 	/** A bank question for a unit, as a notification shows it (N-1 v2), skipping ids already used. */
 	questionFor(lectureId: string, used: ReadonlySet<string> = new Set()): NudgeQuestion | undefined {
 		const bank = this.packs?.bank(lectureId) ?? null;
-		const q = bank?.find((x) => !used.has(x.id)) ?? bank?.[0];
+		// One short enough to read on a lock screen, when the unit has one unused (v3.1: a question may now be longer than a notification).
+		const unused = bank?.filter((x) => !used.has(x.id)) ?? [];
+		const q = unused.find((x) => x.stem.length <= PHONE_RULES.notifyStemMax) ?? unused[0] ?? bank?.[0];
 		return q ? this.asNudgeQuestion(lectureId, q) : undefined;
 	}
 
@@ -2142,6 +2159,12 @@ export class CompanionService {
 		if ((spec.kind === "retest" || spec.kind === "try-now") && !spec.learn && spec.study === undefined) spec = { ...spec, study: "practise" };
 		// Practise runs on the question bank and needs no AI (V-40). A unit with no bank yet can only be taught, so it stays Learn.
 		if (spec.study === "practise" && !spec.practise && !this.content.scriptedSet(spec.lectureId)) spec = { ...spec, study: "learn" };
+		// Practise on one unit (v3.1): its questions are chosen from the student's history, as a module round's are, not the same easiest few every time.
+		if (spec.study === "practise" && !spec.practise && !spec.order && spec.kind !== "retest" && !spec.nodes?.length && (this.packs?.bank(spec.lectureId)?.length ?? 0) > 0) {
+			const unit = this.lectureById(spec.lectureId);
+			const order = unit ? this.practisePicks(unit.module, spec.budget.questions, new Set(spec.firstQuestionId ? [spec.firstQuestionId] : []), undefined, unit.id).map((p) => p.questionId) : [];
+			if (order.length) spec = { ...spec, order };
+		}
 		const engine = spec.study === "practise" ? "scripted" : (opts.engine ?? this.store.demo().engineOverride ?? this.defaultEngine());
 		// Two modes only (V-40; step 5). The tutor teaching is Learn; anything on the question bank is Practise.
 		if (engine === "learnharness" && !spec.learn) spec = this.asLearn(spec);
@@ -2462,9 +2485,9 @@ export class CompanionService {
 	}
 
 	/** The questions for a Practise round: what `pickPractise` chooses from the module's banks and the student's history. */
-	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>, idea?: string): { lectureId: string; questionId: string }[] {
+	private practisePicks(module: string, n: number, exclude: ReadonlySet<string>, idea?: string, onlyUnit?: string): { lectureId: string; questionId: string }[] {
 		const now = this.now();
-		const all: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
+		const all: PractiseCandidate[] = this.store.lectures().filter((l) => l.module === module && (!onlyUnit || l.id === onlyUnit)).flatMap((l) => (this.packs?.bank(l.id) ?? []).map((question) => ({ lectureId: l.id, question })));
 		// One idea only: its own questions, or the whole unit's when the gap is on the unit in general.
 		const candidates = !idea ? all : all.filter((c) => (idea.endsWith(`#${GENERAL_IDEA}`) ? `${c.lectureId}#${GENERAL_IDEA}` === idea : ideaKeyOf(c) === idea));
 		if (candidates.length === 0) return [];
@@ -2933,8 +2956,8 @@ export class CompanionService {
 		}
 		const minutes = opts.minutes ?? this.learnMinutes();
 		// The module's other units, in course order (v3.1): the tutor may go to one when the goal is there.
-		const module = this.lectureById(lectureIds[0]!)!.module;
-		const reach = this.learnUnits(module).map((u) => u.id).filter((id) => !lectureIds.includes(id)).slice(0, LEARN_RULES.reachUnits);
+		const moduleCode = this.lectureById(lectureIds[0]!)!.module;
+		const reach = this.learnUnits(moduleCode).map((u) => u.id).filter((id) => !lectureIds.includes(id)).slice(0, LEARN_RULES.reachUnits);
 		const spec: SessionSpec = {
 			kind: opts.kind ?? "learn",
 			lectureId: lectureIds[0]!,

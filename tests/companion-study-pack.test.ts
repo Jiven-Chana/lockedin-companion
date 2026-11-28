@@ -20,11 +20,11 @@ const e = (over: Partial<Explainer> = {}): Explainer => ({
 describe("bank questions", () => {
 	const cases: Array<[string, Partial<BankQuestion>, RegExp | null]> = [
 		["a good question", {}, null],
-		["a stem too long for a notification", { stem: "x".repeat(PACK_RULES.stemMax + 1) }, /keep it to 90/],
+		["a stem too long", { stem: "x".repeat(PACK_RULES.stemMax + 1) }, /keep it to 200/],
 		["two options", { options: ["a", "b"] as never }, /exactly 3/],
 		["duplicate options", { options: ["Yes", "yes", "No"] }, /must differ/],
 		["correct out of range", { correct: 3 as never }, /0, 1 or 2/],
-		["an explanation too long", { explanation: "y".repeat(141) }, /keep it to 140/],
+		["an explanation too long", { explanation: "y".repeat(PACK_RULES.explanationMax + 1) }, /keep it to 200/],
 		["a slide that doesn't exist", { slides: [9] }, /slide 9 doesn't exist/],
 		["no citation", { slides: [] }, /at least one slide/],
 		["a node not on the map", { node: "auctions" }, /isn't on the map/],

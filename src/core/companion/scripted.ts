@@ -94,6 +94,8 @@ export function initialScriptedState(set: ScriptedSet, spec: SessionSpec, misses
 	// A study block's first step (V-44) is its first question.
 	const first = spec.firstQuestionId ? byId(set, spec.firstQuestionId) : undefined;
 	if (first && queue.length < budget) add(first);
+	// The questions chosen for this round from the student's history (v3.1), so a round is not the same easiest few every time.
+	for (const id of spec.order ?? []) if (queue.length < budget) add(byId(set, id));
 	for (const q of set.questions.filter((q) => !q.retestOnly)) if (queue.length < budget) add(q);
 	for (const q of set.questions) if (queue.length < budget) add(q);
 	if (seeds.length > 0) {

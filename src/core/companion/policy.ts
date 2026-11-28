@@ -452,9 +452,15 @@ export const BLOCK_RULES = {
 
 /** Study packs (F-105). Slots per stage: open decision O-13, built with the spec's proposed default. */
 export const PACK_RULES = {
-	/** A bank stem must fit a phone notification body (N-1 v2). */
-	stemMax: 90,
-	explanationMax: 140,
+	/** A question stands on its own (v3.1), so it has room to state the numbers or the case it needs. It was 90, to fit a notification: the phone now prefers the short ones (PHONE_RULES.notifyStemMax). */
+	stemMax: 200,
+	explanationMax: 200,
+	/** The right answer gives itself away when it is this many times, and this many characters, longer than the longest wrong one. */
+	giveaway: { ratio: 1.8, chars: 20 },
+	/** Two stems sharing this share of their words are the same question. */
+	duplicateOverlap: 0.8,
+	/** The second check has no slides: when acting on its disagreements would leave fewer questions than this, they are not acted on. */
+	coldFloor: 8,
 	explainerWords: 120,
 	bankMin: 12,
 	bankMax: 20,
@@ -462,7 +468,7 @@ export const PACK_RULES = {
 	/** Explainers per pack: one per map node, at most this many. */
 	maxExplainers: 8,
 	/** Which of the student's model slots writes each stage (O-13). */
-	slots: { map: "strong", explainers: "strong", bank: "cheap" } as const,
+	slots: { map: "strong", explainers: "strong", bank: "cheap", check: "cheap" } as const,
 	/** Slides text sent to the model, in estimated tokens (~4 characters each). */
 	slideTokenBudget: 12_000,
 	/** A failed stage is tried again after each of these waits (V-23). */
@@ -473,6 +479,15 @@ export const PACK_RULES = {
 
 /** What the lecture page says about a study pack that isn't being written right now (v1.0 T-4, T-5). */
 export const PACK_COPY = {
+	/** "Rewrite questions" on a module (v3.1): only on request, because it uses the student's AI. */
+	rewrite: {
+		button: "Rewrite questions",
+		confirm: (units: number) => `Write new questions for ${units} ${units === 1 ? "unit" : "units"}? This uses your AI, and takes a few minutes.`,
+		yes: "Rewrite them",
+		no: "Keep these",
+		started: (units: number) => `Writing new questions for ${units} ${units === 1 ? "unit" : "units"}. The ones you have stay until the new ones are ready.`,
+		none: "This module has no questions to rewrite yet.",
+	},
 	queued: "Waiting its turn.",
 	retrying: (seconds: number) => `Your AI was busy. Trying again in ${seconds} seconds.`,
 	waitingForConnection: "Waiting for your AI connection.",
@@ -1010,6 +1025,8 @@ export const keepGoingText = (n: number) => `Keep going: ${n} more questions on 
  */
 /** The laptop's phone link (F-112): upload at least every 30 min, pull events every minute; the facilitator's "send now" question. */
 export const PHONE_RULES = {
+	/** A notification's question is one short enough to read on a lock screen, when the unit has one (v3.1). */
+	notifyStemMax: 90,
 	uploadEveryMs: 30 * 60_000,
 	pullEveryMs: 60_000,
 	timeoutMs: 10_000,

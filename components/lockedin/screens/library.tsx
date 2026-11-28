@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
+import { LEARN_COPY, NOTE_COPY, PACK_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
@@ -94,6 +94,17 @@ export function LibraryScreen() {
 	const [adding, setAdding] = useState<string | null>(null);
 	const [learning, setLearning] = useState<string | null>(null);
 	const [knowing, setKnowing] = useState<string | null>(null);
+	// "Rewrite questions" (v3.1) asks first: it uses the student's AI, so it never happens by itself.
+	const [rewriting, setRewriting] = useState<string | null>(null);
+	async function rewrite(code: string) {
+		setRewriting(null);
+		try {
+			const r = await lockedIn.rewriteQuestions(code);
+			setMsg(PACK_COPY.rewrite.started(r.units));
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
+		}
+	}
 	const [msg, setMsg] = useState<string | null>(null);
 	const course = useData(() => lockedIn.course());
 	const search = useData(() => (q.trim() ? lockedIn.lectures(q.trim()) : Promise.resolve(null)), [q]);
@@ -164,8 +175,16 @@ export function LibraryScreen() {
 									{/* Beside the module's other quiet actions (v3.0.1), so a long module name never pushes it onto a row of its own. */}
 									<button type="button" className="li-btn ghost" onClick={() => setAdding(adding === m.code ? null : m.code)}><Icon.plus />Add course material</button>
 									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
+									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={rewriting === m.code} onClick={() => setRewriting(rewriting === m.code ? null : m.code)}>{PACK_COPY.rewrite.button}</button> : null}
 									<span style={{ flexGrow: 1 }} />
 									<ShareControl mod={m} onChange={() => void course.reload()} onError={setMsg} />
+								</div>
+							) : null}
+							{rewriting === m.code ? (
+								<div className="li-note li-row" role="group" aria-label={PACK_COPY.rewrite.button} style={{ gap: 10 }}>
+									<span style={{ flexGrow: 1 }}>{PACK_COPY.rewrite.confirm(m.units.filter((l) => l.hasMaterials).length)}</span>
+									<button type="button" className="li-btn" onClick={() => void rewrite(m.code)}>{PACK_COPY.rewrite.yes}</button>
+									<button type="button" className="li-btn ghost" onClick={() => setRewriting(null)}>{PACK_COPY.rewrite.no}</button>
 								</div>
 							) : null}
 							{knowing === m.code ? <ModuleNotes code={m.code} onClose={() => setKnowing(null)} /> : null}

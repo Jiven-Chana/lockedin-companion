@@ -71,6 +71,8 @@ export interface SessionSpec {
 	seedAnswers?: SeedAnswer[];
 	/** A study block's first step (V-44): the session opens on this bank question. */
 	firstQuestionId?: string;
+	/** Practise on one unit (v3.1): the questions chosen for this round from the student's history, in the order to ask them. The round fills up from the unit's set after them. */
+	order?: string[];
 	/** Learn or Practise (V-40). Absent means Learn. */
 	study?: StudyMode;
 	/** Learn (V-47): set on every session the tutor teaches. */
@@ -691,6 +693,9 @@ export const COMPANION_EVENT_TYPES = [
 	"pack_retry",
 	"pack_ready",
 	"pack_failed",
+	"pack_checked", // v3.1: the small second check of a unit's questions { lectureId, asked, unanswerable, disagreed, model }
+	"pack_check_skipped", // v3.1: that check failed, so the questions that passed the rules were kept { lectureId, error }
+	"questions_rewrite", // v3.1: "Rewrite questions" on a module { module, units }
 	"explainer_opened",
 	"map_node_clicked",
 	// v0.1 F-108
