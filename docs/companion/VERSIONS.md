@@ -22,7 +22,8 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v3.0** | 27 Nov 2026 | tag `lockedin-v3.0` on `main` (PR #18) | The Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
 | **v3.0.1** | 28 Nov 2026 | tag `lockedin-v3.0.1` on `main` (PR #19) | Fixes from Jiven's own run-through of v3.0: Today, Week and Progress fit one screen; Progress as blocks with side panels; the Learn plan without dashes; the Library says a week once; page changes fade in (V-86 to V-88). Laptop only: no relay deploy | [`DECISIONS.md`](DECISIONS.md) V-86 to V-88, and its section below |
 | **v3.1** | 28 Nov 2026 | branch `feat/v3.1`, tag `lockedin-v3.1` once merged | "Learn that teaches": a Learn session opens on what the student wants, with an optional check and "Where you are"; written and worked answers marked by the tutor; the whole module in reach; attachments; Practise questions that stand on their own; several files and web pages as material (V-89 to V-96). Laptop only: no relay deploy | [`v3.1-plan.md`](v3.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-89 to V-96 |
-| **v3.1.1** | 28 Nov 2026 | branch `fix/v3.1.1`, tag `lockedin-v3.1.1` once merged | What using v3.1 showed: one plan that carries the check's levels, named stages in Learn, a unit's weeks as a range and changeable, an enlarged diagram that fills the window, maths ending in `\}` rendered, Speak beside every writing box | Explainer visuals in the Blocks look (sample designs first); Part C of v3.1 |
+| **v3.1.1** | 28 Nov 2026 | branch `fix/v3.1.1`, tag `lockedin-v3.1.1` once merged | What using v3.1 showed: one plan that carries the check's levels, named stages in Learn, a unit's weeks as a range and changeable, an enlarged diagram that fills the window, maths ending in `\}` rendered, Speak beside every writing box | Part C of v3.1 |
+| **v3.2** | 28 Nov 2026 | branch `feat/v3.2`, tag `lockedin-v3.2` once merged | Pictures that build up: an explainer or a tutor's diagram arrives a step at a time in the Blocks look, with one block to guess first; chosen from four working designs | "Change it and see" and "Two cases compared"; old explainers stay still pictures |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
@@ -463,6 +464,18 @@ Jiven used v3.1 and listed what was still wrong. The decisions are [`DECISIONS.m
 - Changing a step's level with the real tutor; dark mode, high contrast and larger text on the changed screens.
 
 ### What is still missing
-- **Explainer visuals in the Blocks look**, in place of mermaid's own drawing: sample designs are to be chosen from first.
+- **Explainer visuals in the Blocks look**, in place of mermaid's own drawing: built as v3.2.
 - A unit that covers weeks that are not next to each other (weeks 3 and 7): a range only.
 - Everything listed as missing under v3.1.
+
+## v3.2: pictures that build up (28 Nov 2026)
+
+The plan, how the design was chosen from four, what was built and what was measured are in [`v3.2-plan.md`](v3.2-plan.md); the decisions are [`DECISIONS.md`](DECISIONS.md) V-101 to V-103. Nothing changes on the phone, so there is no relay deploy.
+
+### What it does
+- A diagram in Learn, or on a Library explainer card, is drawn in Blocks and arrives a step at a time: Back, Next, "Show it all", Enlarge. Each step lights its blocks, can put a short note on a block, and has one sentence, beside the picture when there is room.
+- It can open with one block to guess. Nothing is marked; the reason is shown in mint or lilac; "Show me instead" skips it. The tutor's own guess question is unchanged.
+- The tutor and the explainer writer are told to write every picture as plain boxes and arrows, so LockedIn draws it. Anything else still goes to mermaid.
+
+### Checked, not checked, still missing
+See sections 6 and 7 of the plan. In short: tests, six window sizes, and four real-AI calls (the tutor wrote a stepped picture at the first attempt; a unit's explainers went from 0 of 8 to 8 of 8 drawn by LockedIn). Not checked: a gap written by the tutor inside Learn, dark mode and high contrast, the keyboard alone. Still missing: the two designs left out, and old explainers, which stay still pictures until a study pack is made again.

@@ -237,7 +237,7 @@ The list of lectures by week (`roadmap`) is no longer part of this response (V-3
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/events` | `{ type, data }` or an array (types: `CLIENT_EVENT_TYPES` in `src/core/companion/types.ts`, e.g. `onboarding_step`, `settings_changed`, `block_started`, `explainer_opened`, `dictation_used`, `error`) | `{ logged }` |
+| POST | `/events` | `{ type, data }` or an array (types: `CLIENT_EVENT_TYPES` in `src/core/companion/types.ts`, e.g. `onboarding_step`, `settings_changed`, `block_started`, `explainer_opened`, `dictation_used`, `picture_gap`, `picture_done`, `error`) | `{ logged }` |
 | GET | `/events.csv` | **demo.** | CSV: `t, wall, participant, type, data` |
 
 Server-side events are logged automatically: `onboarding_done`, `nudge_fired/opened/snoozed/dismissed`, `wasnt_there`, `session_prepare_started`, `session_prepared` (with `latencyMs`), `session_opened`, `question_shown` (with `msSinceOpen`), `answer` (correct, confidence, why length, assisted, `msOnQuestion`, miss reason), `hint`, `show_me`, `keep_going`, `session_done`, `session_stopped`, `block_started`, `app_open_blocked`, `lock_override`, `settings_changed`, `engine_fallback`, `error`.

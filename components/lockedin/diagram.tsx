@@ -7,12 +7,14 @@
  * securityLevel "strict" and the look's own colours (light, dark, high
  * contrast). Mermaid is loaded only when such a diagram appears. If a
  * diagram can't be drawn, its source is shown with a short note instead.
- * Tap to enlarge.
+ * Tap to enlarge. A box-and-arrow diagram that carries steps or a gap is
+ * a picture that builds up (v3.2, picture.tsx).
  */
 
 import { useEffect, useId, useRef, useState } from "react";
-import { parseSimpleFlow, safeMermaid, tokenHex } from "@/src/core";
+import { parsePictureScript, parseSimpleFlow, safeMermaid, tokenHex } from "@/src/core";
 import { BlocksMap } from "./blocks-map";
+import { SteppedPicture } from "./picture";
 import { useLockedInOptional } from "./root";
 
 let renders = 0;
@@ -21,6 +23,8 @@ export function Diagram({ source }: { source: string }) {
 	// Plain boxes and arrows: LockedIn draws it, with the same rule and the same blocks as the concept map.
 	const flow = parseSimpleFlow(source);
 	if (flow) {
+		// With steps or a gap written into it, the picture builds up (v3.2). Without, it is shown whole, as before.
+		if (parsePictureScript(source, flow.nodes.map((n) => n.id))) return <figure className="li-diagram"><SteppedPicture source={source} /></figure>;
 		return (
 			<figure className="li-diagram">
 				<BlocksMap nodes={flow.nodes} edges={flow.edges} label="Diagram" block={(n, { style }) => <div key={n.id} className="li-idea plain" style={style}><b>{n.label}</b></div>} />

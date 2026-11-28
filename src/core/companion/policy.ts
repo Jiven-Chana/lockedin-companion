@@ -369,6 +369,50 @@ export const LEARN_SAYS = {
 	correct: (title: string, level: "solid" | "shaky" | "notyet") => `Correction: "${title}" is ${level === "notyet" ? "not yet" : level} for me. Plan from that.`,
 } as const;
 
+/** Pictures that build up (v3.2): how much of the AI's step and gap lines is kept. */
+export const PICTURE_RULES = {
+	/** One step is not a build-up. */
+	minSteps: 2,
+	maxSteps: 8,
+	titleMax: 60,
+	sayMax: 300,
+	/** A note on a block ("held still"): a few words. */
+	noteMax: 24,
+	askMax: 200,
+	whyMax: 200,
+	optionsMin: 2,
+	optionsMax: 4,
+	/** Enlarged, a picture may be drawn up to this many times its size, within the window. */
+	grow: 1.6,
+	/** A picture's blocks hold one label of up to two lines, so they are smaller and closer than a concept map's: five rows, with the sentence and the buttons beside them, fit a 13-inch window. */
+	size: { w: 184, h: 64, slot: 24, gapX: 26, gapY: 34 },
+	/** Enlarged, the room the window's edge and the picture's header need, in px. The rest of the height is the picture's. */
+	largeChrome: 170,
+} as const;
+
+/** The words on a picture that builds up (v3.2). A guess is never marked, and never red. */
+export const PICTURE_COPY = {
+	gapHead: "Guess",
+	gapNote: "Before it builds up · nothing is marked",
+	showMe: "Show me instead",
+	yes: "Yes.",
+	no: "Not this one.",
+	itIs: (label: string) => `It is “${label}”.`,
+	build: "Build it up",
+	seeIt: "See the picture",
+	back: "Back",
+	next: "Next",
+	done: "Done",
+	again: "From the start",
+	all: "Show it all",
+	bySteps: "Step by step",
+	stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
+	whole: "The whole picture",
+	enlarge: "Enlarge",
+	close: "Close",
+	label: "A picture that builds up",
+} as const;
+
 export const LEARN_COPY = {
 	/** The first step of every Learn session (v3.1): plain screen, no AI until it is answered. */
 	intent: {
