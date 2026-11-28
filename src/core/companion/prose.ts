@@ -35,7 +35,9 @@ export type ProseBlock =
 // Order matters: code and maths are opaque, slide chips before emphasis.
 // Inline maths follows pandoc's rule so prices ("$5 and $10") stay text:
 // no space just inside either dollar, and no digit right after the closing one.
-const INLINE = /(`[^`\n]+`)|(\$(?=[^\s$])(?:[^$\n\\]|\\.)*?[^\s$\\]\$(?!\d)|\$[^\s$]\$(?!\d))|(\(\s*Slides?\s+[\d\s,–-]+\))|(\*\*(?=\S)[^*]*?\S\*\*)|(\*(?=\S)[^*\n]*?\S\*|\*[^\s*]\*)/g;
+// The last thing before the closing dollar may be an escaped character ("\}", "\|", "\,"): a set
+// such as $S(i)=\{\mathrm{yes}\}$ ends on one, and was left as raw text until v3.1.1. An escaped dollar never closes.
+const INLINE = /(`[^`\n]+`)|(\$(?=[^\s$])(?:[^$\n\\]|\\.)*?(?:[^\s$\\]|\\[^\s$])\$(?!\d)|\$[^\s$]\$(?!\d))|(\(\s*Slides?\s+[\d\s,–-]+\))|(\*\*(?=\S)[^*]*?\S\*\*)|(\*(?=\S)[^*\n]*?\S\*|\*[^\s*]\*)/g;
 
 export function parseInline(text: string): Inline[] {
 	const out: Inline[] = [];

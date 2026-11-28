@@ -516,11 +516,9 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 							) : null}
 					{panel ? (
 							<aside className="li-slides" aria-label={panel === "plan" ? "Plan" : "Slides"}>
+								{/* One switch (v3.1.1): Plan and Slide in the bar open and change this panel. It has a name and a way to close, not a second pair of the same buttons. */}
 								<div className="li-row" style={{ gap: 8 }}>
-									<span className="li-tabs" role="tablist" style={{ flexGrow: 1 }}>
-										{plan ? <button type="button" role="tab" aria-selected={panel === "plan"} onClick={() => setPanel("plan")}>{LEARN_COPY.planTab}</button> : null}
-										<button type="button" role="tab" aria-selected={panel === "slide"} onClick={() => setPanel("slide")}>{LEARN_COPY.slideTab}</button>
-									</span>
+									<b className="li-eyebrow" style={{ flexGrow: 1 }}>{panel === "plan" ? LEARN_COPY.planTitle : LEARN_COPY.slideTab}</b>
 									<button type="button" className="li-icon-btn" aria-label="Close" onClick={() => setPanel(null)}><Icon.close /></button>
 								</div>
 								{panel === "plan" && plan ? <LearnPlan plan={plan} /> : null}
