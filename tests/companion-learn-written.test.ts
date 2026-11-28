@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { LEARN_COPY, learnSteps, verdictOf, writtenMarks, type LearnItem } from "../src/core/companion/index.ts";
+import { LEARN_COPY, LEARN_SAYS, learnSteps, tutorOwesNextStep, unmarkedCheck, verdictOf, writtenMarks, type LearnItem } from "../src/core/companion/index.ts";
 import { newAnswerResult, newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
 import { assistant, text } from "./helpers/companion-lh.ts";
 
@@ -102,5 +102,39 @@ describe("the settings and the words", () => {
 	it("a mark is said without red, and never as a score", () => {
 		assert.deepEqual(LEARN_COPY.verdict, { right: "Right", partly: "Partly there", notyet: "Not yet" });
 		assert.equal(LEARN_COPY.marking, "Your tutor is reading it…");
+	});
+});
+
+/**
+ * Seen with the real tutor on 28 Nov: its reply to a written answer came back
+ * empty. The answer sat unmarked and the student was left with "Carry on".
+ */
+describe("a reply that never came", () => {
+	const empty = () => assistant([text("")], "stop");
+	const tree = [opening(), assistant([text("Try."), explain("e1")]), answer("e1")];
+
+	it("an empty reply to an answer means the tutor still owes its turn", () => {
+		assert.equal(tutorOwesNextStep([...tree, empty()]), true);
+		assert.equal(tutorOwesNextStep(tree), false, "it has not replied at all yet: that is waiting, not a stall");
+	});
+	it("it is asked once: after LockedIn's own line, nothing more is owed", () => {
+		assert.equal(tutorOwesNextStep([...tree, empty(), newUserMessage(LEARN_SAYS.markIt)]), false);
+		assert.equal(tutorOwesNextStep([...tree, empty(), newUserMessage(LEARN_SAYS.markIt), empty()]), false);
+	});
+	it("for a written check it is asked to mark the answer, not just to carry on", () => {
+		assert.equal(unmarkedCheck([...tree, empty()]), true);
+		assert.equal(unmarkedCheck([...tree, assistant([text("Verdict: right\nYes.")], "stop")]), false);
+		assert.equal(unmarkedCheck([...tree, assistant([text("Good, next step.")], "stop")]), true, "a reply with no mark leaves the check unmarked too");
+		assert.equal(unmarkedCheck([opening(), assistant([text("Guess."), explain("p1", { type: "predict" })]), answer("p1", { questionType: "predict" }), empty()]), false, "a guess is never marked");
+	});
+	it("the mark that follows LockedIn's own line is still read, and the line is not shown", () => {
+		const msgs = [...tree, empty(), newUserMessage(LEARN_SAYS.markIt), assistant([text("Verdict: partly\nYou gave the method but not the reason.")], "stop")];
+		const step = learnSteps(msgs).at(-1)!;
+		assert.equal(step[0]!.type === "answered" ? step[0]!.verdict : null, "partly");
+		assert.deepEqual(step.filter((i) => i.type === "tutor" || i.type === "you").map((i) => (i.type === "tutor" || i.type === "you" ? i.text : "")), ["You gave the method but not the reason."]);
+	});
+	it("the tutor is told what that line means", () => {
+		const method = fs.readFileSync(path.join(ROOT, "companion", "seed", "prompts", "teacher", "05-method.md"), "utf-8");
+		assert.ok(method.includes(`"${LEARN_SAYS.markIt}"`));
 	});
 });

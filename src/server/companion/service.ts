@@ -895,7 +895,7 @@ export class CompanionService {
 		return { meta: packs.status(lectureId), explainers, questions: packs.bank(lectureId)?.length ?? 0, running: packs.isRunning(lectureId) };
 	}
 
-	/** Start or resume a unit's pack; `fresh` regenerates every stage. */
+	/** Start or resume a unit's pack; `fresh` regenerates every stage; `questions` writes only its questions again (v3.1). */
 	regeneratePack(lectureId: string, body: unknown) {
 		assertSafeId(lectureId, "lecture id");
 		const l = this.lectureById(lectureId);
@@ -903,7 +903,8 @@ export class CompanionService {
 		if (!l.hasMaterials) throw badRequest("add material to this unit first");
 		if (!this.aiReady) throw new CompanionError("not_connected", 409, "Connect your AI to write study packs.");
 		const fresh = !!(body && typeof body === "object" && (body as { fresh?: unknown }).fresh === true);
-		this.requirePacks().start(lectureId, { fresh });
+		const questions = !fresh && !!(body && typeof body === "object" && (body as { questions?: unknown }).questions === true);
+		this.requirePacks().start(lectureId, questions ? { bank: true } : { fresh });
 		return this.pack(lectureId);
 	}
 

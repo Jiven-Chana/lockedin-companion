@@ -361,6 +361,8 @@ export const LEARN_SAYS = {
 	skipProbe: "Skip, just teach me.",
 	planOk: "Looks good.",
 	carryOn: "Carry on.",
+	/** Sent for the student when a written check came back with no mark (v3.1): the tutor's reply was empty, or had no verdict line. */
+	markIt: "Mark my answer.",
 	/** The student corrects a block of "Where you are" (v3.1). `learnWhere` reads these back. */
 	correct: (title: string, level: "solid" | "shaky" | "notyet") => `Correction: "${title}" is ${level === "notyet" ? "not yet" : level} for me. Plan from that.`,
 } as const;

@@ -15,7 +15,7 @@ import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "../../../core/pending.ts";
 import { dismissedAnswer } from "../../../core/question-core.ts";
-import { learnSteps, mapLearnView, tutorOwesNextStep, type LearnMade } from "../../../core/companion/learn.ts";
+import { learnSteps, mapLearnView, tutorOwesNextStep, unmarkedCheck, type LearnMade } from "../../../core/companion/learn.ts";
 import { ATTACH_COPY, HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
@@ -204,7 +204,8 @@ export class LearnHarnessEngine implements SessionEngine {
 		if (v.status !== "reply" || v.learn?.phase !== "teach" || v.learn.finished || session.state === "stopped" || !tutorOwesNextStep(this.record(session))) return v;
 		const thinking = { ...v, status: "thinking" as const, activity: LEARN_COPY.writing };
 		try {
-			return (await this.askForQuestion(this.chatId(session), LEARN_SAYS.carryOn)) ? { ...thinking, teacherNudged: true } : thinking;
+			// A written check left unmarked is asked for its mark; anything else for the next step.
+			return (await this.askForQuestion(this.chatId(session), unmarkedCheck(this.record(session)) ? LEARN_SAYS.markIt : LEARN_SAYS.carryOn)) ? { ...thinking, teacherNudged: true } : thinking;
 		} catch {
 			return v;
 		}

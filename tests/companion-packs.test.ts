@@ -460,6 +460,17 @@ describe("Practise questions are checked, and rewritten only on request (v3.1)",
 		assert.equal(svc.questionFor(id, used)!.stem, long);
 	});
 
+	it("one unit's questions can be written again by themselves", async () => {
+		const a = ai(twelve, () => ({ verdicts: [] }));
+		const { svc, id } = await setup(a);
+		await svc.packs!.idle();
+		a.calls.length = 0;
+		svc.regeneratePack(id, { questions: true });
+		await svc.packs!.idle();
+		assert.deepEqual(a.calls, ["submit_bank", "submit_check"]);
+		assert.equal(svc.pack(id).meta?.state, "ready");
+	});
+
 	it("with nothing to rewrite, or no AI, it says so and starts nothing", async () => {
 		const { svc } = await setup(ai(twelve), { aiReady: false });
 		assert.throws(() => svc.rewriteQuestions("GT"), /Connect your AI/);

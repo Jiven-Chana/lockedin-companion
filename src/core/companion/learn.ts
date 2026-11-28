@@ -369,17 +369,20 @@ function currentChecked(tree: PlanTree, messages: readonly LhMessage[]): boolean
  */
 export function tutorOwesNextStep(messages: readonly LhMessage[]): boolean {
 	let said = "";
+	// The tutor has had its turn since whatever set it off. A turn that came back empty (seen with the real tutor, v3.1) counts: it is a stall.
+	let replied = false;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if (m.role === "custom" && QUIET_MARKERS.includes(m.customType)) continue;
 		if (m.role === "assistant") {
 			if (m.stopReason === "error" || m.stopReason === "aborted") return false;
 			// It asked its next question itself: nothing is owed.
-			if (!said && m.content.some((b) => b.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(b.name))) return false;
-			if (!said) said = m.content.flatMap((b) => (b.type === "text" ? [b.text] : sendToUserText(b) ? [sendToUserText(b)!] : [])).join("\n").trim();
+			if (!replied && m.content.some((b) => b.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(b.name))) return false;
+			if (!replied) said = m.content.flatMap((b) => (b.type === "text" ? [b.text] : sendToUserText(b) ? [sendToUserText(b)!] : [])).join("\n").trim();
+			replied = true;
 			continue;
 		}
-		if (!said) return false;
+		if (!replied) return false;
 		// What set this turn off.
 		if (m.role === "toolResult" && !answerOf(m)) continue;
 		if (/\?\s*$/.test(said)) return false;
@@ -387,6 +390,17 @@ export function tutorOwesNextStep(messages: readonly LhMessage[]): boolean {
 		return m.role === "custom" && (m.customType === "subagent-steer" || m.customType === "subagent-abort");
 	}
 	return false;
+}
+
+/**
+ * The newest answer is a written check the tutor has not marked (v3.1): its
+ * reply was empty, or carried no verdict line. LockedIn then asks for the
+ * mark (LEARN_SAYS.markIt) instead of "Carry on.".
+ */
+export function unmarkedCheck(messages: readonly LhMessage[]): boolean {
+	const first = learnSteps(messages).at(-1)?.[0];
+	return first?.type === "answered" && !first.guess && !first.options.length && !first.dontKnow && first.verdict === undefined && first.written !== undefined && first.correct === undefined
+		&& messages.some((m) => m.role === "toolResult" && m.toolCallId === first.id && answerOf(m)?.kind === "explain");
 }
 
 export interface LearnViewInput {

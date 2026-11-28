@@ -20,7 +20,8 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v2.2** | 27 Nov 2026 | tag `lockedin-v2.2` on `main` (PR #16) | Shipped: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Jiven ran the checklist on his iPhone on 27 Nov | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
 | **v2.3** | 27 Nov 2026 | tag `lockedin-v2.3` on `main` (PR #17) | Shipped: a phone that can be used by itself. A block opens from the phone's week, "Practise" on the phone's home screen, maths drawn on the phone, and Today on the laptop says what was answered on the phone (V-76 to V-79). Jiven checked it on his iPhone on 27 Nov | [`v2.3-plan.md`](v2.3-plan.md), [`DECISIONS.md`](DECISIONS.md) V-76 to V-79 |
 | **v3.0** | 27 Nov 2026 | tag `lockedin-v3.0` on `main` (PR #18) | The Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
-| **v3.0.1** | 28 Nov 2026 | branch `fix/v3.0.1`, tag `lockedin-v3.0.1` once merged | Fixes from Jiven's own run-through of v3.0: Today, Week and Progress fit one screen; Progress as blocks with side panels; the Learn plan without dashes; the Library says a week once; page changes fade in (V-86 to V-88). Laptop only: no relay deploy | [`DECISIONS.md`](DECISIONS.md) V-86 to V-88, and its section below |
+| **v3.0.1** | 28 Nov 2026 | tag `lockedin-v3.0.1` on `main` (PR #19) | Fixes from Jiven's own run-through of v3.0: Today, Week and Progress fit one screen; Progress as blocks with side panels; the Learn plan without dashes; the Library says a week once; page changes fade in (V-86 to V-88). Laptop only: no relay deploy | [`DECISIONS.md`](DECISIONS.md) V-86 to V-88, and its section below |
+| **v3.1** | 28 Nov 2026 | branch `feat/v3.1`, tag `lockedin-v3.1` once merged | "Learn that teaches": a Learn session opens on what the student wants, with an optional check and "Where you are"; written and worked answers marked by the tutor; the whole module in reach; attachments; Practise questions that stand on their own; several files and web pages as material (V-89 to V-96). Laptop only: no relay deploy | [`v3.1-plan.md`](v3.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-89 to V-96 |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
@@ -393,4 +394,46 @@ What replaced it, before release:
 ### What is still missing
 - **Known and small:** two lectures timetabled at the same time are drawn on top of each other in Week, as before.
 - **v4.0:** the desktop app.
+
+---
+
+## v3.1: Learn that teaches (28 Nov 2026)
+
+The plan, with what Jiven said and what the code did before, is [`v3.1-plan.md`](v3.1-plan.md); the decisions are [`DECISIONS.md`](DECISIONS.md) V-89 to V-96. Nothing changes on the phone app, so there is no relay deploy.
+
+### In one paragraph
+Jiven ran first-run setup and a Learn session with a fresh data folder and found that Learn did not teach: it opened on a question he could not answer, knew only one week of his module, checked with multiple choice, could not take a worked solution, and the Practise questions were easy or badly written. v3.1 changes how a Learn session starts (what you want, an optional check, where you are, then the plan), what a check is (your own words, marked by the tutor), what the tutor can reach (the whole module, and a file you attach), and how Practise questions are written and chosen. AI usage is the constraint throughout: the same reading budgets, the cheap model for questions, and no rewriting unless asked.
+
+### What the real tutor did (28 Nov, his fresh data, `gpt-6-sol` and `gpt-6-luna`)
+About eleven tutor turns and two question-writing calls were used.
+- **His own case.** Started on the week 1 unit with his words: "I want to focus on week 7-9 content. I know what GANs are but I am not too sure how to solve problems on them", with the check on. The tutor read the idea files of weeks 7, 8 and 9 and asked nothing for a filename.
+- **The check.** Two questions in his own words, each answerable with no slide ("Suppose a discriminator correctly identifies most generated images as fake. When updating the generator, what outcome is it trying to make more likely, and why?"). It stopped at the first wrong answer.
+- **Where you are and the plan.** Four blocks (Solid, Not yet, two Not checked), then five ideas from weeks 8 and 9 written `m6-…` and `m7-…`, starting at the idea that was wrong, and saying week 7 was left for another block. 31 seconds for that turn; others 5 to 14.
+- **Written checks.** Small applied problems ("a real image gets D(x)=0.2, a generated one D(G(z))=0.8: state the desired direction of each output and explain why"). A half-right answer was marked "partly" with what was right and what was missing; the idea went on the record as one to revisit, against the week 8 unit. A full answer was marked "right" and the lesson moved on.
+- **An attached worked solution**, with the check skipped: the plan was built round it, one line at a time, ending on "Independent variation".
+- **Rewriting one unit's questions** (the GAN unit, 44 seconds): before, 9 recall and 9 understand, none applied, some pointing at "the slides"; after, 12 applied and 6 understand, each stating its own case, options the same length. The second check was asked about 18, could answer all and agreed with all.
+
+### What went wrong with the real tutor, and what was done
+- **A check turn that ended on a sentence.** The tutor wrote "Have a go…" and stopped without asking; the student would have had to press "Carry on". Its instructions now say the sentence and the question go in the same turn. Not seen again in the two check questions that followed; not proven gone.
+- **An empty reply to a written answer.** The first written check came back with a reply of nothing, so no mark. LockedIn now treats an empty reply as a stall and asks once, "Mark my answer."; the mark then arrived. The next written answer was marked directly. This costs one extra turn when it happens.
+
+### How it was checked
+- 1,442 companion tests. New files: `companion-uploads`, `companion-questions`, `companion-learn-start`, `companion-learn-written`, `companion-attach`, and additions to the Learn, pack and practise tests.
+- The real AI, as above.
+- In Chrome at 1470 x 750, 1280 x 720, 1024 x 700 and 735 x 750: the first step, a written question with a marked answer beside it, the plan with "Where you are", and the Library. Nothing spilled out of its block or made the page wider than the window. The first step fits one screen; a lesson scrolls, as a conversation does.
+
+### What was not checked
+- **Uploading several large PDFs through the browser.** The rules are tested, and the cause (a 26 MiB limit on one request) is read from the code, but 43 MB of his PDFs were not dropped on the real page.
+- **A picture attached**, to the real tutor: only a text file was. A PDF page with no text is tested with a stand-in reader.
+- **Correcting a block of "Where you are"** with the real tutor, the how-you-learn card after the first step, picking up a stopped session from the first step, and a question asked beside an open written check.
+- **"Rewrite questions" on a whole module** (it was run on one unit), and a Practise round on the rewritten questions.
+- Dark mode, high contrast and the larger text sizes on the new screens.
+- Whether students find written checks better than multiple choice: this is Jiven's judgement, not yet a test finding. The hi-fi test on 30 Nov is the first chance.
+
+### What is still missing
+- **Part C of the plan, not designed:** the tutor's words streamed as they are written; pictures and demos shown large and playable; notes on A4 pages treated as notes (they are still one "slide" a page).
+- **A photo as the answer to a written check.** A file can be sent only when no question is open; over an open question the screen asks for the answer first.
+- **Known:** a rewritten question can still be easy (the GAN unit got "A fair six-sided die is rolled repeatedly. Which value is its expected outcome?"), and one said "which listed model family", which leans on a list it does not give. The second check has no slides, so it cannot catch a question that is merely too easy.
+- **Usage, measured loosely:** a session's opening message is longer by one line a unit of the module; the second check of a unit's questions is one small call; an empty reply costs one extra turn.
+- **Owed to the group:** design-log rows for V-89 to V-96, three of which replace or keep earlier decisions (V-59, part of V-47, V-40).
 
