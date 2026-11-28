@@ -157,7 +157,7 @@ export function ProgressScreen() {
 						<h2 id="sc" className="li-eyebrow" style={{ margin: 0, color: "inherit" }}><Icon.progress />{PROGRESS_COPY.score}</h2>
 						{p.score.weekChange !== 0 ? <span className="li-chip li-on-mint" style={{ fontSize: "0.95em", padding: "2px 12px" }}>{p.score.weekChange > 0 ? <Icon.up /> : null}{PROGRESS_COPY.thisWeek(p.score.weekChange)}</span> : null}
 					</span>
-					<span className="li-row" style={{ gap: 14, alignItems: "flex-end", flexWrap: "nowrap" }}>
+					<span className="li-row" style={{ gap: 14, alignItems: "flex-end" }}>
 						<b className="li-numeral li-score">{p.score.now.toLocaleString("en-GB")}</b>
 						<b style={{ paddingBottom: 4, minWidth: 0 }}>{p.score.ideasSecured} of {ideas} ideas secured{p.score.fading ? ` · ${p.score.fading} fading` : ""}</b>
 					</span>
@@ -225,7 +225,7 @@ export function ProgressScreen() {
 				</section>
 
 				<section className="li-card li-stack" aria-labelledby="ms" style={{ gap: 10 }}>
-					<span className="li-row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "baseline" }}><h2 id="ms" className="li-h2">{PROGRESS_COPY.milestones}</h2><b className="li-numeral" style={{ fontSize: "1.6em" }}>{PROGRESS_COPY.earned(ms.earned, ms.total)}</b></span>
+					<span className="li-row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "baseline" }}><h2 id="ms" className="li-h2">{PROGRESS_COPY.milestones}</h2><b className="li-h2">{PROGRESS_COPY.earned(ms.earned, ms.total)}</b></span>
 					{/* Blocks you can count: one per milestone, mint when it is earned. */}
 					<span className="li-count" aria-hidden="true">{p.milestones.map((m) => <i key={m.id} data-on={String(!!m.earnedAt)} />)}</span>
 					{ms.latest ? <span className="li-one-line"><span className="li-tickbox small" data-on="true" aria-hidden="true"><Icon.check /></span><span className="li-small li-muted">{PROGRESS_COPY.latest} · {day(ms.latest.earnedAt!)}</span><b title={ms.latest.title}>{ms.latest.title}</b></span> : null}
@@ -235,7 +235,7 @@ export function ProgressScreen() {
 				</section>
 
 				<section className="li-card li-stack" aria-labelledby="rv" style={{ gap: 10 }}>
-					<span className="li-row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "baseline" }}><h2 id="rv" className="li-h2">{PROGRESS_COPY.toRevisit}</h2>{gapModules.length ? <b className="li-numeral" style={{ fontSize: "1.6em" }}>{GAP_COPY.ideas(gaps.data!.ideas)}</b> : null}</span>
+					<span className="li-row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "baseline" }}><h2 id="rv" className="li-h2">{PROGRESS_COPY.toRevisit}</h2>{gapModules.length ? <b className="li-h2">{GAP_COPY.ideas(gaps.data!.ideas)}</b> : null}</span>
 					{gaps.data && gapModules.length === 0 ? <span className="li-muted">{GAP_COPY.empty}</span> : null}
 					{gapModules.length ? (
 						<>

@@ -122,3 +122,42 @@ describe("Progress fits one screen: its long lists open in a panel", () => {
 		assert.ok(src.indexOf("<GapsByIdea") > src.indexOf("<SidePanel"), "the ideas are inside a panel");
 	});
 });
+
+/**
+ * The first build of v3.0.1 pinned these pages to the window's height and cut
+ * off what did not fit, and made headings smaller on three tabs only. In any
+ * window smaller than the one it was checked in, buttons and cards were
+ * sliced. These rules are what stop that coming back.
+ */
+describe("a page that fits the window never cuts its content, and never changes its type to fit", () => {
+	const css = read("components/lockedin/lockedin.css");
+	const rules = css.split("\n").map((l) => l.trim()).filter((l) => l.includes("{"));
+	const fit = rules.filter((l) => /:has\(\.li-(fit|fill)\)/.test(l));
+
+	it("there are rules for such pages", () => {
+		assert.ok(fit.length >= 8, String(fit.length));
+	});
+	it("none of them clips, fixes a height or caps one", () => {
+		for (const l of fit) assert.ok(!/overflow(-y)?:\s*(hidden|auto|scroll)|(^|[;{\s])height:|max-height:/.test(l.slice(l.indexOf("{"))), l.slice(0, 110));
+	});
+	it("none of them changes a font size: every tab has the same headings and text", () => {
+		for (const l of fit) assert.ok(!/font-size/.test(l), l.slice(0, 110));
+		assert.equal(rules.filter((l) => /^\.li-h1\b/.test(l) && /font-size/.test(l)).length, 1, "one size for a page's title");
+		assert.equal(rules.filter((l) => /\.li-h1\b/.test(l) && /font-size/.test(l)).length, 1, "and no rule changes it for a page");
+	});
+	it("no font size depends on the height of the window", () => {
+		const blocks = [...css.matchAll(/@media \((?:max|min)-height[^{]*\{([\s\S]*?)\n\}/g)].map((m) => m[1]!);
+		assert.ok(blocks.length >= 1);
+		for (const b of blocks) assert.ok(!/font-size/.test(b), b.slice(0, 200));
+		for (const l of rules.filter((x) => /^@media \((?:max|min)-height/.test(x))) assert.ok(!/font-size/.test(l), l.slice(0, 110));
+	});
+	it("the app is at least as tall as the window, never exactly as tall", () => {
+		const app = rules.filter((l) => /^\.li-app\b/.test(l));
+		assert.ok(app.some((l) => /min-height: 100vh/.test(l)));
+		for (const l of app) assert.ok(!/(^|[;{\s])height:/.test(l.slice(l.indexOf("{"))), l.slice(0, 110));
+	});
+	it("the blocks of Progress and Today do not clip or scroll inside themselves", () => {
+		// One line of text cut short with "…" (its full words are its tooltip) is not a clipped block.
+		for (const l of rules.filter((x) => /^\.li-(progress-top|progress-three|today-three|today-top|from-rows|hero|band)(?![-\w])/.test(x) && !x.includes("text-overflow: ellipsis"))) assert.ok(!/overflow(-y)?:\s*(hidden|auto|scroll)/.test(l), l.slice(0, 110));
+	});
+});

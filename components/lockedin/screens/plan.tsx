@@ -194,13 +194,8 @@ export function PlanScreen() {
 			<span className="li-fit" hidden />
 			<div className="li-row li-week-head">
 				<PageHead eyebrow="Week" icon={<Icon.calendar />} title="Your study week" />
-				<div className="li-row" style={{ gap: 8, flexWrap: "nowrap" }}>
-					<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), -7))} aria-label="Previous week"><span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><Icon.chevron /></span></button>
-					<b style={{ whiteSpace: "nowrap" }}>{p ? `Week of ${new Date(`${p.week}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}` : "…"}</b>
-					<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), 7))} aria-label="Next week"><span style={{ display: "inline-flex", transform: "rotate(-90deg)" }}><Icon.chevron /></span></button>
-				</div>
 				<span style={{ flexGrow: 1 }} />
-				<div className="li-row" style={{ gap: 14, alignItems: "center", flexWrap: "nowrap" }}>
+				<div className="li-row" style={{ gap: 14, alignItems: "center" }}>
 					{/* The weekly target as blocks you can count: one per hour, mint for what is kept. */}
 					<section className="li-card li-stack" style={{ gap: 6, padding: "8px 14px" }} aria-label="Weekly target">
 						<span className="li-row" style={{ gap: 10, flexWrap: "nowrap" }}>
@@ -227,12 +222,15 @@ export function PlanScreen() {
 			{showCheckin ? <CheckIn onDone={(w) => { setShowCheckin(false); setWeek(w); void plan.reload(); }} /> : null}
 
 			<div className="li-row" style={{ gap: 10 }}>
+				<span className="li-row" style={{ gap: 8, flexWrap: "nowrap", marginRight: 6 }}>
+					<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), -7))} aria-label="Previous week"><span style={{ display: "inline-flex", transform: "rotate(90deg)" }}><Icon.chevron /></span></button>
+					<b style={{ whiteSpace: "nowrap" }}>{p ? `Week of ${new Date(`${p.week}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}` : "…"}</b>
+					<button type="button" className="li-btn ghost" onClick={() => setWeek(addDaysIso(p?.week ?? iso(now), 7))} aria-label="Next week"><span style={{ display: "inline-flex", transform: "rotate(-90deg)" }}><Icon.chevron /></span></button>
+				</span>
 				{p?.replan.open ? <button type="button" className="li-btn" disabled={busy} onClick={() => void replan()}><Icon.ring />{PLAN_COPY.replan.button}</button> : null}
 				{proposals ? <button type="button" className="li-btn" onClick={async () => { await lockedIn.acceptBlocks(p!.week); void plan.reload(); }}><Icon.check />Keep all {proposals}</button> : null}
 				<Link className="li-btn ghost" href="/app/plan/chat"><Icon.say />Plan my week with me (2 min)</Link>
 				{!showCheckin ? <button type="button" className="li-btn ghost" onClick={() => setShowCheckin(true)}>Check in</button> : null}
-				{/* Said before the timetable, not after it (v2.2, LF-10). */}
-				{p ? <span className="li-row li-tt-hint li-small" style={{ gap: 8, marginLeft: "auto", flexWrap: "nowrap" }}><Icon.move />{PLAN_COPY.dragHint}</span> : null}
 			</div>
 			{msg || p?.replan.canUndo ? (
 				<div className="li-note li-row" role="status" style={{ gap: 10, alignItems: "center" }}>
@@ -243,7 +241,9 @@ export function PlanScreen() {
 
 			{/* Wide screens: a timetable to drag blocks around (V-37). Narrow ones keep the list below, where dragging has no room. */}
 			{p ? (
-				<div className="li-tt-wrap li-stack" style={{ gap: 12 }}>
+				<div className="li-tt-wrap li-stack" style={{ gap: 10 }}>
+					{/* Said before the timetable, not after it (v2.2, LF-10). */}
+					<p className="li-row li-small" style={{ margin: 0, gap: 8 }}><Icon.move />{PLAN_COPY.dragHint}</p>
 					<WeekGrid
 						plan={p}
 						today={iso(now)}

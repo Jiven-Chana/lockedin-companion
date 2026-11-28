@@ -369,16 +369,25 @@ Jiven used v3.0 on his own laptop for an evening and listed what was wrong. Ever
 | Transitions are abrupt | In Calm, the default, a page change had no animation | A page, and what arrives on it, fades in and rises for 200 ms in Calm and Full. Off and the system's reduce motion still switch it off |
 | Pages take forever to change (fixed in v3.0 before release) | Me asked for the AI status without stopping | See the v3.0 section |
 
+### The first build of v3.0.1 was wrong, and what replaced it
+The first build pinned Today and Progress to the window's height and hid what did not fit, and made headings smaller on those three tabs and smaller again in short windows. It was checked only at window sizes where everything happened to fit. In a narrower or zoomed window, buttons and cards were cut in half, and a page's title changed size from one tab to the next. Jiven, on opening it: "All the pages are now fucked. Also the fonts are all pear shaped."
+
+What replaced it, before release:
+- **Nothing is cut.** A page is at least as tall as the window and its main row takes the height left over; it is never shorter than its content. No block hides or scrolls its own content.
+- **Type never changes to fit.** Every tab has the same title, heading and text sizes, as in v3.0, in every window. A short window gets less air round its blocks and leaves out three lines a page can spare.
+- **Below a wide window** (1,100 across) the pages flow and scroll as they did in v3.0.
+- Tests forbid the first build's rules: a fixed height, a clipped block, or a font size that depends on the page or the window (`tests/companion-tidy.test.ts`).
+
 ### How it was checked
-- 1,247 companion tests. New in `tests/companion-tidy.test.ts`: the timetable's sizing rule, the milestone summary, the Library's line, the Learn wording, and that the page-change animation is not tied to Full and is still switched off by Off and reduce motion.
-- In Chrome, measured: Today, Week and Progress are exactly one screen at 1470 x 700, 750 and 800, 1280 x 720, 1440 x 900 and 1728 x 1000, in dark, and at 1470 x 750 in light, with no block cut at the bottom of the window and none clipping its own content.
-- Seen in Chrome at 1470 wide: the three pages in dark and light, both side panels (Escape closes them), the Library, and a Learn session's bar and plan.
+- 1,253 companion tests. New in `tests/companion-tidy.test.ts`: the timetable's sizing rule, the milestone summary, the Library's line, the Learn wording, that the page-change animation is not tied to Full and is still switched off by Off and reduce motion, and the rules above.
+- In Chrome, on a fresh copy of Jiven's data with his settings (light, Motion "Full"), every tab at ten window sizes, from half a screen (735 wide) and 125% zoom to 1920 x 1000. Looked for in each: content cut by its own block, content spilling out of a block, two rows overlapping, and the type sizes on each tab. None found on Today, Week or Progress, and the type is the same on every tab (title 51 px, heading 26 px, text 17 px).
+- The three pages are exactly one screen at 1470 x 800 and 1470 x 750 (Progress is 2 px over at 750). At 1470 x 720 Progress scrolls 32 px. Smaller windows scroll.
+- Seen in Chrome: the three pages, both side panels (Escape closes them), the Library, and a Learn session's bar and plan.
 - A study block dragged with a real mouse on the resized timetable moved to the time it was dropped on. No page asks the server for anything while idle.
 
 ### What was not checked
-- Not seen on Jiven's own screen: his window's real height is an estimate (about 720 to 800).
-- High contrast, and the large and extra-large text sizes, were not opened on the three pages that now fit. Larger text needs more room, so those pages may scroll at his window size.
-- Today was seen with no lectures on the day and Progress with six modules. A day with many lectures scrolls inside Today's "Today" block; more than about eight modules scroll inside "Where it came from".
+- Not seen in Jiven's own browser or on his screen. Safari was not opened: everything was checked in Chrome.
+- High contrast, and the large and extra-large text sizes, were not opened on the three pages. Larger text needs more room, so those pages will scroll.
 - The timetable's one-line blocks show "not started" and "moved" as a mark only, with the word in the tooltip. Nobody has been asked whether that is clear.
 
 ### What is still missing

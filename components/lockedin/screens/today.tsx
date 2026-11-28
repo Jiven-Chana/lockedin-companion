@@ -176,7 +176,7 @@ export function TodayScreen() {
 
 				<Link href="/app/progress" className="li-card li-stack" style={{ gap: 12 }} aria-label={revisit ? `${revisit} ideas ready to revisit` : "Nothing to revisit yet"}>
 					<span className="li-row" style={{ alignItems: "flex-end", gap: 12, flexWrap: "nowrap" }}>
-						<span className="li-numeral li-today-num">{revisit}</span>
+						<span className="li-numeral" style={{ fontSize: "5.2em" }}>{revisit}</span>
 						<span className="li-h2" style={{ paddingBottom: 6 }}>{revisit === 1 ? "idea ready to revisit" : "ideas ready to revisit"}</span>
 					</span>
 					{/* Blocks you can count: lilac is "to revisit", everywhere. */}
@@ -187,8 +187,8 @@ export function TodayScreen() {
 				<section className="li-panel ink li-stack" style={{ gap: 14 }} aria-labelledby="week-h">
 					<h2 id="week-h" className="li-h2">This week</h2>
 					<div className="li-row" style={{ gap: 28, alignItems: "flex-start", flexWrap: "nowrap" }}>
-						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral li-today-num">{progress.data?.week.sessions ?? "–"}</b><b>sessions</b></span>
-						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral li-today-num">{progress.data?.week.questionsAnswered ?? "–"}</b><b>questions answered</b></span>
+						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral" style={{ fontSize: "4.4em" }}>{progress.data?.week.sessions ?? "–"}</b><b>sessions</b></span>
+						<span style={{ display: "flex", flexDirection: "column", gap: 8 }}><b className="li-numeral" style={{ fontSize: "4.4em" }}>{progress.data?.week.questionsAnswered ?? "–"}</b><b>questions answered</b></span>
 					</div>
 				</section>
 			</div>
