@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explainer designs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+	--paper: #FFF3DC; --card: #FFFDF8; --sand: #F1DFBC; --ink: #1F1B2D; --quiet: #4B4560;
+	--mint: #7BE0AE; --lilac: #CDBEFF; --mod: #FF9248;
+	--display: "Bricolage Grotesque", system-ui, sans-serif; --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+	--edge: 2.5px solid var(--ink); --lift: 3px 3px 0 var(--ink);
+}
+[data-idea="gulfs"] { --mod: #5AAEFF; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.5 var(--body); }
+main { max-width: 1320px; margin: 0 auto; padding: 28px 16px 80px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); }
+h2 { font-size: 1.7rem; }
+h3 { font-size: 1.05rem; letter-spacing: 0; }
+p { margin: 0; }
+.eyebrow { font-family: var(--display); font-weight: 800; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.quiet { color: var(--quiet); }
+.small { font-size: 0.88rem; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.card { background: var(--card); border: var(--edge); border-radius: 18px; padding: 18px; }
+.lede { max-width: 68ch; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+.btn { font-family: var(--display); font-weight: 800; background: var(--card); border: var(--edge); border-radius: 12px; padding: 7px 16px; box-shadow: var(--lift); }
+.btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.btn.primary { background: var(--mod); }
+.btn:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+.chip { display: inline-block; border: 2px solid var(--ink); border-radius: 999px; padding: 0 10px; font-size: 0.82rem; font-weight: 700; background: var(--card); }
+.seg { display: inline-flex; border: var(--edge); border-radius: 12px; overflow: hidden; background: var(--card); flex-wrap: wrap; }
+.seg button { border: 0; background: none; padding: 8px 14px; font-family: var(--display); font-weight: 800; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.bar { position: sticky; top: 0; z-index: 5; background: var(--paper); padding: 10px 0; border-bottom: 2px dashed var(--sand); margin: 18px 0 8px; }
+
+.brief { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.brief .card { padding: 14px; }
+
+section.design { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 18px; margin-top: 44px; align-items: start; }
+section.design > header { grid-column: 1 / -1; }
+@media (max-width: 1180px) { section.design { grid-template-columns: minmax(0, 1fr); } }
+.letter { display: inline-grid; place-items: center; width: 44px; height: 44px; border: var(--edge); border-radius: 12px; background: var(--mod); font-family: var(--display); font-weight: 800; font-size: 1.4rem; box-shadow: var(--lift); }
+.notes h3 { margin-bottom: 4px; }
+.notes ul { margin: 0; padding-left: 1.1em; }
+.notes li { margin-bottom: 5px; }
+.notes .card { padding: 14px; }
+.for { border-left: 8px solid var(--mint); }
+.against { border-left: 8px solid var(--lilac); }
+.tag { font-size: 0.74rem; font-weight: 700; border: 1.5px solid var(--quiet); color: var(--quiet); border-radius: 6px; padding: 0 5px; white-space: nowrap; }
+
+/* The explainer page as it would sit in Learn. */
+.page { background: var(--card); border: var(--edge); border-radius: 18px; padding: 18px; box-shadow: 5px 5px 0 var(--ink); }
+.stagehead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--quiet); }
+.stagehead b { font-family: var(--display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.9rem; padding: 0 10px; border-radius: 8px; border: 2px solid currentColor; }
+.say { min-height: 4.6em; font-size: 1.05rem; }
+.say b { font-family: var(--display); }
+
+/* The picture: blocks on a grid, links drawn between them. One renderer for every design. */
+.frame { overflow-x: auto; padding: 14px 4px 6px; }
+.pic { position: relative; min-width: 600px; }
+.pic .grid { display: grid; gap: 30px 24px; align-items: center; }
+.pic svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.pic line { stroke: var(--ink); stroke-width: 2.5; transition: opacity 0.2s; }
+.pic line.dim { opacity: 0.3; }
+.node { position: relative; background: var(--card); border: var(--edge); border-radius: 14px; padding: 9px 6px; text-align: center; font-size: 0.94rem; overflow-wrap: anywhere; transition: opacity 0.2s, background 0.2s, transform 0.2s; }
+.node b { display: block; font-family: var(--display); font-weight: 800; line-height: 1.15; }
+.node span { display: block; font-size: 0.8rem; line-height: 1.25; margin-top: 3px; }
+.node.on { background: var(--mod); box-shadow: var(--lift); }
+.node.dim { opacity: 0.45; }
+.node.gone { visibility: hidden; }
+.node.mint { background: var(--mint); }
+.node.lilac { background: var(--lilac); }
+.node.blank { border-style: dashed; }
+.node.pick { outline: 4px solid var(--ink); outline-offset: 3px; }
+.node .badge { position: absolute; top: -13px; right: 8px; background: var(--ink); color: var(--paper); border-radius: 999px; padding: 0 9px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.node .badge.q { background: var(--card); color: var(--ink); border: 2px dashed var(--ink); }
+.node .num { position: absolute; top: -13px; left: -11px; width: 26px; height: 26px; border-radius: 50%; background: var(--lilac); border: 2px solid var(--ink); font-weight: 700; font-size: 0.82rem; display: grid; place-items: center; }
+.hole { display: inline-block; min-width: 4.5em; border: 2px dashed var(--ink); border-radius: 8px; padding: 0 6px; font-weight: 700; background: var(--paper); }
+@media (prefers-reduced-motion: no-preference) { .node.arrive { animation: rise 0.28s ease-out; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+.dots { display: inline-flex; gap: 6px; }
+.dots i { width: 22px; height: 12px; border: 2px solid var(--ink); border-radius: 4px; background: var(--card); }
+.dots i.done { background: var(--mint); }
+.dots i.now { background: var(--mod); width: 34px; }
+
+.meter { display: grid; grid-template-columns: minmax(0, 13em) minmax(0, 1fr) 3.2em; gap: 10px; align-items: center; }
+.meter .track { position: relative; height: 26px; border: var(--edge); border-radius: 8px; background: var(--card); overflow: hidden; }
+.meter .fill { height: 100%; background: var(--mod); border-right: var(--edge); transition: width 0.25s; }
+.meter .want { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 3px dashed var(--ink); }
+.meter output { font-family: var(--display); font-weight: 800; text-align: right; }
+input[type="range"] { width: 100%; accent-color: var(--ink); }
+.switch { display: flex; gap: 10px; align-items: center; border: var(--edge); border-radius: 12px; padding: 7px 12px; background: var(--card); }
+.switch[aria-pressed="true"] { background: var(--mint); box-shadow: var(--lift); }
+.switch i { width: 18px; height: 18px; border: 2px solid var(--ink); border-radius: 5px; background: var(--card); display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 0.8rem; }
+.readout { border: 2px dashed var(--sand); border-radius: 12px; padding: 10px 12px; }
+.tray { display: flex; gap: 10px; flex-wrap: wrap; }
+.tray .btn { text-align: left; }
+.verdict { border: var(--edge); border-radius: 12px; padding: 10px 12px; }
+.verdict.mint { background: var(--mint); }
+.verdict.lilac { background: var(--lilac); }
+/* Two cases sit side by side when the picture is narrow enough to be read at half width, and one above the other when it is not:
+   the blocks line up either way, which is what makes a difference easy to find. */
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--case-min, 520px)), 1fr)); gap: 14px; }
+.pair .pic { min-width: 0; }
+.case { border: 2px dashed var(--sand); border-radius: 14px; padding: 12px 10px 10px; overflow-x: auto; }
+
+.tablewrap { overflow-x: auto; }
+table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 760px; background: var(--card); border: var(--edge); border-radius: 14px; overflow: hidden; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 2px solid var(--sand); font-size: 0.92rem; }
+th { font-family: var(--display); font-weight: 800; background: var(--sand); }
+tr:last-child td { border-bottom: 0; }
+td.good { background: color-mix(in srgb, var(--mint) 45%, var(--card)); }
+td.weak { background: color-mix(in srgb, var(--lilac) 45%, var(--card)); }
+.pickbox { background: var(--mint); }
+code { font-size: 0.86em; background: var(--sand); border-radius: 5px; padding: 0 4px; }
+a { color: inherit; }
+</style>
+</head>
+<body data-idea="gan">
+<main class="stack" style="gap: 18px">
+	<span class="eyebrow">LockedIn · design exploration · 28 Nov 2026</span>
+	<h1>How should an explainer show an idea?</h1>
+	<p class="lede">Today an explainer in Learn is a paragraph and one still diagram, some drawn by LockedIn and some by mermaid in its own style. You asked for one Blocks design, more dynamic, that works for any subject. Below are four ways to do it that differ in <b>what the student does</b>, not in how they look. All four are drawn by LockedIn from data the tutor supplies (V-33), so none uses mermaid's drawing. Every sample works: use it.</p>
+
+	<div class="brief">
+		<div class="card stack" style="gap: 4px"><span class="eyebrow">The student's question</span><p>"Show me how this works." Asked in the Learn stage, after a guess and before a check.</p></div>
+		<div class="card stack" style="gap: 4px"><span class="eyebrow">What LockedIn holds</span><p>The unit's ideas, the slide each came from, the tutor's words, and whatever the tutor is asked to supply as data.</p></div>
+		<div class="card stack" style="gap: 4px"><span class="eyebrow">What today's picture assumes</span><p>That seeing the whole diagram at once is enough, and that looking is learning.</p></div>
+		<div class="card stack" style="gap: 4px"><span class="eyebrow">How it could hurt</span><p>Too much at once (AFF-C). A wrong picture taught as true (INT-01-g). A long wait, or a large bill on a student's plan.</p></div>
+	</div>
+
+	<div class="bar row">
+		<span class="eyebrow">Try every design on</span>
+		<span class="seg" role="group" aria-label="Idea">
+			<button type="button" data-set-idea="gan" aria-pressed="true">Neural Computation: alternating GAN updates</button>
+			<button type="button" data-set-idea="gulfs" aria-pressed="false">HCI: the two gulfs</button>
+		</span>
+		<span class="small quiet">One has numbers, one has none: the test of "widely applicable".</span>
+	</div>
+	<p class="small quiet">The GAN content is from your own Learn session of 28 Nov (slides 27, 29, 33; the misconception is the one your tutor checked). The HCI content was written for this page.</p>
+
+	<!-- A -->
+	<section class="design" id="A">
+		<header class="row"><span class="letter">A</span><div><h2>Build it up</h2><p class="quiet">The picture arrives one block at a time. The student sets the pace.</p></div></header>
+		<div class="page stack"><div class="stagehead"><b>Learn</b><span class="small" data-title></span></div><div data-sample="A" class="stack"></div></div>
+		<div class="notes stack">
+			<div class="card stack" style="gap: 4px"><h3>What the tutor supplies</h3><p class="small">The picture, plus for each step: which blocks are lit, a label or two, one sentence. <b data-cost="A"></b></p></div>
+			<div class="card for"><h3>Evidence for</h3><ul class="small">
+				<li><b>AFF-C</b> (Strong): "Too much at once": show one step at a time.</li>
+				<li><b>INT-02-g</b>: "even random squares and arrows on a page" help him; symbol-heavy pages make him switch off.</li>
+				<li><b>Look test, V01</b> on a text-heavy Learn step: "massive block of text looks ridiculous and I lose mental capability". On Blocks: "the blocks segment things a bit more".</li>
+				<li><b>Rey et al. 2019</b>: across 56 investigations, segments the learner paces improved retention and transfer and lowered load. <span class="tag">abstract read</span></li>
+				<li><b>Mayer &amp; Chandler 2001</b>: a learner-paced, segmented animation beat a continuous one on transfer (not on recall). <span class="tag">from reviews</span></li>
+				<li><b>Schroeder &amp; Cenkci 2018</b>: words placed with the part they describe, g = 0.63 over 58 comparisons. <span class="tag">abstract read</span></li>
+			</ul></div>
+			<div class="card against"><h3>Evidence against, and how it could hurt</h3><ul class="small">
+				<li><b>Q-6</b> (Strong): students rate doing above watching. Pressing Next is still watching.</li>
+				<li><b>LIT-42</b>, expertise reversal: steps slow a student who already knows it. Needs "Show it all".</li>
+				<li>No student of ours has been shown a stepped picture. The support is by inference from AFF-C.</li>
+			</ul></div>
+		</div>
+	</section>
+
+	<!-- B -->
+	<section class="design" id="B">
+		<header class="row"><span class="letter">B</span><div><h2>Change it and see</h2><p class="quiet">A small working model. The student moves something and the picture answers.</p></div></header>
+		<div class="page stack"><div class="stagehead"><b>Learn</b><span class="small" data-title></span></div><div data-sample="B" class="stack"></div></div>
+		<div class="notes stack">
+			<div class="card stack" style="gap: 4px"><h3>What the tutor supplies</h3><p class="small">The controls, the meters, and a formula for how each meter moves. <b data-cost="B"></b> LockedIn would need a safe way to run the tutor's formulas; in this sample they are written by hand. The engine's own demo maker has the AI write a whole web page instead: more to write (not measured here), and not in Blocks.</p></div>
+			<div class="card for"><h3>Evidence for</h3><ul class="small">
+				<li><b>You, 28 Nov</b>: "an interactive demo [that] fits the screen and lets users play around with it"; "I need it more dynamic".</li>
+				<li><b>Look test, V01</b>, on why Blocks: "Last design felt more interactive."</li>
+				<li><b>Q-6</b>: doing is rated above watching.</li>
+				<li><b>D'Angelo et al. 2014</b> (SRI review of STEM simulations): simulations with added support beat the same simulations without it, g+ = 0.49. <span class="tag">figure from the report, via search</span></li>
+				<li><b>Tversky, Morrison &amp; Bétrancourt 2002</b>: where animation helped, interactivity was often the cause. <span class="tag">from course summaries</span></li>
+			</ul></div>
+			<div class="card against"><h3>Evidence against, and how it could hurt</h3><ul class="small">
+				<li><b>Not widely applicable.</b> Switch to the HCI idea: there is nothing to measure, so the amounts are invented.</li>
+				<li><b>INT-01-g</b> (Strong): he does not trust an AI as the source of truth. A model the tutor wrote cannot be checked against a slide, and a wrong one teaches the wrong thing convincingly.</li>
+				<li><b>Lazonder &amp; Harmsen 2016</b> (72 studies) and the SRI review: guided exploring teaches more than free play. It needs a prompt, as here. <span class="tag">from summaries</span></li>
+				<li>The most to build. As data it costs about the same as the others (see the table); the engine's own demo maker, which has the AI write a whole page, would cost far more. That was not measured here.</li>
+			</ul></div>
+		</div>
+	</section>
+
+	<!-- C -->
+	<section class="design" id="C">
+		<header class="row"><span class="letter">C</span><div><h2>Fill the gap</h2><p class="quiet">The picture has a hole. The student places a block in it, then sees why.</p></div></header>
+		<div class="page stack"><div class="stagehead"><b>Guess</b><span class="small">Before you are taught · nothing is marked</span></div><div data-sample="C" class="stack"></div></div>
+		<div class="notes stack">
+			<div class="card stack" style="gap: 4px"><h3>What the tutor supplies</h3><p class="small">The picture, plus for each gap: where it is, two or three blocks to choose from, and one line on each. <b data-cost="C"></b></p></div>
+			<div class="card for"><h3>Evidence for</h3><ul class="small">
+				<li><b>Q-6</b> (Strong): practice questions and explaining are the methods students rate best.</li>
+				<li><b>Q-7</b>: 10 of 22 lean towards being questioned first.</li>
+				<li><b>Your v3.1 decision</b>: a quick guess before an idea is taught. This is that guess, made on the picture.</li>
+				<li><b>LIT-26</b>, Pan &amp; Carpenter 2023: guessing before being taught helps, when the right answer is studied straight after.</li>
+				<li><b>LIT-16, LIT-17</b>: retrieval beats rereading on a delayed test.</li>
+			</ul></div>
+			<div class="card against"><h3>Evidence against, and how it could hurt</h3><ul class="small">
+				<li><b>Look test</b>: two of three found Blocks' wrong-answer screen the most pressuring; V04 said it would "piss him off" by the third. So: lilac, small, never a score.</li>
+				<li><b>Q-7</b>: 8 of 22 want to be shown first. It must be skippable.</li>
+				<li><b>LIT-38</b>, Stull &amp; Mayer 2007: students who built an organiser did no better than those who were given it, and took longer.</li>
+				<li>It explains only after the guess: by itself it is a question, not an explainer.</li>
+			</ul></div>
+		</div>
+	</section>
+
+	<!-- D -->
+	<section class="design" id="D">
+		<header class="row"><span class="letter">D</span><div><h2>Two cases, compared</h2><p class="quiet">The same picture twice, differing in what matters. The student finds the difference.</p></div></header>
+		<div class="page stack"><div class="stagehead"><b>Learn</b><span class="small" data-title></span></div><div data-sample="D" class="stack"></div></div>
+		<div class="notes stack">
+			<div class="card stack" style="gap: 4px"><h3>What the tutor supplies</h3><p class="small">The picture, two versions of its labels, and one line on each difference. <b data-cost="D"></b></p></div>
+			<div class="card for"><h3>Evidence for</h3><ul class="small">
+				<li><b>Your own session</b>: the tutor's check was built on a wrong script ("changes the parameters of both D and G"). This puts that mistake beside the right version.</li>
+				<li><b>You, 28 Nov</b>: walk through a worked solution, then "attempt an augmentation of the question myself": an original and its variation are two cases.</li>
+				<li><b>Alfieri, Nokes-Malach &amp; Schunn 2013</b>: comparing cases beat other instruction across 57 experiments (about d = 0.50), more so when the principle is stated after the comparison. <span class="tag">figure from a summary: check before quoting</span></li>
+			</ul></div>
+			<div class="card against"><h3>Evidence against, and how it could hurt</h3><ul class="small">
+				<li><b>AFF-C</b>; <b>V04</b> on Blocks' fuller screens: "information overload". Two pictures is twice as much at once.</li>
+				<li>Not every idea has a telling contrast. Where it has none, the second case is padding.</li>
+				<li>A wrong case that is not clearly marked can be remembered as the right one.</li>
+				<li>None of our students asked for comparisons. The primary evidence is your session alone.</li>
+			</ul></div>
+		</div>
+	</section>
+
+	<section class="stack" style="margin-top: 48px">
+		<h2>The four against the same tests</h2>
+		<div class="tablewrap"><table>
+			<thead><tr><th></th><th>A · Build it up</th><th>B · Change it and see</th><th>C · Fill the gap</th><th>D · Two cases</th></tr></thead>
+			<tbody>
+				<tr><th>Our own students</th><td class="good">AFF-C (Strong), INT-02-g, look test</td><td>You and one look-test remark</td><td class="good">Q-6 (Strong), Q-7 split, your v3.1 decision</td><td class="weak">Your session only</td></tr>
+				<tr><th>Published studies</th><td class="good">Two meta-analyses, abstracts read</td><td>Supports guided play; warns against free play</td><td class="good">Reviews in our register</td><td>One meta-analysis, figure unchecked</td></tr>
+				<tr><th>Works for any subject</th><td class="good">Yes: anything with parts or steps</td><td class="weak">Only where something can be measured</td><td class="good">Yes: any picture can have a gap</td><td>Where there is a real contrast</td></tr>
+				<tr><th>AI usage, measured on these samples</th><td data-cell="A"></td><td data-cell="B"></td><td data-cell="C"></td><td data-cell="D"></td></tr>
+				<tr><th>If the tutor gets it wrong</th><td class="good">A wrong sentence, checkable against the slide</td><td class="weak">A wrong model that behaves convincingly</td><td>A wrong "right answer"</td><td>A wrong case marked as right</td></tr>
+				<tr><th>To build</th><td class="good">Smallest: today's picture plus steps</td><td class="weak">Largest: needs a safe formula runner</td><td>Small</td><td>Small</td></tr>
+			</tbody>
+		</table></div>
+		<p class="small quiet">"AI usage" is the size of the data for the two samples (GAN, then the gulfs), counted as characters divided by four, on top of the picture itself (about 120 and 90). It is a rough guide to the extra the tutor writes, not a bill. On this measure the four cost about the same, so usage does not separate them.</p>
+	</section>
+
+	<section class="card pickbox stack" style="margin-top: 20px">
+		<span class="eyebrow">What the evidence picks</span>
+		<h2>A as the explainer, with C as its first step</h2>
+		<p class="lede">A is the only design supported by a Strong finding of ours, by two meta-analyses, and it works on both sample ideas. Its known weakness is that it is watching, and C answers exactly that with our next-strongest finding (Q-6), and already matches the Guess stage you approved. So: the picture opens with one gap to guess (skippable), then builds up step by step, with "Show it all" for a student who knows it.</p>
+		<p class="lede">B is the one you asked for by name, and the evidence does not carry it as the default: it fails the "any subject" test, is the most to build, and is the riskiest when the tutor is wrong. It could be offered later, only on ideas with numbers, and only when the student asks. D fits one moment well: after a missed check, to put the student's mistake beside the right version.</p>
+		<p class="small"><b>What is not known:</b> no student has seen any of these four. Monday's hi-fi test is the first chance to watch one being used.</p>
+	</section>
+
+	<section class="stack small quiet" style="margin-top: 20px">
+		<h3 style="color: var(--ink)">Sources</h3>
+		<p>Our findings are in the team's register (<code>research/findings-register.md</code>): AFF-C, INT-01-g, INT-02-g, Q-6, Q-7, LIT-16, LIT-17, LIT-26, LIT-38, LIT-42. Look-test quotes are from <code>prototype/look/interview_results.md</code> and <code>Notes/notes-V04.md</code>. The studies below are not in the register yet.</p>
+		<p>Rey, Beege, Nebel, Wirzberger, Schmitt &amp; Schneider (2019). A meta-analysis of the segmenting effect. <i>Educational Psychology Review</i>, 31(2), 389-419. · Schroeder &amp; Cenkci (2018). Spatial contiguity and spatial split-attention effects in multimedia learning environments. <i>Educational Psychology Review</i>, 30(3), 679-701. · Mayer &amp; Chandler (2001). When learning is just a click away. <i>Journal of Educational Psychology</i>, 93, 390-397. · Höffler &amp; Leutner (2007). Instructional animation versus static pictures: a meta-analysis. <i>Learning and Instruction</i>, 17(6), 722-738 (animation over stills, d = 0.37, 26 studies; a 2016 update found g = 0.23). · Tversky, Morrison &amp; Bétrancourt (2002). Animation: can it facilitate? <i>International Journal of Human-Computer Studies</i>, 57(4), 247-262. · D'Angelo, Rutstein, Harris, Bernard, Borokhovski &amp; Haertel (2014). <i>Simulations for STEM learning: systematic review and meta-analysis</i>. SRI. · Lazonder &amp; Harmsen (2016). Meta-analysis of inquiry-based learning: effects of guidance. <i>Review of Educational Research</i>, 86(3), 681-718. · Alfieri, Nokes-Malach &amp; Schunn (2013). Learning through case comparisons: a meta-analytic review. <i>Educational Psychologist</i>, 48(2), 87-113.</p>
+		<p>Checked in Chrome, light theme only. The pictures scroll sideways inside their frame on a narrow window.</p>
+	</section>
+</main>
+
+<script>
+/* ---------- The content: what the tutor would supply, as data ---------- */
+const IDEAS = {
+	gan: {
+		title: "Alternating GAN updates", slides: [27, 29, 33],
+		picture: { cols: 5, widths: [0.75, 1.1, 1, 1.25, 0.95], nodes: [
+			{ id: "z", label: "Noise z", c: 1, r: 1 },
+			{ id: "G", label: "Generator G", sub: "makes a fake from noise", c: 2, r: 1 },
+			{ id: "fake", label: "Fake image G(z)", c: 3, r: 1 },
+			{ id: "real", label: "Real image x", c: 3, r: 2 },
+			{ id: "D", label: "Discriminator D", sub: "scores an image: 0 fake, 1 real", c: 4, r: 1, h: 2 },
+			{ id: "score", label: "Score", sub: "between 0 and 1", c: 5, r: 1, h: 2 },
+		], edges: ["z>G", "G>fake", "fake>D", "real>D", "D>score"] },
+		A: { steps: [
+			{ title: "A forger", show: ["z", "G", "fake"], on: ["G"], say: "The generator G turns random noise z into a fake image G(z)." },
+			{ title: "A judge", show: ["z", "G", "fake", "real", "D", "score"], on: ["D"], say: "The discriminator D gives any image a score from 0 (fake) to 1 (real). It is shown real images x and fakes G(z)." },
+			{ title: "Hold G still, teach D", on: ["D", "real", "fake"], badge: { G: "held still", D: "learning" }, sub: { score: "D(x) ↑ towards 1 · D(G(z)) ↓ towards 0" }, say: "Only D's weights change. D learns to score real images high and fakes low." },
+			{ title: "Hold D still, teach G", on: ["G", "fake"], badge: { D: "held still", G: "learning" }, sub: { score: "D(G(z)) ↑ towards 1" }, say: "Only G's weights change. G learns to make fakes that D scores as real. The feedback passes through D, but D does not move." },
+			{ title: "Take turns", on: ["G", "D"], badge: { G: "then G", D: "first D" }, say: "Repeat the two turns. Each network needs a fixed opponent to respond to. Update both on one loss, and G would be helping D to catch it." },
+		] },
+		B: {
+			prompt: "Press Teach D three times, then Teach G. What happens to the fake's score? Then try the wrong way.",
+			controls: [
+				{ id: "teachD", kind: "button", label: "Teach D (G held still)", does: "dx += 0.35*(1-dx); dg -= 0.35*dg" },
+				{ id: "teachG", kind: "button", label: "Teach G (D held still)", does: "dg += 0.35*(1-dg)" },
+				{ id: "both", kind: "button", label: "Wrong way: both lower D's loss", does: "dx += 0.35*(1-dx); dg -= 0.6*dg" },
+				{ id: "reset", kind: "button", label: "Start again", does: "dx = 0.5; dg = 0.5" },
+			],
+			meters: [
+				{ id: "dx", label: "D's score for a real image, D(x)", start: 0.5, want: 1, slider: true },
+				{ id: "dg", label: "D's score for a fake, D(G(z))", start: 0.5, want: null, slider: true },
+			],
+			readouts: [
+				{ label: "D's loss", formula: "-(ln dx + ln(1-dg))", note: "D wants this low" },
+				{ label: "G's loss", formula: "-ln dg", note: "G wants this low" },
+			],
+		},
+		C: { base: { on: ["G", "fake"], badge: { G: "learning" } }, gaps: [
+			{ node: "score", field: "sub", ask: "D is held still and G is being taught. G is updated so that the fake's score, D(G(z)), goes…", options: [
+				{ label: "up, towards 1", right: true, why: "G wins when D scores its fake as real." },
+				{ label: "down, towards 0", why: "That is D's aim on its own turn, not G's." },
+				{ label: "to exactly 0.5", why: "0.5 is where an even game settles. One update of G aims higher." },
+			] },
+			{ node: "D", field: "badge", ask: "And during G's turn, D's weights are…", options: [
+				{ label: "held still", right: true, why: "G needs a fixed opponent. The feedback passes through D without changing it." },
+				{ label: "updated too", why: "Then both would chase one loss, and G would be helping D to catch it." },
+				{ label: "reset", why: "Nothing is thrown away. D keeps what it learned on its own turn." },
+			] },
+		] },
+		D: { ask: "A script updates D and G together on D's loss. What differs from taking turns?", left: { title: "Both at once, on D's loss", wrong: true, badge: { G: "learning", D: "learning" }, sub: { score: "D(G(z)) ↓ towards 0" } }, right: { title: "G's turn, D held still", badge: { G: "learning", D: "held still" }, sub: { score: "D(G(z)) ↑ towards 1" } }, diffs: [
+			{ node: "D", why: "Here D moves while G is learning. G needs an opponent that stays put to respond to." },
+			{ node: "score", why: "Lowering D's loss pushes the fake's score down. That is the opposite of what G is for." },
+		], principle: "The two networks want opposite things from the same score, so each is taught on its own turn." },
+	},
+	gulfs: {
+		title: "The gulfs of execution and evaluation", slides: [12, 14],
+		picture: { cols: 3, nodes: [
+			{ id: "exec", label: "Gulf of execution", sub: "“What can I do here?”", c: 2, r: 1 },
+			{ id: "you", label: "You", sub: "have a goal", c: 1, r: 2 },
+			{ id: "sys", label: "The system", sub: "has a state", c: 3, r: 2 },
+			{ id: "eval", label: "Gulf of evaluation", sub: "“What just happened?”", c: 2, r: 3 },
+		], edges: ["you>exec", "exec>sys", "sys>eval", "eval>you"] },
+		A: { steps: [
+			{ title: "A person and a system", show: ["you", "sys"], on: ["you"], say: "You arrive with a goal: save this file. The system has its own state: saved, or not." },
+			{ title: "Getting your intention in", show: ["you", "sys", "exec"], on: ["exec"], say: "The gulf of execution is the gap between what you want to do and what the system lets you see you can do. A visible, labelled control narrows it." },
+			{ title: "Getting the result out", on: ["eval"], say: "The gulf of evaluation is the gap between what the system did and what you can tell it did. Clear, quick feedback narrows it." },
+			{ title: "Design narrows both", on: ["exec", "eval"], say: "Good design bridges both: you can see what to do, and you can see what happened." },
+		] },
+		B: {
+			prompt: "Switch things on one at a time. Which gulf does each one narrow?",
+			controls: [
+				{ id: "see", kind: "switch", label: "The control is visible", does: "exec -= 0.45" },
+				{ id: "words", kind: "switch", label: "Its label uses your words", does: "exec -= 0.45" },
+				{ id: "shows", kind: "switch", label: "The screen shows what happened", does: "eval -= 0.45" },
+				{ id: "fast", kind: "switch", label: "It answers at once", does: "eval -= 0.45" },
+			],
+			meters: [
+				{ id: "exec", label: "Gulf of execution", start: 1, want: 0 },
+				{ id: "eval", label: "Gulf of evaluation", start: 1, want: 0 },
+			],
+			readouts: [],
+			caveat: "The amounts are made up. This idea has nothing to measure, so the model shows a direction only.",
+		},
+		C: { base: { on: ["you", "sys"] }, gaps: [
+			{ node: "exec", field: "label", ask: "You want to save, and cannot find how. Which gap are you in?", options: [
+				{ label: "Gulf of execution", right: true, why: "You know what you want. The system has not shown you how to do it." },
+				{ label: "Gulf of evaluation", why: "That one comes after you act: can you tell what happened?" },
+			] },
+			{ node: "eval", field: "label", ask: "You press Save and nothing on the screen changes. Which gap now?", options: [
+				{ label: "Gulf of evaluation", right: true, why: "The system did something. You cannot tell what." },
+				{ label: "Gulf of execution", why: "You found the control and used it. The trouble is reading the result." },
+			] },
+		] },
+		D: { ask: "The same task, saving a file, on two screens. What differs?", left: { title: "A wide gulf", wrong: true, sub: { exec: "an icon with no label", eval: "nothing changes on screen" } }, right: { title: "A narrow gulf", sub: { exec: "a button that says “Save”", eval: "“Saved” appears at once" } }, diffs: [
+			{ node: "exec", why: "A label in the user's words shows what can be done. That narrows execution." },
+			{ node: "eval", why: "Feedback you can see, straight away, shows what happened. That narrows evaluation." },
+		], principle: "One gulf is about what you can do, the other about what you can tell. Each has its own fix." },
+	},
+};
+
+/* ---------- One picture renderer for every design ---------- */
+const h = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+const NS = "http://www.w3.org/2000/svg";
+const seen = new WeakMap();
+const watching = new WeakMap();
+
+function picture(host, pic, st = {}) {
+	const before = seen.get(host) ?? new Set();
+	const now = new Set();
+	host.textContent = "";
+	const wrap = h("div", "pic");
+	const svg = document.createElementNS(NS, "svg");
+	const id = "ah" + Math.random().toString(36).slice(2, 8);
+	svg.innerHTML = `<defs><marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#1F1B2D"/></marker></defs>`;
+	const grid = h("div", "grid");
+	grid.style.gridTemplateColumns = pic.widths ? pic.widths.map((w) => `minmax(0, ${w}fr)`).join(" ") : `repeat(${pic.cols}, minmax(0, 1fr))`;
+	const shown = (n) => !st.show || st.show.includes(n);
+	const lit = (n) => !st.on || st.on.includes(n);
+	const els = {};
+	for (const n of pic.nodes) {
+		const b = h("div", "node");
+		b.style.gridColumn = `${n.c} / span ${n.w ?? 1}`;
+		b.style.gridRow = `${n.r} / span ${n.h ?? 1}`;
+		const hole = st.hole?.[n.id];
+		const label = h("b");
+		if (hole === "label") label.append(h("span", "hole", "?")); else label.textContent = st.label?.[n.id] ?? n.label;
+		b.append(label);
+		const sub = st.sub?.[n.id] ?? n.sub;
+		if (hole === "sub") b.append(Object.assign(h("span"), { innerHTML: '<span class="hole">?</span>' })); else if (sub) b.append(h("span", "", sub));
+		if (hole === "badge") b.append(h("i", "badge q", "?")); else if (st.badge?.[n.id]) b.append(h("i", "badge", st.badge[n.id]));
+		if (st.num?.[n.id]) b.append(h("i", "num", String(st.num[n.id])));
+		if (!shown(n.id)) b.classList.add("gone");
+		else { now.add(n.id); if (!before.has(n.id) && before.size) b.classList.add("arrive"); }
+		if (st.on && lit(n.id)) b.classList.add("on");
+		if (st.on && !lit(n.id) && st.dimRest) b.classList.add("dim");
+		if (hole) b.classList.add("blank");
+		if (st.tone?.[n.id]) b.classList.add(st.tone[n.id]);
+		if (st.pick === n.id) b.classList.add("pick");
+		els[n.id] = b;
+		grid.append(b);
+	}
+	wrap.append(svg, grid);
+	host.append(wrap);
+	seen.set(host, now);
+	const draw = () => {
+		// A picture that has been replaced, or is not laid out yet, has no sizes to draw links from.
+		if (!wrap.isConnected) return;
+		const base = wrap.getBoundingClientRect();
+		if (!base.width) return;
+		svg.querySelectorAll("line").forEach((l) => l.remove());
+		const box = (e) => { const r = e.getBoundingClientRect(); return { cx: r.left - base.left + r.width / 2, cy: r.top - base.top + r.height / 2, w: r.width, h: r.height }; };
+		// A link runs from the edge of one block to the edge of the next, along the line between their centres.
+		const edge = (a, b, gap) => { const dx = b.cx - a.cx, dy = b.cy - a.cy; const t = Math.min(dx ? (a.w / 2 + gap) / Math.abs(dx) : Infinity, dy ? (a.h / 2 + gap) / Math.abs(dy) : Infinity); return [a.cx + dx * t, a.cy + dy * t]; };
+		for (const e of pic.edges) {
+			const [from, to] = e.split(">");
+			if (!shown(from) || !shown(to)) continue;
+			const a = box(els[from]), b = box(els[to]);
+			if (a.cx === b.cx && a.cy === b.cy) continue;
+			const [x1, y1] = edge(a, b, 4), [x2, y2] = edge(b, a, 7);
+			const l = document.createElementNS(NS, "line");
+			l.setAttribute("x1", x1); l.setAttribute("y1", y1); l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+			l.setAttribute("marker-end", `url(#${id})`);
+			if (st.on && st.dimRest && !(lit(from) || lit(to))) l.classList.add("dim");
+			svg.append(l);
+		}
+	};
+	draw();
+	watching.get(host)?.disconnect();
+	const ro = new ResizeObserver(draw);
+	ro.observe(wrap);
+	watching.set(host, ro);
+	return els;
+}
+
+const slides = (idea) => { const r = h("div", "row"); for (const n of idea.slides) r.append(h("span", "chip", `Slide ${n}`)); return r; };
+const frame = () => h("div", "frame");
+
+/* ---------- A: build it up ---------- */
+function designA(host, idea) {
+	const steps = idea.A.steps;
+	let at = 0, all = false;
+	const head = h("div", "row"), stage = frame(), say = h("p", "say"), nav = h("div", "row");
+	host.append(head, stage, say, nav, slides(idea));
+	const render = () => {
+		const s = steps[at];
+		// What a step does not mention stays as the step before left it: blocks, once shown, stay shown.
+		const show = all ? null : [...new Set(steps.slice(0, at + 1).flatMap((x) => x.show ?? []))];
+		const everything = idea.picture.nodes.map((n) => n.id);
+		picture(stage, idea.picture, all ? {} : { show: steps.slice(0, at + 1).some((x) => !x.show) ? everything : show, on: s.on, dimRest: true, badge: s.badge, sub: s.sub });
+		head.textContent = "";
+		const dots = h("span", "dots");
+		steps.forEach((_, i) => dots.append(h("i", all || i < at ? "done" : i === at ? "now" : "")));
+		head.append(dots, h("span", "small quiet", all ? "The whole picture" : `Step ${at + 1} of ${steps.length}`));
+		say.textContent = "";
+		if (all) say.append(h("span", "", steps[steps.length - 1].say)); else say.append(h("b", "", s.title + ". "), h("span", "", s.say));
+		nav.textContent = "";
+		const back = h("button", "btn", "‹ Back"), next = h("button", "btn primary", at === steps.length - 1 ? "Done ✓" : "Next ›"), whole = h("button", "btn", all ? "Step by step" : "Show it all");
+		back.disabled = all || at === 0; next.disabled = all || at === steps.length - 1;
+		back.onclick = () => { at -= 1; render(); }; next.onclick = () => { at += 1; render(); }; whole.onclick = () => { all = !all; render(); };
+		nav.append(back, next, h("span", "", ""), whole);
+		nav.children[2].style.flexGrow = 1;
+	};
+	render();
+}
+
+/* ---------- B: change it and see (the models are written by hand for this sample) ---------- */
+const MODELS = {
+	gan: {
+		press: { teachD: (v) => { v.dx += 0.35 * (1 - v.dx); v.dg -= 0.35 * v.dg; }, teachG: (v) => { v.dg += 0.35 * (1 - v.dg); }, both: (v) => { v.dx += 0.35 * (1 - v.dx); v.dg -= 0.6 * v.dg; }, reset: (v) => { v.dx = 0.5; v.dg = 0.5; } },
+		readouts: [(v) => -(Math.log(v.dx) + Math.log(1 - v.dg)), (v) => -Math.log(v.dg)],
+		lit: { teachD: ["D", "real", "fake"], teachG: ["G", "fake"], both: ["G", "D"] },
+		badge: { teachD: { G: "held still", D: "learning" }, teachG: { D: "held still", G: "learning" }, both: { G: "learning", D: "learning" } },
+		tell: (v, last) => last === "both" ? "The generator just helped the judge to catch it: the fake's score fell. This is why they take turns." : last === "teachG" ? "G's turn: the fake's score rose. G is fooling a judge that did not move." : last === "teachD" ? "D's turn: real images score higher, fakes lower. G did not move." : "Both scores start at 0.5: the judge is guessing.",
+	},
+	gulfs: {
+		compute: (on) => ({ exec: 1 - 0.45 * (on.see + on.words), eval: 1 - 0.45 * (on.shows + on.fast) }),
+		tell: (v) => v.exec < 0.2 && v.eval < 0.2 ? "Both gulfs are narrow: you can see what to do and what happened." : v.exec < v.eval ? "You can see what to do. You still cannot tell what happened." : v.eval < v.exec ? "You can tell what happened. You still cannot see what to do." : "Both gulfs are wide.",
+	},
+};
+function designB(host, idea, key) {
+	const spec = idea.B, model = MODELS[key];
+	const v = Object.fromEntries(spec.meters.map((m) => [m.id, m.start]));
+	const on = Object.fromEntries(spec.controls.filter((c) => c.kind === "switch").map((c) => [c.id, 0]));
+	let last = null;
+	const prompt = h("p", "", spec.prompt), stage = frame(), ctl = h("div", "row"), meters = h("div", "stack"), out = h("div", "readout stack"), tell = h("p", "say");
+	tell.style.minHeight = "3.2em";
+	host.append(prompt, stage, ctl, meters, out, tell);
+	if (spec.caveat) host.append(h("p", "small quiet", spec.caveat));
+	host.append(slides(idea));
+	const clamp = (x) => Math.min(0.98, Math.max(0.02, x));
+	const render = () => {
+		if (model.compute) Object.assign(v, model.compute(on));
+		picture(stage, idea.picture, key === "gan"
+			? { on: model.lit[last] ?? [], dimRest: !!last, badge: model.badge[last], sub: { score: `D(x) = ${v.dx.toFixed(2)} · D(G(z)) = ${v.dg.toFixed(2)}` } }
+			: { on: ["exec", "eval"].filter((g) => v[g] < 0.5), tone: { exec: v.exec < 0.2 ? "mint" : null, eval: v.eval < 0.2 ? "mint" : null }, sub: { exec: v.exec < 0.2 ? "narrow" : v.exec < 0.6 ? "narrower" : "wide", eval: v.eval < 0.2 ? "narrow" : v.eval < 0.6 ? "narrower" : "wide" } });
+		meters.textContent = "";
+		for (const m of spec.meters) {
+			const row = h("label", "meter"), track = h("span", "track"), fill = h("span", "fill");
+			fill.style.display = "block"; fill.style.width = `${Math.round(v[m.id] * 100)}%`;
+			track.append(fill);
+			if (m.want !== null) { const w = h("i", "want"); w.style.left = m.want ? "calc(100% - 3px)" : "0"; track.append(w); }
+			const cell = h("span", "stack"); cell.style.gap = "2px"; cell.append(track);
+			if (m.slider) { const s = Object.assign(h("input"), { type: "range", min: 2, max: 98, value: Math.round(v[m.id] * 100) }); s.setAttribute("aria-label", m.label); s.oninput = () => { v[m.id] = s.value / 100; last = null; render(); }; cell.append(s); }
+			row.append(h("span", "small", m.label), cell, Object.assign(h("output"), { textContent: v[m.id].toFixed(2) }));
+			meters.append(row);
+		}
+		out.textContent = ""; out.hidden = !spec.readouts.length;
+		spec.readouts.forEach((r, i) => { const p = h("p", "small"); p.append(h("b", "", `${r.label}: ${model.readouts[i](v).toFixed(2)} `), h("span", "quiet", `(${r.note})`)); out.append(p); });
+		tell.textContent = model.tell(v, last);
+	};
+	for (const c of spec.controls) {
+		if (c.kind === "button") { const b = h("button", c.id === "reset" ? "btn" : "btn primary", c.label); b.onclick = () => { model.press[c.id](v); v.dx = clamp(v.dx); v.dg = clamp(v.dg); last = c.id === "reset" ? null : c.id; render(); }; ctl.append(b); }
+		else { const b = h("button", "switch"); b.setAttribute("aria-pressed", "false"); const tick = h("i", "", ""); b.append(tick, h("span", "", c.label)); b.onclick = () => { on[c.id] = on[c.id] ? 0 : 1; b.setAttribute("aria-pressed", String(!!on[c.id])); tick.textContent = on[c.id] ? "✓" : ""; render(); }; ctl.append(b); }
+	}
+	render();
+}
+
+/* ---------- C: fill the gap ---------- */
+function designC(host, idea) {
+	const spec = idea.C;
+	let at = 0, chosen = null;
+	const filled = { label: {}, sub: {}, badge: {}, tone: {} };
+	const head = h("div", "row"), ask = h("p", "say"), stage = frame(), tray = h("div", "tray"), verdict = h("div"), nav = h("div", "row");
+	ask.style.minHeight = "3.2em";
+	host.append(head, ask, stage, tray, verdict, nav, slides(idea));
+	const render = () => {
+		const done = at >= spec.gaps.length, g = spec.gaps[at];
+		const hole = {};
+		spec.gaps.forEach((x, i) => { if (i > at || (i === at && chosen === null)) hole[x.node] = x.field; });
+		picture(stage, idea.picture, { ...spec.base, dimRest: false, hole, label: filled.label, sub: { ...filled.sub }, badge: { ...spec.base.badge, ...filled.badge }, tone: filled.tone, pick: done ? null : g.node });
+		head.textContent = "";
+		const dots = h("span", "dots");
+		spec.gaps.forEach((_, i) => dots.append(h("i", i < at ? "done" : i === at ? "now" : "")));
+		head.append(dots, h("span", "small quiet", done ? "The picture is complete" : `Gap ${at + 1} of ${spec.gaps.length}`));
+		ask.textContent = done ? "That is the whole picture. Next, your tutor builds it up from here." : g.ask;
+		tray.textContent = ""; verdict.textContent = ""; verdict.className = ""; nav.textContent = "";
+		if (done) { const again = h("button", "btn", "Try it again"); again.onclick = () => { at = 0; chosen = null; for (const k of Object.keys(filled)) filled[k] = {}; render(); }; nav.append(again); return; }
+		g.options.forEach((o, i) => { const b = h("button", "btn", o.label); b.disabled = chosen !== null; if (chosen === i) b.classList.add("primary"); b.onclick = () => { chosen = i; const right = g.options.find((x) => x.right); filled[g.field][g.node] = right.label; filled.tone[g.node] = "mint"; render(); }; tray.append(b); });
+		if (chosen === null) { const skip = h("button", "btn", "Show me instead"); skip.onclick = () => { chosen = g.options.findIndex((x) => x.right); filled[g.field][g.node] = g.options[chosen].label; filled.tone[g.node] = "mint"; render(); }; nav.append(skip); return; }
+		const o = g.options[chosen], right = g.options.find((x) => x.right);
+		verdict.className = `verdict ${o.right ? "mint" : "lilac"}`;
+		verdict.append(h("b", "", o.right ? "Yes. " : "Not this one. "), h("span", "", o.why), ...(o.right ? [] : [h("span", "", ` It is “${right.label}”: ${right.why}`)]));
+		const next = h("button", "btn primary", at === spec.gaps.length - 1 ? "See the whole picture ›" : "Next gap ›");
+		next.onclick = () => { at += 1; chosen = null; render(); };
+		nav.append(next);
+	};
+	render();
+}
+
+/* ---------- D: two cases, side by side ---------- */
+function designD(host, idea) {
+	const spec = idea.D;
+	let shown = false, pick = null;
+	const ask = h("p", "", spec.ask), pair = h("div", "pair"), nav = h("div", "row"), why = h("div");
+	host.append(ask, pair, nav, why, slides(idea));
+	const render = () => {
+		pair.textContent = "";
+		pair.style.setProperty("--case-min", `${idea.picture.cols * 118}px`);
+		const num = Object.fromEntries(spec.diffs.map((d, i) => [d.node, i + 1]));
+		for (const side of [spec.left, spec.right]) {
+			const box = h("div", "case stack"), title = h("div", "row"), stage = h("div");
+			title.append(h("h3", "", side.title), h("span", "chip", side.wrong ? "the mistake" : "how it should be"));
+			box.append(title, stage); pair.append(box);
+			const tone = {};
+			if (shown) for (const d of spec.diffs) tone[d.node] = side.wrong ? "lilac" : "mint";
+			picture(stage, idea.picture, { badge: side.badge, sub: side.sub, tone, num: shown ? num : {}, pick: shown && pick !== null ? spec.diffs[pick].node : null });
+		}
+		nav.textContent = ""; why.textContent = ""; why.className = "";
+		if (!shown) { const b = h("button", "btn primary", `Show what differs (${spec.diffs.length})`); b.onclick = () => { shown = true; pick = 0; render(); }; nav.append(h("span", "small quiet", "Look for it first."), b); return; }
+		spec.diffs.forEach((d, i) => { const b = h("button", pick === i ? "btn primary" : "btn", `${i + 1}`); b.setAttribute("aria-label", `Difference ${i + 1}`); b.onclick = () => { pick = i; render(); }; nav.append(b); });
+		const hide = h("button", "btn", "Hide them"); hide.onclick = () => { shown = false; pick = null; render(); }; nav.append(hide);
+		why.className = "verdict";
+		why.append(h("b", "", `${pick + 1}. `), h("span", "", spec.diffs[pick].why), h("p", "small", ""), h("b", "", "So: "), h("span", "", spec.principle));
+	};
+	render();
+}
+
+/* ---------- The page ---------- */
+const tokens = (x) => Math.round(JSON.stringify(x).length / 4 / 10) * 10;
+function show(key) {
+	const idea = IDEAS[key];
+	document.body.dataset.idea = key;
+	document.querySelectorAll("[data-set-idea]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.setIdea === key)));
+	document.querySelectorAll("[data-title]").forEach((e) => { e.textContent = idea.title; });
+	const run = { A: designA, B: designB, C: designC, D: designD };
+	for (const [d, fn] of Object.entries(run)) {
+		const host = document.querySelector(`[data-sample="${d}"]`);
+		host.textContent = "";
+		host.append(h("h3", "", d === "C" ? `Before we start: ${idea.title}` : idea.title));
+		host.firstChild.style.fontSize = "1.35rem";
+		fn(host, idea, key);
+		const n = tokens(idea[d]);
+		document.querySelector(`[data-cost="${d}"]`).textContent = `For this idea: about ${n} tokens on top of the picture (about ${tokens(idea.picture)}).`;
+		const both = Object.values(IDEAS).map((i) => tokens(i[d]));
+		const cell = document.querySelector(`[data-cell="${d}"]`);
+		cell.textContent = `About ${both.join(" and ")} tokens`;
+	}
+}
+document.querySelectorAll("[data-set-idea]").forEach((b) => { b.onclick = () => show(b.dataset.setIdea); });
+show("gan");
+</script>
+</body>
+</html>
