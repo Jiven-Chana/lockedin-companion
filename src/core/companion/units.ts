@@ -195,3 +195,35 @@ export function currentWeek(module: Pick<ModuleInfo, "weekOneStart" | "readingWe
 }
 
 export { readingWeeksBefore };
+
+/**
+ * What kind of course material a file is (v3.1), from its name and its first
+ * bytes: a PDF, text (Markdown or plain), a saved web page, or null for a
+ * kind LockedIn does not take (Word, PowerPoint…). A file with no ending is
+ * read as text, unless it starts like a web page.
+ */
+export function materialKind(name: string, head: Uint8Array): "pdf" | "text" | "html" | null {
+	if (/\.pdf$/i.test(name) || (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46)) return "pdf";
+	if (/\.(md|markdown|txt)$/i.test(name)) return "text";
+	if (/\.html?$/i.test(name)) return "html";
+	if (/\.[a-z0-9]{2,5}$/i.test(name)) return null;
+	const start = String.fromCharCode(...head.slice(0, 200)).trimStart().toLowerCase();
+	return start.startsWith("<!doctype html") || start.startsWith("<html") ? "html" : "text";
+}
+
+/**
+ * Send several files one at a time (v3.1): each travels by itself, so the
+ * total size never matters, and one that fails is named while the rest go on.
+ */
+export async function eachFile<F extends { name: string }, T>(files: readonly F[], send: (file: F, index: number) => Promise<T>): Promise<{ done: T[]; failed: { name: string; error: string }[] }> {
+	const done: T[] = [];
+	const failed: { name: string; error: string }[] = [];
+	for (const [i, f] of files.entries()) {
+		try {
+			done.push(await send(f, i));
+		} catch (e) {
+			failed.push({ name: f.name, error: e instanceof Error && e.message ? e.message : `${f.name} could not be read` });
+		}
+	}
+	return { done, failed };
+}

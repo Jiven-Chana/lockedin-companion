@@ -9,11 +9,12 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { MATERIALS_RULES } from "../../core/companion/policy.ts";
+import { MATERIALS_COPY, MATERIALS_RULES } from "../../core/companion/policy.ts";
 import { assembleSlidesMarkdown, firstLineTitle, type SlidePage } from "../../core/companion/slides.ts";
-import { checkProposal, proposeWithoutAi, textToPages, unitChars, wantsAiSplit, type ProposalVia, type ProposedUnit, type UnitPage } from "../../core/companion/units.ts";
+import { checkProposal, materialKind, proposeWithoutAi, textToPages, unitChars, wantsAiSplit, type ProposalVia, type ProposedUnit, type UnitPage } from "../../core/companion/units.ts";
 import { badRequest, CompanionError } from "./errors.ts";
 import type { Generate } from "./generate.ts";
+import { htmlToMarkdown } from "./html.ts";
 
 export type PdfToPages = (data: Uint8Array) => Promise<SlidePage[] | "too-long" | "unreadable">;
 
@@ -43,8 +44,6 @@ interface PendingUpload {
 	files: { name: string; kind: "pdf" | "text"; pages: SlidePage[] }[];
 }
 
-const isPdf = (f: UploadedFile) => /\.pdf$/i.test(f.name) || (f.bytes[0] === 0x25 && f.bytes[1] === 0x50 && f.bytes[2] === 0x44 && f.bytes[3] === 0x46);
-const isText = (f: UploadedFile) => /\.(md|markdown|txt)$/i.test(f.name);
 
 export function unitPages(pages: SlidePage[]): UnitPage[] {
 	return pages.map((p) => {
@@ -98,10 +97,13 @@ export class CourseMaterials {
 		return id ? path.join(/* turbopackIgnore: true */ base, id.replace(/[^A-Za-z0-9_-]/g, "")) : base;
 	}
 
-	private async toPages(f: UploadedFile): Promise<{ kind: "pdf" | "text"; pages: SlidePage[] }> {
+	/** One file as pages: a PDF's own pages, or text cut at its headings. A saved web page is read as text (v3.1). */
+	async toPages(f: UploadedFile): Promise<{ kind: "pdf" | "text"; pages: SlidePage[] }> {
 		if (f.bytes.length === 0) throw badRequest(`${f.name} is empty`);
 		if (f.bytes.length > MATERIALS_RULES.maxFileBytes) throw badRequest(`${f.name} is over 25 MB`);
-		if (isPdf(f)) {
+		const kind = materialKind(f.name, f.bytes);
+		const asPages = (text: string) => ({ kind: "text" as const, pages: textToPages(text, MATERIALS_RULES.textPageChars).map((p) => ({ number: p.number, kind: "text" as const, markdown: p.markdown })) });
+		if (kind === "pdf") {
 			if (!this.opts.pdfToPages) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
 			// The reader uses up the bytes it is given: hand it a copy, so the file itself can still be kept (S-2).
 			const pages = await this.opts.pdfToPages(f.bytes.slice());
@@ -109,11 +111,14 @@ export class CourseMaterials {
 			if (pages === "unreadable") throw badRequest(`${f.name} could not be read`);
 			return { kind: "pdf", pages };
 		}
-		if (isText(f) || !/\.[a-z0-9]{2,5}$/i.test(f.name)) {
-			const text = new TextDecoder("utf-8", { fatal: false }).decode(f.bytes);
-			return { kind: "text", pages: textToPages(text, MATERIALS_RULES.textPageChars).map((p) => ({ number: p.number, kind: "text" as const, markdown: p.markdown })) };
+		const text = new TextDecoder("utf-8", { fatal: false }).decode(f.bytes);
+		if (kind === "text") return asPages(text);
+		if (kind === "html") {
+			const md = htmlToMarkdown(text);
+			if (!md) throw badRequest(MATERIALS_COPY.noText(f.name));
+			return asPages(md);
 		}
-		throw badRequest(`${f.name}: add PDF, Markdown (.md) or text (.txt) files`);
+		throw badRequest(MATERIALS_COPY.wrongKind(f.name));
 	}
 
 	private async split(name: string, pages: SlidePage[], moduleName: string): Promise<{ units: ProposedUnit[]; via: ProposalVia; note: string | null }> {
@@ -141,12 +146,24 @@ export class CourseMaterials {
 	}
 
 	/** Convert the files and propose units for each. Nothing is saved as course material yet. */
-	async propose(module: { code: string; name: string }, files: UploadedFile[]): Promise<{ uploadId: string; files: FileProposal[] }> {
+	async propose(module: { code: string; name: string }, files: UploadedFile[]): Promise<{ uploadId: string; files: FileProposal[]; failed: { name: string; error: string }[] }> {
 		if (files.length === 0) throw badRequest("add at least one file");
 		if (files.length > MATERIALS_RULES.maxFilesPerUpload) throw badRequest(`at most ${MATERIALS_RULES.maxFilesPerUpload} files at once`);
 		this.sweep();
-		const converted = [];
-		for (const f of files) converted.push({ name: f.name, ...(await this.toPages(f)) });
+		// A file that cannot be read is named and left out; the others are kept (v3.1). With none readable, the first reason is the error.
+		const converted: { name: string; kind: "pdf" | "text"; pages: SlidePage[]; bytes: Uint8Array }[] = [];
+		const failed: { name: string; error: string }[] = [];
+		let first: unknown = null;
+		for (const f of files) {
+			try {
+				converted.push({ name: f.name, bytes: f.bytes, ...(await this.toPages(f)) });
+			} catch (err) {
+				if (!(err instanceof CompanionError) || err.status >= 500) throw err;
+				first ??= err;
+				failed.push({ name: f.name, error: err.message });
+			}
+		}
+		if (converted.length === 0) throw first;
 		const proposals: FileProposal[] = [];
 		for (const [i, f] of converted.entries()) {
 			const split = await this.split(f.name, f.pages, module.name);
@@ -166,8 +183,8 @@ export class CourseMaterials {
 		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
 		const pending: PendingUpload = { id, module: module.code, createdAt: new Date().toISOString(), files: converted.map((f) => ({ name: f.name, kind: f.kind, pages: f.pages })) };
 		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "upload.json"), JSON.stringify(pending));
-		for (const [i, f] of files.entries()) if (converted[i]!.kind === "pdf") fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${i}.pdf`), f.bytes);
-		return { uploadId: id, files: proposals };
+		for (const [i, f] of converted.entries()) if (f.kind === "pdf") fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${i}.pdf`), f.bytes);
+		return { uploadId: id, files: proposals, failed };
 	}
 
 	/** A held upload, or a 404 when it expired or was already saved. */

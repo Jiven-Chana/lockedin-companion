@@ -651,7 +651,7 @@ export class CompanionService {
 	 * unit worth studying straight away. The checklist is not shown; titles
 	 * and weeks can be changed afterwards.
 	 */
-	async quickMaterials(code: string, files: UploadedFile[]): Promise<{ units: Lecture[]; skipped: number }> {
+	async quickMaterials(code: string, files: UploadedFile[]): Promise<{ units: Lecture[]; skipped: number; failed: { name: string; error: string }[] }> {
 		const p = await this.proposeMaterials(code, files);
 		const all = p.files.flatMap((f) => f.units.map((u) => ({ file: f.file, title: u.title, week: u.week, pages: u.pages, chars: u.chars })));
 		const units = all.filter((u) => u.chars >= MATERIALS_RULES.minUnitChars).map(({ chars: _chars, ...u }) => u);
@@ -659,7 +659,7 @@ export class CompanionService {
 			this.courseMaterials.discard(p.uploadId);
 			throw badRequest(SETUP_COPY.nothingToStudy);
 		}
-		return { units: this.saveMaterials(code, { uploadId: p.uploadId, units }).units, skipped: all.length - units.length };
+		return { units: this.saveMaterials(code, { uploadId: p.uploadId, units }).units, skipped: all.length - units.length, failed: p.failed };
 	}
 
 	/** A new title for a course unit made from the student's material. Body: { title }. */
@@ -1172,16 +1172,14 @@ export class CompanionService {
 		return this.content.pdfPath(lectureId);
 	}
 
-	async importMaterials(lectureId: string, pdf: Uint8Array) {
+	/** Replace one unit's material with one file: a PDF, Markdown, text or a saved web page (v3.1). Bare bytes are a PDF, as before. */
+	async importMaterials(lectureId: string, file: Uint8Array | UploadedFile) {
 		const lecture = this.store.lectures().find((l) => l.id === lectureId);
 		if (!lecture) throw notFound("lecture");
-		if (!this.deps.convertPdf) throw new CompanionError("pdf_unavailable", 501, "PDF conversion is not available");
-		// A copy: the reader uses up the bytes it is given, and the file itself is kept below (S-2).
-		const pages = await this.deps.convertPdf(pdf.slice());
-		if (pages === "too-long") throw badRequest("the PDF has too many pages");
-		if (pages === "unreadable") throw badRequest("the PDF could not be read");
-		const assembled = assembleSlidesMarkdown(pages, lecture.title);
-		this.content.writeMaterials(lectureId, { slidesMd: assembled.markdown, pdf });
+		const f = file instanceof Uint8Array ? { name: "slides.pdf", bytes: file } : file;
+		const read = await this.courseMaterials.toPages(f);
+		const assembled = assembleSlidesMarkdown(read.pages, lecture.title);
+		this.content.writeMaterials(lectureId, { slidesMd: assembled.markdown, pdf: read.kind === "pdf" ? f.bytes : null });
 		this.store.updateLecture(lectureId, (l) => ({ ...l, hasMaterials: true }));
 		return { lectureId, slideCount: assembled.slideCount, needsCaption: assembled.needsCaption, slides: slideTitles(assembled.markdown) };
 	}

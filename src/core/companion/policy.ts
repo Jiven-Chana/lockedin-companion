@@ -579,7 +579,7 @@ export const SETUP_COPY = {
 		title: "Your slides and notes",
 		lead: "Drop them in. LockedIn prepares them while you finish setting up.",
 		drop: "Drop files here, or click to choose",
-		formats: "PDF, Markdown or text",
+		formats: "PDF, Markdown, text or a web page (.html)",
 		reading: "Reading…",
 		found: (units: number) => `${units} ${units === 1 ? "chapter" : "chapters"} found`,
 		preparing: "preparing",
@@ -748,6 +748,8 @@ export const MATERIALS_RULES = {
 	/** Per file, as v0.0's upload. */
 	maxFileBytes: 25 * 1024 * 1024,
 	maxFilesPerUpload: 20,
+	/** What the file pickers offer (v3.1): exactly the kinds `materialKind` takes. */
+	accept: ".pdf,.md,.markdown,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html",
 	/** Below this many pages a file with no week in its name stays one unit (not worth an AI call). */
 	aiSplitMinPages: 12,
 	/** Pasted text or a notes file is cut into pages of about this many characters when it has no headings. */
@@ -792,6 +794,13 @@ export const LIBRARY_COPY = {
 /** The upload screen's wording (v1.0 S-4, T-5). */
 export const MATERIALS_COPY = {
 	drop: "Drop all your slides and notes here. Several files at once is fine.",
+	/** The kinds of file taken (v3.1 adds a saved web page). */
+	formats: "PDF, Markdown, text or a web page (.html)",
+	wrongKind: (name: string) => `${name}: add PDF, Markdown (.md), text (.txt) or a web page (.html)`,
+	noText: (name: string) => `${name} has no text to read`,
+	/** Several files, one request each (v3.1): how far through, and which were not added. */
+	reading: (done: number, of: number) => (of > 1 ? `Reading file ${Math.min(done + 1, of)} of ${of}…` : "Reading your material…"),
+	couldNotRead: (failed: readonly { name: string; error: string }[]) => `Not added: ${failed.map((f) => f.error).join("; ")}`,
 	/** Was "Week 1: …", which invited typing a week label on its own. */
 	pastePlaceholder: "Paste your notes here",
 } as const;

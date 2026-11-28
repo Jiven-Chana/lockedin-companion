@@ -63,6 +63,8 @@ export interface PackData { meta: PackMeta | null; explainers: Explainer[]; ques
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; share?: "less" | "more"; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
+	/** Files in the request that could not be read, by name (v3.1). The others are in `files`. */
+	failed: { name: string; error: string }[];
 	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
 }
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
@@ -266,7 +268,7 @@ export const lockedIn = {
 	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
 	setModuleColour: (code: string, colour: string | null) => api<{ code: string; colour: string }>(`/modules/${encodeURIComponent(code)}/colour`, { method: "PUT", body: { colour } }),
 	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
-	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
+	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number; failed: { name: string; error: string }[] }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
 	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
