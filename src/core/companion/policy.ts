@@ -172,6 +172,14 @@ export const PROGRESS_COPY = {
 	addMaterial: "Add material",
 	milestones: "Milestones",
 	earned: (n: number, of: number) => `${n} of ${of}`,
+	/** Progress on one screen (v3.0.1): Milestones and "To revisit" say the short version and open the rest in a panel. */
+	latest: "Latest",
+	next: "Next",
+	allEarned: "Every milestone earned.",
+	seeAll: (n: number) => `See all ${n}`,
+	toRevisit: "To revisit",
+	seeIdeas: "See them",
+	closePanel: "Close",
 } as const;
 
 /**
@@ -338,6 +346,8 @@ export const LEARN_COPY = {
 	slideTab: "Slide",
 	earlier: (n: number) => `Earlier in this session (${n})`,
 	/** The line under the title: where you are and what is next (INT-02-c). */
+	/** The bar of a Learn session (v3.0.1): which step of the plan you are on. */
+	stepOf: (index: number, total: number) => `Step ${index} of ${total}`,
 	position: (index: number, total: number, title: string, next?: string) => `Idea ${index} of ${total} · ${title}${next ? ` → next: ${next}` : ""}`,
 	before: (total: number) => `${total} ${total === 1 ? "idea" : "ideas"} on the plan`,
 	finding: "Finding where to start",
@@ -759,6 +769,26 @@ export const WEEK_COPY = {
 	set: "Set week",
 } as const;
 
+/**
+ * The Week timetable fits the window (v3.0.1): its hours are as tall as the
+ * room under its heading allows, between these two sizes. Below the smallest
+ * the page scrolls; a block shorter than `oneLinePx` says itself on one line.
+ */
+export const WEEK_FIT = {
+	minPxPerMinute: 0.45,
+	maxPxPerMinute: 1.1,
+	/** Kept clear under the timetable: its line of feedback and the page's edge. */
+	belowPx: 40,
+	oneLinePx: 40,
+} as const;
+
+/** What the Library says under a unit's title (v3.0.1): only when there is something to say. */
+export const LIBRARY_COPY = {
+	thisWeek: "this week",
+	notThere: "you weren't there",
+	noMaterial: "no material yet",
+} as const;
+
 /** The upload screen's wording (v1.0 S-4, T-5). */
 export const MATERIALS_COPY = {
 	drop: "Drop all your slides and notes here. Several files at once is fine.",
@@ -871,8 +901,8 @@ export const MOTION = {
 	ringMs: 300,
 	/** Map nodes and pack stages appear one after another, this far apart. */
 	staggerMs: 60,
-	/** Full only: page transitions. */
-	pageMs: 150,
+	/** A page, and what arrives on it, fades in and rises (v3.0.1): Calm and Full. */
+	pageMs: 200,
 	/** Full only: one cycle of the time-of-day background drift. */
 	driftSeconds: 24,
 } as const;

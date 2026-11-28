@@ -89,6 +89,8 @@ export function TodayScreen() {
 
 	return (
 		<>
+			{/* Today is one screen (v3.0.1): the next step takes the room the rest leaves, and nothing is cut off at the bottom of the window. */}
+			<span className="li-fit li-fill" hidden />
 			<div className="li-row" style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
 				<PageHead eyebrow={now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} icon={<Icon.today />} title={greeting(now)} clock />
 				<Link href="/app/me#look" className="li-btn"><Icon.palette />Make it yours</Link>
@@ -105,7 +107,7 @@ export function TodayScreen() {
 			<StarterCards phone={!!t?.phoneAvailable && !t.phonePaired} />
 
 			{/* The next step, and the next study block beside it. */}
-			<div className="li-grid-2">
+			<div className="li-grid-2 li-today-top">
 				{hero ? (
 					<Tint module={hero.module} style={{ display: "flex" }}>
 						<section className={hero.module ? "li-hero" : "li-hero plain"} style={{ alignItems: "stretch" }} aria-label="Your next step">
@@ -179,7 +181,7 @@ export function TodayScreen() {
 					</span>
 					{/* Blocks you can count: lilac is "to revisit", everywhere. */}
 					{revisit ? <span className="li-count" aria-hidden="true">{Array.from({ length: Math.min(revisit, 24) }, (_, i) => <i key={i} />)}</span> : null}
-					<span>{revisit ? "They come back in a short retest. No rush." : "What you get wrong shows up here, never as \"overdue\"."}</span>
+					<span className="li-tall-only">{revisit ? "They come back in a short retest. No rush." : "What you get wrong shows up here, never as \"overdue\"."}</span>
 				</Link>
 
 				<section className="li-panel ink li-stack" style={{ gap: 14 }} aria-labelledby="week-h">
@@ -233,7 +235,7 @@ function StarterCards({ phone }: { phone: boolean }) {
 				<div key={c.key} className="li-card li-row" style={{ flex: "1 1 280px", gap: 10, padding: "14px 18px", flexWrap: "nowrap" }}>
 					<Link href={c.href} style={{ display: "flex", flexDirection: "column", flexGrow: 1 }}>
 						<b>{c.title}</b>
-						<span className="li-small li-muted">{c.sub}</span>
+						<span className="li-small li-muted li-tall-only">{c.sub}</span>
 					</Link>
 					<Link href={c.href} className="li-btn ghost" aria-label={c.title}><Icon.arrow /></Link>
 					<button type="button" className="li-btn ghost" onClick={c.dismiss} aria-label={`Dismiss ${c.title}`}><Icon.close /></button>

@@ -16,14 +16,13 @@
  * day), Enter drops it, Escape puts it back.
  */
 
-import { useRef, useState } from "react";
-import { PLACEMENT_COPY, PLAN_COPY, placementProblem, type PlacementProblem } from "@/src/core";
+import { useEffect, useRef, useState } from "react";
+import { PLACEMENT_COPY, PLAN_COPY, WEEK_FIT, placementProblem, weekScale, type PlacementProblem } from "@/src/core";
 import type { PlanData } from "./api";
 import { Icon } from "./icons";
 import { Tint } from "./root";
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const PX_PER_MIN = 1.1;
 const SNAP = PLACEMENT_COPY.snapMinutes;
 
 const mins = (hm: string) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
@@ -59,7 +58,24 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 	const ends = [sleep, ...lectures.map((l) => new Date(l.end!).getHours() * 60 + new Date(l.end!).getMinutes()), ...plan.blocks.map((b) => mins(b.start) + b.minutes), ...plan.commitments.map((c) => mins(c.end))];
 	const from = Math.floor(Math.min(...starts) / 60) * 60;
 	const to = Math.min(24 * 60, Math.ceil(Math.max(...ends) / 60) * 60);
+	// The hours are as tall as the window allows (v3.0.1), so the whole week is on one screen.
+	// Measured after every draw (a note or the check-in above moves the timetable down) and kept only when it changed.
+	const body = useRef<HTMLDivElement>(null);
+	const [room, setRoom] = useState<number | null>(null);
+	useEffect(() => {
+		const measure = () => {
+			const el = body.current;
+			if (!el) return;
+			const px = Math.round(window.innerHeight - (el.getBoundingClientRect().top + window.scrollY) - WEEK_FIT.belowPx);
+			setRoom((was) => (was === px ? was : px));
+		};
+		measure();
+		window.addEventListener("resize", measure);
+		return () => window.removeEventListener("resize", measure);
+	});
+	const PX_PER_MIN = weekScale(room, to - from);
 	const height = (to - from) * PX_PER_MIN;
+	const compact = (px: number) => (px < WEEK_FIT.oneLinePx ? "true" : undefined);
 	const hours = Array.from({ length: (to - from) / 60 + 1 }, (_, i) => from + i * 60);
 	const top = (m: number) => (m - from) * PX_PER_MIN;
 
@@ -93,7 +109,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 				<span />
 				{days.map((d) => <b key={d.date} data-today={d.date === today ? "true" : "false"}>{d.date === today ? <Icon.today /> : null}{d.name} {Number(d.date.slice(8))}</b>)}
 			</div>
-			<div className="li-tt-body" style={{ height }}>
+			<div className="li-tt-body" ref={body} style={{ height }}>
 				<div className="li-tt-hours" aria-hidden="true">
 					{hours.map((h) => <span key={h} style={{ top: top(h) }}>{hm(h)}</span>)}
 				</div>
@@ -105,15 +121,16 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 								const s = new Date(l.start!);
 								const e = new Date(l.end!);
 								const a = s.getHours() * 60 + s.getMinutes();
+								const h = Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2);
 								return (
-									<Tint key={l.id} module={l.module} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: Math.max(18, (e.getTime() - s.getTime()) / 60_000 * PX_PER_MIN - 2) }}>
+									<Tint key={l.id} module={l.module} className="li-tt-item li-tt-fixed" style={{ top: top(a), height: h }} data-compact={compact(h)}>
 										<b>{hm(a)}</b>
 										<span className="li-tt-what"><Icon.lecture />{l.module} {(l.kind ?? "lecture") === "lecture" ? "Lecture" : l.title}</span>
 									</Tint>
 								);
 							})}
 							{plan.commitments.filter((c) => c.weekdays.includes(di + 1)).map((c, i) => (
-								<div key={`c${i}`} className="li-tt-item li-tt-commit" style={{ top: top(mins(c.start)), height: Math.max(18, (mins(c.end) - mins(c.start)) * PX_PER_MIN - 2) }}>
+								<div key={`c${i}`} className="li-tt-item li-tt-commit" data-compact={compact((mins(c.end) - mins(c.start)) * PX_PER_MIN - 2)} style={{ top: top(mins(c.start)), height: Math.max(18, (mins(c.end) - mins(c.start)) * PX_PER_MIN - 2) }}>
 									<b>{c.start}</b>
 									<span className="li-tt-what"><Icon.work />{c.label}</span>
 								</div>
@@ -127,12 +144,16 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 						const moving = pending?.id === b.id;
 						const problem = moving ? problemAt(b, at) : null;
 						const label = b.module ? (plan.modules.find((m) => m.code === b.module)?.name ?? b.module) : PLACEMENT_COPY.freeStudy;
+						const h = Math.max(22, b.minutes * PX_PER_MIN - 2);
+						// What the block says about itself, as a word. On one line there is room for a mark only, so the word is also its tooltip and what a screen reader hears.
+						const state = b.status === "started" ? "done" : b.notStarted ? PLAN_COPY.replan.notStarted : b.moved ? PLAN_COPY.replan.moved : b.status === "proposed" ? "suggested" : `${b.minutes} min`;
 						return (
 							<Tint
 								key={b.id}
 								module={b.module}
 								className="li-tt-item li-tt-block"
-								style={{ top: top(mins(at.start)), height: Math.max(22, b.minutes * PX_PER_MIN - 2), left: `calc(${(col * 100) / 7}% + 3px)`, right: "auto", width: `calc(${100 / 7}% - 6px)` }}
+								style={{ top: top(mins(at.start)), height: h, left: `calc(${(col * 100) / 7}% + 3px)`, right: "auto", width: `calc(${100 / 7}% - 6px)` }}
+								data-compact={compact(h)}
 							>
 								<div
 									className="li-tt-grab"
@@ -143,7 +164,8 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 									data-selected={selected === b.id ? "true" : "false"}
 									role="button"
 									tabIndex={0}
-									aria-label={`Study block, ${label}, ${days.find((x) => x.date === at.date)?.name} ${at.start}, ${b.minutes} minutes${movable(b) ? ". Arrow keys move it, Enter drops it." : ", started"}`}
+									title={`${at.start} · ${label} · ${state}`}
+									aria-label={`Study block, ${label}, ${days.find((x) => x.date === at.date)?.name} ${at.start}, ${b.minutes} minutes, ${state}${movable(b) ? ". Arrow keys move it, Enter drops it." : ""}`}
 									onPointerDown={(e) => {
 										if (!movable(b) || e.button !== 0) return;
 										const r = e.currentTarget.getBoundingClientRect();
@@ -193,7 +215,7 @@ export function WeekGrid({ plan, today, selected, onSelect, onMove }: {
 									}}
 								>
 									{/* A block's state is a word, and a finished one has a filled tick (asked for by a look-test tester). */}
-									<b className="li-tt-top">{at.start}<i>{b.status === "started" ? <><span className="li-tt-tick"><Icon.check /></span>done</> : b.notStarted ? PLAN_COPY.replan.notStarted : b.moved ? PLAN_COPY.replan.moved : b.status === "proposed" ? "suggested" : `${b.minutes} min`}</i></b>
+									<b className="li-tt-top">{at.start}<i>{b.status === "started" ? <span className="li-tt-tick"><Icon.check /></span> : b.notStarted ? <span className="li-tt-mark"><Icon.dot /></span> : b.moved ? <span className="li-tt-mark"><Icon.move /></span> : null}<span className="li-tt-word">{state}</span></i></b>
 									<span className="li-tt-what"><Icon.learn />{label}</span>
 								</div>
 							</Tint>

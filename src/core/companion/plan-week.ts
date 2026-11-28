@@ -5,7 +5,7 @@
  * ticks, moves or removes each proposal; nothing is ever "missed" (R-6).
  */
 
-import { PLAN_COPY, PLAN_RULES, SHARE_RULES } from "./policy.ts";
+import { PLAN_COPY, PLAN_RULES, SHARE_RULES, WEEK_FIT } from "./policy.ts";
 import { addDays, addMinutes, atTime, dateKey, formatHM, isoWeekday, minutesOfDay, parseHM, wakingWindow } from "./time.ts";
 import type { BlockPlaced, EnergyTime, Lecture, ModuleInfo, Profile, Routine, StudyBlock } from "./types.ts";
 import { currentWeek } from "./units.ts";
@@ -439,4 +439,15 @@ export function placementProblem(input: PlacementInput): PlacementProblem | null
 	const awake = wakingWindow(day, input.quietHours);
 	if (start < awake.start || end > awake.end) return "quiet";
 	return null;
+}
+
+/**
+ * How tall a minute is on the Week timetable (v3.0.1): the room under its
+ * heading shared out over the minutes shown, so the whole day fits the
+ * window, kept between WEEK_FIT's smallest and largest size. `roomPx` is
+ * null until the window has been measured.
+ */
+export function weekScale(roomPx: number | null, minutes: number): number {
+	if (roomPx === null || minutes <= 0) return WEEK_FIT.maxPxPerMinute;
+	return Math.min(WEEK_FIT.maxPxPerMinute, Math.max(WEEK_FIT.minPxPerMinute, roomPx / minutes));
 }

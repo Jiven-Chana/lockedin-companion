@@ -19,7 +19,8 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v2.1** | 27 Nov 2026 | tag `lockedin-v2.1` on `main` (PR #14) | Shipped: the phone brought closer to the lo-fi. A question's round carries on on the phone, a study block opens and moves on the phone, and the week and Settings are on the phone and hold with the laptop closed (V-68 to V-70). The other v2.1 items moved to v3.0 (V-70) | [`v2.1-plan.md`](v2.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-67 to V-70 |
 | **v2.2** | 27 Nov 2026 | tag `lockedin-v2.2` on `main` (PR #16) | Shipped: what the lo-fi test (T18) changes in the features. A shorter notification, "notifications" for "nudges", Move and Remove on every block, "Re-plan the rest of my week", and "Where are you?" as an option on a study block with its questions on the move (V-71 to V-75). Jiven ran the checklist on his iPhone on 27 Nov | [`v2.2-plan.md`](v2.2-plan.md), [`DECISIONS.md`](DECISIONS.md) V-71 to V-75 |
 | **v2.3** | 27 Nov 2026 | tag `lockedin-v2.3` on `main` (PR #17) | Shipped: a phone that can be used by itself. A block opens from the phone's week, "Practise" on the phone's home screen, maths drawn on the phone, and Today on the laptop says what was answered on the phone (V-76 to V-79). Jiven checked it on his iPhone on 27 Nov | [`v2.3-plan.md`](v2.3-plan.md), [`DECISIONS.md`](DECISIONS.md) V-76 to V-79 |
-| **v3.0** | 27 Nov 2026 | branch `feat/v3.0`, tag `lockedin-v3.0` once merged | Built: the Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). Not yet on a real phone | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
+| **v3.0** | 27 Nov 2026 | tag `lockedin-v3.0` on `main` (PR #18) | The Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
+| **v3.0.1** | 28 Nov 2026 | branch `fix/v3.0.1`, tag `lockedin-v3.0.1` once merged | Fixes from Jiven's own run-through of v3.0: Today, Week and Progress fit one screen; Progress as blocks with side panels; the Learn plan without dashes; the Library says a week once; page changes fade in (V-86 to V-88). Laptop only: no relay deploy | [`DECISIONS.md`](DECISIONS.md) V-86 to V-88, and its section below |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
@@ -350,4 +351,46 @@ The look test showed four complete looks for the same screens, and all three tes
 - **Known and small:** the Library names each week twice; two links arriving at one block join into one arrowhead only when there is room to line them up.
 - **v4.0:** the desktop app.
 - **Owed to the group:** the third tester's session in the team repo, and design-log rows for V-80 to V-85.
+
+---
+
+## v3.0.1: what a run-through of v3.0 changed (28 Nov 2026)
+
+Jiven used v3.0 on his own laptop for an evening and listed what was wrong. Every item is his; the decisions are [`DECISIONS.md`](DECISIONS.md) V-86 to V-88. Nothing changes on the phone, so there is no relay deploy.
+
+### What was wrong, and what was done
+| He said | Cause | Now |
+|---|---|---|
+| Pages are slightly cut off; things go off the page | v3.0 was checked in a window 1,000 tall. A 13-inch laptop shows about 720 to 800 | Today, Week and Progress fill the window exactly, from about 700 tall upwards. Below that they scroll rather than squash |
+| The calendar does not fit one page | The timetable drew every hour at one fixed height: 1.9 screens | Week shares the room under its heading out over the hours shown (`weekScale`, `WEEK_FIT`). A block too short for two lines says its time and name on one, with its state as a mark and in its tooltip |
+| Progress: gaps, poor symmetry, and nobody would know to scroll | Four screens tall, with "Where it came from" beside a much taller Milestones | One screen of blocks. Milestones and "To revisit" say the short version (`milestoneSummary`) and open the whole list in a side panel |
+| The dotted line round the Learn plan does not work | Steps to come were dashed, and the bar showed an empty dashed box | Solid quiet outlines with the step's number; the bar says "Step 1 of 3" with a square per step |
+| The Library says "Week 1" twice and "From your course material" on every row | A heading per week above rows that already carried the week | The week is on the row only. The line under a title appears only for a date, "this week", "you weren't there" or "no material yet" (`unitNotes`) |
+| Transitions are abrupt | In Calm, the default, a page change had no animation | A page, and what arrives on it, fades in and rises for 200 ms in Calm and Full. Off and the system's reduce motion still switch it off |
+| Pages take forever to change (fixed in v3.0 before release) | Me asked for the AI status without stopping | See the v3.0 section |
+
+### The first build of v3.0.1 was wrong, and what replaced it
+The first build pinned Today and Progress to the window's height and hid what did not fit, and made headings smaller on those three tabs and smaller again in short windows. It was checked only at window sizes where everything happened to fit. In a narrower or zoomed window, buttons and cards were cut in half, and a page's title changed size from one tab to the next. Jiven, on opening it: "All the pages are now fucked. Also the fonts are all pear shaped."
+
+What replaced it, before release:
+- **Nothing is cut.** A page is at least as tall as the window and its main row takes the height left over; it is never shorter than its content. No block hides or scrolls its own content.
+- **Type never changes to fit.** Every tab has the same title, heading and text sizes, as in v3.0, in every window. A short window gets less air round its blocks and leaves out three lines a page can spare.
+- **Below a wide window** (1,100 across) the pages flow and scroll as they did in v3.0.
+- Tests forbid the first build's rules: a fixed height, a clipped block, or a font size that depends on the page or the window (`tests/companion-tidy.test.ts`).
+
+### How it was checked
+- 1,253 companion tests. New in `tests/companion-tidy.test.ts`: the timetable's sizing rule, the milestone summary, the Library's line, the Learn wording, that the page-change animation is not tied to Full and is still switched off by Off and reduce motion, and the rules above.
+- In Chrome, on a fresh copy of Jiven's data with his settings (light, Motion "Full"), every tab at ten window sizes, from half a screen (735 wide) and 125% zoom to 1920 x 1000. Looked for in each: content cut by its own block, content spilling out of a block, two rows overlapping, and the type sizes on each tab. None found on Today, Week or Progress, and the type is the same on every tab (title 51 px, heading 26 px, text 17 px).
+- The three pages are exactly one screen at 1470 x 800 and 1470 x 750 (Progress is 2 px over at 750). At 1470 x 720 Progress scrolls 32 px. Smaller windows scroll.
+- Seen in Chrome: the three pages, both side panels (Escape closes them), the Library, and a Learn session's bar and plan.
+- A study block dragged with a real mouse on the resized timetable moved to the time it was dropped on. No page asks the server for anything while idle.
+
+### What was not checked
+- Not seen in Jiven's own browser or on his screen. Safari was not opened: everything was checked in Chrome.
+- High contrast, and the large and extra-large text sizes, were not opened on the three pages. Larger text needs more room, so those pages will scroll.
+- The timetable's one-line blocks show "not started" and "moved" as a mark only, with the word in the tooltip. Nobody has been asked whether that is clear.
+
+### What is still missing
+- **Known and small:** two lectures timetabled at the same time are drawn on top of each other in Week, as before.
+- **v4.0:** the desktop app.
 

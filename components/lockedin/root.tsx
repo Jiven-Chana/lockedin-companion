@@ -138,8 +138,8 @@ export function LockedInRoot({ initial, initialModules = [], demo, children }: {
  * colour and `--li-mod-soft` its soft tint (look.ts). With no module, the
  * region has no module colour and sand stands in.
  */
-export function Tint({ module, className, children, style }: { module?: string | null; className?: string; children: React.ReactNode; style?: React.CSSProperties }) {
+export function Tint({ module, className, children, style, ...data }: { module?: string | null; className?: string; children: React.ReactNode; style?: React.CSSProperties } & { [K in `data-${string}`]?: string }) {
 	const root = useLockedInOptional();
 	const cls = module && root ? `li-mod-${root.moduleLook(module).colour}` : "";
-	return <div className={`${cls} ${className ?? ""}`.trim() || undefined} style={style}>{children}</div>;
+	return <div className={`${cls} ${className ?? ""}`.trim() || undefined} style={style} {...data}>{children}</div>;
 }

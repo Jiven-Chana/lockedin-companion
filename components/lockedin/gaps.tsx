@@ -76,13 +76,13 @@ function IdeaRow({ idea, onError }: { idea: Idea; onError: (m: string) => void }
 	);
 }
 
-/** `first`: the module that most needs attention (V-36) is listed first. */
-export function GapsByIdea({ data, first }: { data: GapsData | null; first?: string | null }) {
+/** `first`: the module that most needs attention (V-36) is listed first. `bare`: without its own heading, inside a panel that has one (v3.0.1). */
+export function GapsByIdea({ data, first, bare = false }: { data: GapsData | null; first?: string | null; bare?: boolean }) {
 	const [err, setErr] = useState<string | null>(null);
 	const modules = [...(data?.modules ?? [])].sort((a, b) => Number(b.code === first) - Number(a.code === first));
 	return (
-		<section className="li-stack" aria-labelledby="rv">
-			<h2 id="rv" className="li-h2">{GAP_COPY.title}</h2>
+		<section className="li-stack" aria-label={GAP_COPY.title}>
+			{bare ? null : <h2 className="li-h2">{GAP_COPY.title}</h2>}
 			{data && modules.length === 0 ? <div className="li-card li-muted">{GAP_COPY.empty}</div> : null}
 			{err ? <p className="li-small" role="alert" style={{ margin: 0 }}>{err}</p> : null}
 			{modules.map((m) => (

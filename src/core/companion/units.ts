@@ -5,7 +5,7 @@
  * work out which teaching week a module is in.
  */
 
-import { WEEK_COPY } from "./policy.ts";
+import { LIBRARY_COPY, WEEK_COPY } from "./policy.ts";
 import { addDays, dateKey, startOfWeek } from "./time.ts";
 import type { ModuleInfo } from "./types.ts";
 
@@ -96,6 +96,15 @@ export function checkProposal(units: readonly ProposedUnit[], pageCount: number)
 /** "Week 3", or "Week not set" for a unit whose week is unknown (0): the one place a week number becomes words (V-25). */
 export function weekLabel(week: number | null | undefined): string {
 	return typeof week === "number" && week > 0 ? WEEK_COPY.week(week) : WEEK_COPY.notSet;
+}
+
+/**
+ * What the Library says under a unit's title (v3.0.1), beyond its date: that
+ * it is this week's, that the student missed it, that it has no material.
+ * Most units say nothing, so most rows are one line.
+ */
+export function unitNotes(unit: { attended?: boolean | null; hasMaterials: boolean }, thisWeek: boolean): string[] {
+	return [thisWeek ? LIBRARY_COPY.thisWeek : null, unit.attended === false ? LIBRARY_COPY.notThere : null, unit.hasMaterials ? null : LIBRARY_COPY.noMaterial].filter((x): x is NonNullable<typeof x> => x !== null);
 }
 
 /** How much text a run of pages holds. */

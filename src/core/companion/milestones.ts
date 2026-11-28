@@ -152,3 +152,14 @@ export function needsAttention(input: AttentionInput): AttentionItem[] {
 	if (none.length > 0) out.push({ kind: "material", modules: none });
 	return out;
 }
+
+/**
+ * The short version of the milestones, for the block on Progress (v3.0.1):
+ * how many are earned, the one earned most recently (the later in the list
+ * when two share a moment), and the first in the list not yet earned.
+ */
+export function milestoneSummary<M extends { earnedAt: string | null }>(milestones: readonly M[]): { earned: number; total: number; latest: M | null; next: M | null } {
+	const earned = milestones.filter((m) => m.earnedAt);
+	const latest = earned.reduce<M | null>((best, m) => (best === null || m.earnedAt! >= best.earnedAt! ? m : best), null);
+	return { earned: earned.length, total: milestones.length, latest, next: milestones.find((m) => !m.earnedAt) ?? null };
+}

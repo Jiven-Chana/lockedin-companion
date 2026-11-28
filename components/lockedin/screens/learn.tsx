@@ -316,14 +316,14 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 					<span className="li-mode" data-study="learn"><Icon.learn />{LEARN_COPY.moduleButton}</span>
 					<span style={{ display: "flex", flexDirection: "column", gap: 6, flexGrow: 1, minWidth: 0 }}>
 						<b className="li-display" style={{ fontSize: "1.5em", lineHeight: 1.1 }}>{view.lecture.module} · {view.lecture.title}</b>
-						{/* Where you are, as labelled steps: the idea you are on and the next one are named. "Idea 2 of 4" as small text was the last thing a tester noticed. */}
+						{/* Where you are (v3.0.1): "Step 1 of 3", a square per step, and the name of the one you are on. Never an empty dashed box. */}
 						{plan && plan.index > 0 && view.status !== "done" ? (
 							<span className="li-steps" role="img" aria-label={where}>
-								{plan.nodes.map((n, i) => (
-									<i key={n.id} data-state={n.state}>
-										{n.state === "done" ? <Icon.check /> : n.state === "current" ? <>now: {n.title}</> : plan.nodes[i - 1]?.state === "current" ? <>next: {n.title}</> : null}
-									</i>
-								))}
+								<b>{LEARN_COPY.stepOf(plan.index, plan.total)}</b>
+								<span className="li-steps-marks">
+									{plan.nodes.map((n) => <i key={n.id} data-state={n.state}>{n.state === "done" ? <Icon.check /> : null}</i>)}
+								</span>
+								{plan.current ? <span className="li-steps-name">{plan.current}</span> : null}
 							</span>
 						) : <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : where}</span>}
 						{timeUp && view.status !== "done" ? <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{LEARN_COPY.timeUp(learn.minutes)}</span> : null}
