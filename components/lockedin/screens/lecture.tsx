@@ -64,11 +64,11 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · ${weekLabel(lecture.week)}` : ""}</Link>
+						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · ${weekLabel(lecture.week, lecture.weekTo)}` : ""}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
 						<span className="li-muted li-row" style={{ gap: 8 }}>
-							{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : `${weekLabel(lecture.week)} · from your course material`}{lecture.attended === false ? " · you weren't there" : ""}
-							{!lecture.start && !(lecture.week > 0) ? <SetWeek lectureId={lecture.id} title={lecture.title} onSaved={() => void lectures.reload()} /> : null}
+							{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : null}{lecture.attended === false ? " · you weren't there" : ""}
+							{!lecture.start ? <SetWeek lectureId={lecture.id} title={lecture.title} week={lecture.week} weekTo={lecture.weekTo} onSaved={() => void lectures.reload()} /> : null}
 						</span>
 					</div>
 				</header>

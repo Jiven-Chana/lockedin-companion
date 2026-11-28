@@ -303,6 +303,8 @@ export const LEARN_RULES = {
 	probe: { week: 4, lecture: 4, section: 2 } as Record<LearnScope, number>,
 	/** "Where you are": at most this many blocks. */
 	whereMax: 6,
+	/** A plan step and a checked idea are the same idea when they share this share of their words (v3.1.1). */
+	sameIdea: 0.5,
 	/** "Ideas to revisit" named in a suggested goal before "and n more". */
 	revisitNamed: 3,
 	/** The plan is sized to the time: about one idea per this many minutes, and never fewer or more than these. */
@@ -383,6 +385,20 @@ export const LEARN_COPY = {
 		revisit: (n: number, named: string) => ({ label: `${n} ${n === 1 ? "idea" : "ideas"} to revisit`, goal: `Go back over what I got wrong: ${named}.` }),
 		sheet: { label: "Work through a sheet", goal: "I'll attach a problem sheet or a worked solution: walk me through it, then set me one like it to try myself." },
 	},
+	/** The stages of a Learn session, named on screen (v3.1.1): a guess, the teaching and a check never look alike. */
+	stages: { level: "Find your level", plan: "Plan", guess: "Guess", learn: "Learn", check: "Check" },
+	stageNote: {
+		level: "A few short questions · nothing is marked",
+		plan: "What we'll cover, from where you are",
+		guess: "Before you are taught · nothing is marked",
+		learn: "Read it through, ask anything",
+		check: "In your own words · your tutor marks this",
+		checkPick: "Pick an answer · it counts",
+	},
+	stageIdeas: (n: number) => (n > 0 ? `Ideas 1 to ${n}` : "Ideas"),
+	/** One plan (v3.1.1): what the check found is on each step. */
+	have: (ideas: readonly string[]) => `You already have: ${ideas.join(", ")}`,
+	alsoChecked: "Also from your check:",
 	/** A written check marked by the tutor (v3.1). Never red, never a score. */
 	verdict: { right: "Right", partly: "Partly there", notyet: "Not yet" },
 	marking: "Your tutor is reading it…",
@@ -852,8 +868,14 @@ export const MATERIALS_RULES = {
 /** A unit whose material doesn't say which week it belongs to has week 0. It never reads "Week 0" (v1.0 V-25). */
 export const WEEK_COPY = {
 	week: (n: number) => `Week ${n}`,
+	/** A unit that covers several weeks (v3.1.1). */
+	weeks: (from: number, to: number) => `Weeks ${from} to ${to}`,
 	notSet: "Week not set",
 	set: "Set week",
+	change: "Change its weeks",
+	from: "From week",
+	to: "to week",
+	save: "Save",
 } as const;
 
 /**

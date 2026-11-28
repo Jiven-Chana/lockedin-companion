@@ -17,7 +17,7 @@ import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { lastSlideRef, parseSlideRefs, trimSlides } from "./slides.ts";
-import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnWhere, Lecture, SessionSpec, SessionView, StudyMode, Verdict, WhereLevel, WrittenMark } from "./types.ts";
+import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnStage, LearnWhere, LeveledStep, Lecture, SessionSpec, SessionView, StudyMode, Verdict, WhereLevel, WrittenMark } from "./types.ts";
 
 /** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
 export function planSize(minutes: number): number {
@@ -84,7 +84,7 @@ const DEFAULT_WANT: Record<LearnScope, string> = {
 	week: "Teach me this week's lectures.",
 };
 
-const unitLine = (l: Lecture) => `${l.title}${l.week > 0 ? ` (week ${l.week})` : ""}${l.attended === false ? " (I missed it)" : ""}`;
+const unitLine = (l: Lecture) => `${l.title}${l.week > 0 ? (l.weekTo && l.weekTo > l.week ? ` (weeks ${l.week} to ${l.weekTo})` : ` (week ${l.week})`) : ""}${l.attended === false ? " (I missed it)" : ""}`;
 
 /**
  * The first message of a Learn session. The tutor's instructions
@@ -589,14 +589,63 @@ export function learnWhere(messages: readonly LhMessage[]): LearnWhere[] | null 
 		}
 	}
 	if (!strands || !hasProbeDone(messages as LhMessage[])) return null;
-	return strands.flatMap((s): LearnWhere[] => {
+	const named = new Set<string>();
+	const fromCheck = strands.flatMap((s): LearnWhere[] => {
 		const title = typeof s.strand === "string" ? s.strand.trim() : "";
 		if (!title) return [];
 		const said = typeof s.assessment === "string" ? s.assessment.trim() : "";
 		const note = said.replace(/^(solid|shaky|not yet|not asked|not checked|got it, and sure|right but guessing)\s*[:.,;-]?\s*/i, "").trim();
 		const fixed = corrections.get(title);
+		named.add(title);
 		return [{ title, level: fixed ?? whereLevel(said), ...(note && !fixed ? { note } : {}), ...(fixed ? { corrected: true } : {}) }];
 	}).slice(0, LEARN_RULES.whereMax);
+	// A step of the plan the check said nothing about, changed by the student (v3.1.1): their word on it is kept too.
+	const own = [...corrections].filter(([title]) => !named.has(title)).map(([title, level]): LearnWhere => ({ title, level, corrected: true }));
+	return [...fromCheck, ...own];
+}
+
+const ideaWords = (title: string) => new Set(title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(" ").filter((x) => x.length > 2 && !["and", "the", "for", "with", "from"].includes(x)));
+
+/**
+ * One plan (v3.1.1): each step with what the check found for it. A step and
+ * a checked idea are matched by name, loosely (the tutor is told to use the
+ * same names, and mostly does); each checked idea goes to one step, the
+ * closest. `have`: ideas found solid that the plan leaves out. `also`:
+ * anything else the check found that matches no step, so nothing is lost.
+ */
+export function planWithLevels(plan: LearnPlanView, where: readonly LearnWhere[] | null | undefined): { steps: LeveledStep[]; have: LearnWhere[]; also: LearnWhere[] } {
+	const steps: LeveledStep[] = plan.nodes.map((n) => ({ ...n }));
+	if (!where?.length) return { steps, have: [], also: [] };
+	const stepWords = steps.map((s) => ideaWords(s.title));
+	const score = (a: Set<string>, b: Set<string>) => {
+		const shared = [...a].filter((x) => b.has(x)).length;
+		// Of the shorter name: "Mixed strategies" is the same idea as "Mixed strategies and guaranteed payoffs".
+		const least = Math.min(a.size, b.size);
+		// One shared word is not the same idea ("Generator inputs" is not "GAN roles and generator objective"), unless it is the whole of the shorter name.
+		if (least === 0 || (shared < 2 && shared < least)) return 0;
+		return shared / least + shared / (a.size + b.size - shared) / 100;
+	};
+	const pairs = where.flatMap((w, wi) => stepWords.map((words, si) => ({ wi, si, s: score(ideaWords(w.title), words) }))).filter((p) => p.s >= LEARN_RULES.sameIdea).sort((a, b) => b.s - a.s || a.si - b.si);
+	const usedW = new Set<number>();
+	const usedS = new Set<number>();
+	for (const p of pairs) {
+		if (usedW.has(p.wi) || usedS.has(p.si)) continue;
+		usedW.add(p.wi);
+		usedS.add(p.si);
+		const w = where[p.wi]!;
+		steps[p.si] = { ...steps[p.si]!, level: w.level, ...(w.note ? { note: w.note } : {}), ...(w.corrected ? { corrected: true } : {}), checked: w.title };
+	}
+	const rest = where.filter((_, i) => !usedW.has(i));
+	return { steps, have: rest.filter((w) => w.level === "solid"), also: rest.filter((w) => w.level !== "solid" && w.level !== "unchecked") };
+}
+
+/** The stage a Learn session is at, named on screen (v3.1.1), or null when it is over. */
+export function learnStage(v: { phase: "probe" | "plan" | "teach"; status: string; question?: { role?: string; guess?: boolean } | null | undefined }): LearnStage | null {
+	if (v.status === "done" || v.status === "error") return null;
+	if (v.phase === "probe") return "level";
+	if (v.phase === "plan") return "plan";
+	if (v.status === "question" && v.question) return v.question.role === "predict" || v.question.guess ? "guess" : "check";
+	return "learn";
 }
 
 /**

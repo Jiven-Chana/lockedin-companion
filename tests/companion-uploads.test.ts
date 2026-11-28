@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import type { SlidePage } from "../src/core/companion/index.ts";
-import { MATERIALS_COPY, MATERIALS_RULES, eachFile, materialKind, parseSlides } from "../src/core/companion/index.ts";
+import { MATERIALS_COPY, MATERIALS_RULES, coversWeek, eachFile, materialKind, parseSlides, weekLabel } from "../src/core/companion/index.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
 import { CompanionContent } from "../src/server/companion/content.ts";
 import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
@@ -194,5 +194,59 @@ describe("a lecture's own page takes the same kinds of file", () => {
 	it("a Word file is refused by name", async () => {
 		const { svc, id } = await start();
 		await assert.rejects(svc.importMaterials(id, { name: "notes.docx", bytes: new Uint8Array([1, 2]) }), /notes\.docx: add PDF/);
+	});
+});
+
+/**
+ * v3.1.1. Jiven, 28 Nov: "when I go to set week, the user doesnt have the
+ * oppurtunity to set multiple weeks for 1 material and multiple materials in
+ * one week." A unit's week could be set only while it was unset, and only to
+ * one week.
+ */
+describe("a unit's weeks", () => {
+	it("a unit covering several weeks says so", () => {
+		assert.equal(weekLabel(7), "Week 7");
+		assert.equal(weekLabel(7, 9), "Weeks 7 to 9");
+		assert.equal(weekLabel(7, 7), "Week 7");
+		assert.equal(weekLabel(0), "Week not set");
+		assert.equal(weekLabel(0, 9), "Week not set");
+	});
+	it("it belongs to every week it covers", () => {
+		assert.deepEqual([6, 7, 8, 9, 10].map((w) => coversWeek({ week: 7, weekTo: 9 }, w)), [false, true, true, true, false]);
+		assert.deepEqual([6, 7, 8].map((w) => coversWeek({ week: 7 }, w)), [false, true, false]);
+		assert.equal(coversWeek({ week: 0 }, 0), false, "a unit with no week belongs to none");
+	});
+
+	const two = async () => {
+		const { svc, store } = await setup();
+		const a = await svc.proposeMaterials("NC", [{ name: "gans.pdf", bytes: pdf("GANs", "Training") }]);
+		const b = await svc.proposeMaterials("NC", [{ name: "diffusion.pdf", bytes: pdf("Diffusion", "Sampling") }]);
+		const save = (r: typeof a) => svc.saveMaterials("NC", { uploadId: r.uploadId, units: r.files[0]!.units.map((u) => ({ file: 0, title: u.title, week: u.week, pages: u.pages })) }).units[0]!.id;
+		return { svc, store, first: save(a), second: save(b) };
+	};
+	it("one unit can be given a range of weeks, and changed again afterwards", async () => {
+		const { svc, first } = await two();
+		assert.deepEqual([svc.setUnitWeek(first, { week: 7, weekTo: 9 }).week, svc.setUnitWeek(first, { week: 7, weekTo: 9 }).weekTo], [7, 9]);
+		const again = svc.setUnitWeek(first, { week: 8 });
+		assert.deepEqual([again.week, again.weekTo], [8, undefined], "back to one week: the range is gone");
+		assert.equal(svc.setUnitWeek(first, { week: 5, weekTo: 5 }).weekTo, undefined);
+	});
+	it("two units can share a week", async () => {
+		const { svc, first, second } = await two();
+		svc.setUnitWeek(first, { week: 8 });
+		svc.setUnitWeek(second, { week: 8 });
+		const units = svc.course().find((m) => m.code === "NC")!.units;
+		assert.deepEqual(units.map((u) => u.week), [8, 8]);
+	});
+	it("a range that runs backwards, or past week 52, is refused", async () => {
+		const { svc, first } = await two();
+		assert.throws(() => svc.setUnitWeek(first, { week: 9, weekTo: 7 }), /last week/);
+		assert.throws(() => svc.setUnitWeek(first, { week: 9, weekTo: 60 }), /1 to 52/);
+		assert.throws(() => svc.setUnitWeek(first, { week: 0 }), /1 to 52/);
+	});
+	it("the Library lets the week be changed on any unit, not only while it is unset", () => {
+		const src = fs.readFileSync(path.join(ROOT, "components", "lockedin", "screens", "library.tsx"), "utf-8");
+		assert.ok(/<SetWeek [^>]*week=\{l\.week\}/.test(src), "the week control is given the unit's own week");
+		assert.ok(!/l\.week > 0 \|\| l\.start \? weekLabel/.test(src), "it is no longer shown only when the week is missing");
 	});
 });

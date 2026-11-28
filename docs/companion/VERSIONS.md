@@ -22,6 +22,7 @@ Each version records what it ships, how it works, what is missing, and the evide
 | **v3.0** | 27 Nov 2026 | tag `lockedin-v3.0` on `main` (PR #18) | The Blocks look on the laptop and the phone, in light and dark, with one colour system; diagrams drawn by LockedIn; Me in a few lines; the phone's week as a day strip and a timeline (V-80 to V-85). | [`v3.0-plan.md`](v3.0-plan.md), [`DECISIONS.md`](DECISIONS.md) V-80 to V-85 |
 | **v3.0.1** | 28 Nov 2026 | tag `lockedin-v3.0.1` on `main` (PR #19) | Fixes from Jiven's own run-through of v3.0: Today, Week and Progress fit one screen; Progress as blocks with side panels; the Learn plan without dashes; the Library says a week once; page changes fade in (V-86 to V-88). Laptop only: no relay deploy | [`DECISIONS.md`](DECISIONS.md) V-86 to V-88, and its section below |
 | **v3.1** | 28 Nov 2026 | branch `feat/v3.1`, tag `lockedin-v3.1` once merged | "Learn that teaches": a Learn session opens on what the student wants, with an optional check and "Where you are"; written and worked answers marked by the tutor; the whole module in reach; attachments; Practise questions that stand on their own; several files and web pages as material (V-89 to V-96). Laptop only: no relay deploy | [`v3.1-plan.md`](v3.1-plan.md), [`DECISIONS.md`](DECISIONS.md) V-89 to V-96 |
+| **v3.1.1** | 28 Nov 2026 | branch `fix/v3.1.1`, tag `lockedin-v3.1.1` once merged | What using v3.1 showed: one plan that carries the check's levels, named stages in Learn, a unit's weeks as a range and changeable, an enlarged diagram that fills the window, maths ending in `\}` rendered, Speak beside every writing box | Explainer visuals in the Blocks look (sample designs first); Part C of v3.1 |
 | **v4.0** | later | — | Not specified yet: the desktop app that students download, the relay on a team account, code clean-up | — |
 
 ---
@@ -437,3 +438,31 @@ About eleven tutor turns and two question-writing calls were used.
 - **Usage, measured loosely:** a session's opening message is longer by one line a unit of the module; the second check of a unit's questions is one small call; an empty reply costs one extra turn.
 - **Owed to the group:** design-log rows for V-89 to V-96, three of which replace or keep earlier decisions (V-59, part of V-47, V-40).
 
+## v3.1.1: what using v3.1 showed (28 Nov 2026)
+
+Jiven used v3.1 and listed what was still wrong. The decisions are [`DECISIONS.md`](DECISIONS.md) V-97 to V-100. Nothing changes on the phone, so there is no relay deploy.
+
+### What was wrong, and what was done
+| He said | Cause | Now |
+|---|---|---|
+| "I can see 2 plans" | "Where you are" and the plan were two lists of the same ideas, and a block's title ran into its note | One plan. Each step shows what the check found and can be changed; "You already have: …" is one line above it |
+| "There are also 2 plan and slide buttons" | Plan and Slide were in the bar and again as tabs inside the panel | One pair, in the bar. The panel has its name and a close button |
+| "A clearer deliniation between probe, predict, learn and check stages" | Only a small label on the question card | A strip in the bar (Find your level, Plan; then Guess, Learn, Check) and a header on each part of the lesson |
+| "Set multiple weeks for 1 material and multiple materials in one week" | "Set week" showed only while a unit had no week, and took one week | The week is a button on every unit made from material; it takes a first and a last week. Two units could always share a week; now it can be reached |
+| "Mermaid diagrams when I click on them they do not fill the screen" | The enlarged box was capped at the diagram's own drawn width | It fills the window |
+| "The widgets in the learn box sometimes dont render math" | Maths whose last character was escaped (`\}`, `\|`, `\,`) was not recognised: `$S(i)=\{\mathrm{yes}\}$` | Recognised and rendered |
+| "The voice 2 speech doesnt work … whereever the user can type" | There is no Deepgram key on his laptop, and without one the Speak button is hidden. It existed on Learn's boxes only | Speak beside the setup chat, module notes, pasted notes and the Library's search as well. The key is his to add (V-100) |
+
+### How it was checked
+- 1,481 companion tests, written first for each rule.
+- The plan, a written check, the plan panel, the Library, the week control and the enlarged diagram at 735 x 700, 1024 x 700, 1176 x 600, 1336 x 680, 1470 x 750 and 1920 x 1000, with the probe for cut and spilling content, on real sessions saved from v3.1. Chrome only. One fault found and fixed: in a narrow column the Speak button squeezed the tutor line; the line now wraps.
+
+### Not checked
+- **Dictation itself.** There was no Deepgram key to test with; only the buttons' places were checked, with a placeholder key.
+- **The tutor naming its steps after the checked ideas.** The prompt asks for it; no new real-AI run was made (usage). On the sessions saved from v3.1, written before the prompt changed, one of two checked ideas paired with a step and the other was shown as "You already have".
+- Changing a step's level with the real tutor; dark mode, high contrast and larger text on the changed screens.
+
+### What is still missing
+- **Explainer visuals in the Blocks look**, in place of mermaid's own drawing: sample designs are to be chosen from first.
+- A unit that covers weeks that are not next to each other (weeks 3 and 7): a range only.
+- Everything listed as missing under v3.1.

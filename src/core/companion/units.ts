@@ -94,8 +94,14 @@ export function checkProposal(units: readonly ProposedUnit[], pageCount: number)
 }
 
 /** "Week 3", or "Week not set" for a unit whose week is unknown (0): the one place a week number becomes words (V-25). */
-export function weekLabel(week: number | null | undefined): string {
-	return typeof week === "number" && week > 0 ? WEEK_COPY.week(week) : WEEK_COPY.notSet;
+export function weekLabel(week: number | null | undefined, weekTo?: number | null): string {
+	if (typeof week !== "number" || week <= 0) return WEEK_COPY.notSet;
+	return typeof weekTo === "number" && weekTo > week ? WEEK_COPY.weeks(week, weekTo) : WEEK_COPY.week(week);
+}
+
+/** Whether a unit belongs to a teaching week (v3.1.1): a unit may cover a range, `week` to `weekTo`. */
+export function coversWeek(unit: { week: number; weekTo?: number | undefined }, week: number): boolean {
+	return unit.week > 0 && week >= unit.week && week <= Math.max(unit.week, unit.weekTo ?? unit.week);
 }
 
 /**

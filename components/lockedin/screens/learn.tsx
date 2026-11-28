@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type LearnWhere, type SessionAttachment, type SessionView, type WhereLevel } from "@/src/core";
+import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type LearnStage, type SessionAttachment, type SessionView, learnStage } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { Attach } from "../attach";
 import { fmtDay, fmtTime, usePoll } from "../hooks";
@@ -45,7 +45,7 @@ function Demo({ title, html }: { title: string; html: string }) {
 	return <iframe ref={frame} title={title || "Something to try"} sandbox="allow-scripts" srcDoc={doc} style={{ height }} />;
 }
 
-function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["learn"]; onSlide: (n: number) => void }) {
+function Item({ item, plan, onSlide, onCorrect, busy }: { item: LearnItem; plan: SessionView["learn"]; onSlide: (n: number) => void; onCorrect?: (title: string, level: "solid" | "shaky" | "notyet") => void; busy?: boolean }) {
 	switch (item.type) {
 		case "tutor":
 			return <Prose text={item.text} onSlide={onSlide} />;
@@ -62,7 +62,8 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 			return plan?.plan ? (
 				<div className="li-answered">
 					<span className="li-eyebrow">{LEARN_COPY.planTitle}</span>
-					<LearnPlan plan={plan.plan} />
+					{/* One plan (v3.1.1): what the check found is on each step, and can be changed while the plan is being agreed. */}
+					<LearnPlan plan={plan.plan} where={plan.where} {...(onCorrect && plan.phase === "plan" ? { onCorrect } : {})} busy={busy} />
 				</div>
 			) : null;
 		case "making":
@@ -121,38 +122,6 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 			);
 		}
 	}
-}
-
-/**
- * "Where you are" (v3.1): each idea the goal needs as a block, the most basic at the bottom, marked Solid, Shaky or
- * Not yet. The student can change any of them; the tutor then plans from what they said.
- */
-function WhereYouAre({ where, onCorrect, busy }: { where: LearnWhere[]; onCorrect?: (title: string, level: "solid" | "shaky" | "notyet") => void; busy?: boolean }) {
-	const [open, setOpen] = useState<string | null>(null);
-	const skipped = where.every((w) => w.level === "unchecked");
-	return (
-		<div className="li-answered li-where" role="group" aria-label={LEARN_COPY.where.title}>
-			<span className="li-eyebrow">{LEARN_COPY.where.title}</span>
-			<span className="li-small li-muted">{skipped ? LEARN_COPY.where.skipped : LEARN_COPY.where.note}</span>
-			<ol className="li-where-list">
-				{[...where].reverse().map((w) => (
-					<li key={w.title} data-level={w.level}>
-						<span className="li-where-main">
-							<b>{w.title}</b>
-							{w.note ? <span className="li-small">{w.note}</span> : null}
-						</span>
-						<span className="li-where-level">{LEARN_COPY.where.levels[w.level]}</span>
-						{onCorrect ? <button type="button" className="li-link" aria-expanded={open === w.title} disabled={busy} onClick={() => setOpen(open === w.title ? null : w.title)}>{LEARN_COPY.where.change}</button> : null}
-						{open === w.title && onCorrect ? (
-							<span className="li-seg li-where-pick" role="group" aria-label={`${w.title}: ${LEARN_COPY.where.change}`}>
-								{(["solid", "shaky", "notyet"] as const).map((l) => <button key={l} type="button" aria-pressed={w.level === l} disabled={busy} onClick={() => { setOpen(null); if (w.level !== l) onCorrect(w.title, l); }}>{LEARN_COPY.where.levels[l as WhereLevel]}</button>)}
-							</span>
-						) : null}
-					</li>
-				))}
-			</ol>
-		</div>
-	);
 }
 
 /** The student is typing in a text box: the keyboard stays where it is. */
@@ -352,7 +321,11 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const items = learn.step.filter((i) => i.type !== "aside");
 	const asides = learn.step.filter((i) => i.type === "aside");
 	const talking = view.status === "question" || view.status === "reply" || view.status === "thinking";
-	const label = !q ? null : q.guess ? LEARN_COPY.guess : q.kind === "write" ? LEARN_COPY.yourTurn : q.kind === "quiz" ? LEARN_COPY.check : null;
+	// Where the session is (v3.1.1): finding the level, the plan, then for each idea a guess, the teaching and a check.
+	const stage = learnStage({ phase: learn.phase, status: view.status, question: q });
+	const strip: LearnStage[] = learn.phase === "teach" ? ["guess", "learn", "check"] : ["level", "plan"];
+	// A question says which stage it is and what happens to the answer. A choice with no right answer (the tutor asking a preference) has no stage.
+	const label = !q || !stage || (q.kind === "ask" && !q.guess) ? null : { name: LEARN_COPY.stages[stage], note: stage === "check" ? (q.kind === "write" ? LEARN_COPY.stageNote.check : LEARN_COPY.stageNote.checkPick) : LEARN_COPY.stageNote[stage] };
 
 	return (
 		<Tint module={view.lecture.module}>
@@ -371,6 +344,13 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 								{plan.current ? <span className="li-steps-name">{plan.current}</span> : null}
 							</span>
 						) : <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : where}</span>}
+						{/* The stages, with the one you are in filled (v3.1.1). Before teaching: find your level, then the plan. For each idea: guess, learn, check. */}
+						{stage ? (
+							<span className="li-stages" role="img" aria-label={`Stage: ${LEARN_COPY.stages[stage]}`}>
+								{strip.map((s) => <i key={s} data-on={String(s === stage)}>{LEARN_COPY.stages[s]}</i>)}
+								{learn.phase !== "teach" ? <i data-on="false">{LEARN_COPY.stageIdeas(plan?.total ?? 0)}</i> : null}
+							</span>
+						) : null}
 						{timeUp && view.status !== "done" ? <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{LEARN_COPY.timeUp(learn.minutes)}</span> : null}
 					</span>
 					{plan ? <button type="button" className="li-x" aria-pressed={panel === "plan"} onClick={() => setPanel(panel === "plan" ? null : "plan")}><Icon.plan />{LEARN_COPY.planTab}</button> : null}
@@ -405,9 +385,9 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 								{earlier ? earlier.map((st, i) => <div key={i} className="li-step" style={{ opacity: 0.85, borderBottom: "2px dashed var(--li-sand)", paddingBottom: 14 }}>{st.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}</div>) : null}
 
 								<div className="li-step" aria-live="polite">
-									{items.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}
-									{/* The check's result, beside the plan it led to (v3.1). A block the student changes goes to the tutor, which plans again. */}
-									{learn.phase === "plan" && learn.where?.length ? <WhereYouAre where={learn.where} busy={!!busy || view.status === "thinking"} onCorrect={(title, level) => void tell({ correct: { title, level } })} /> : null}
+									{/* What this part of the lesson is (v3.1.1): the teaching is named, as a guess and a check are. */}
+									{stage === "learn" && items.some((i) => i.type === "tutor") ? <span className="li-stage-head" data-stage="learn"><b>{LEARN_COPY.stages.learn}</b><span>{LEARN_COPY.stageNote.learn}</span></span> : null}
+									{items.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} busy={!!busy || view.status === "thinking"} onCorrect={(title, level) => void tell({ correct: { title, level } })} />)}
 									{/* A written answer is with the tutor: say so, so the wait reads as marking, not as nothing happening. */}
 									{view.status === "thinking" && items[0]?.type === "answered" && !!items[0].written && !items[0].options.length && !items[0].guess && !items[0].verdict ? <span className="li-small li-muted" role="status">{LEARN_COPY.marking}</span> : null}
 								</div>
@@ -456,7 +436,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 						<div className="li-stack li-learn-side" style={{ gap: 22 }}>
 							{q ? (
 								<section className="li-qcard li-ask" aria-label="Question">
-										{label ? <span className="li-eyebrow"><span className="li-mark small on-colour">{q.guess ? <Icon.question /> : <Icon.check />}</span>{label}</span> : null}
+										{label ? <span className="li-stage-head" data-stage={stage ?? undefined}><span className="li-mark small on-colour">{q.guess ? <Icon.question /> : <Icon.check />}</span><b>{label.name}</b><span>{label.note}</span></span> : null}
 										{/* A question is one line, or (a table, a worked set-up) several blocks. */}
 										{q.stem.includes("\n")
 											? <div className="li-q-stem" style={{ fontSize: "1.15em", fontWeight: 400 }} tabIndex={-1} ref={stem}><Prose text={q.stem} onSlide={openSlide} /></div>
@@ -516,15 +496,12 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 							) : null}
 					{panel ? (
 							<aside className="li-slides" aria-label={panel === "plan" ? "Plan" : "Slides"}>
+								{/* One switch (v3.1.1): Plan and Slide in the bar open and change this panel. It has a name and a way to close, not a second pair of the same buttons. */}
 								<div className="li-row" style={{ gap: 8 }}>
-									<span className="li-tabs" role="tablist" style={{ flexGrow: 1 }}>
-										{plan ? <button type="button" role="tab" aria-selected={panel === "plan"} onClick={() => setPanel("plan")}>{LEARN_COPY.planTab}</button> : null}
-										<button type="button" role="tab" aria-selected={panel === "slide"} onClick={() => setPanel("slide")}>{LEARN_COPY.slideTab}</button>
-									</span>
+									<b className="li-eyebrow" style={{ flexGrow: 1 }}>{panel === "plan" ? LEARN_COPY.planTitle : LEARN_COPY.slideTab}</b>
 									<button type="button" className="li-icon-btn" aria-label="Close" onClick={() => setPanel(null)}><Icon.close /></button>
 								</div>
-								{panel === "plan" && plan ? <LearnPlan plan={plan} /> : null}
-								{panel === "plan" && learn.where?.length ? <WhereYouAre where={learn.where} /> : null}
+								{panel === "plan" && plan ? <LearnPlan plan={plan} where={learn.where} /> : null}
 								{panel === "slide" ? (
 									<>
 										<div className="li-row" style={{ gap: 8 }}>

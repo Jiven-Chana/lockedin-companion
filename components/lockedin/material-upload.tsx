@@ -7,9 +7,10 @@
  * Save. Nothing becomes course material until Save.
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { MATERIALS_COPY, MATERIALS_RULES, PACK_COPY, WEEK_COPY, eachFile } from "@/src/core";
 import { ApiError, lockedIn, type MaterialProposal } from "./api";
+import { MicButton, useMic } from "./mic";
 
 /** `short`: too little text to study from (V-24), so the unit can't be kept. */
 /** `upload`: which request the file went in. Each file travels by itself (v3.1), so each has its own held upload. */
@@ -20,6 +21,7 @@ const WEEKS = Array.from({ length: 20 }, (_, i) => i + 1);
 export function MaterialUpload({ code, name, onSaved, onClose }: { code: string; name: string; onSaved: (n: number) => void; onClose: () => void }) {
 	const [files, setFiles] = useState<File[]>([]);
 	const [text, setText] = useState("");
+	const mic = useMic(useCallback((t: string) => setText((x) => (x ? `${x.trimEnd()} ${t}` : t)), []), "paste");
 	const [proposals, setProposals] = useState<MaterialProposal[] | null>(null);
 	const [at, setAt] = useState<[number, number] | null>(null);
 	const [notAdded, setNotAdded] = useState<{ name: string; error: string }[]>([]);
@@ -99,6 +101,7 @@ export function MaterialUpload({ code, name, onSaved, onClose }: { code: string;
 					<span className="li-small"><b>Or paste text</b>, e.g. the weekly summaries from Canvas</span>
 					<textarea className="li-input" rows={4} value={text} onChange={(e) => setText(e.target.value)} placeholder={MATERIALS_COPY.pastePlaceholder} />
 				</label>
+				<MicButton mic={mic} />
 				{error ? <div className="li-note" role="alert">{error}</div> : null}
 				<button type="button" className="li-btn primary" style={{ alignSelf: "flex-start" }} disabled={busy !== null || (files.length === 0 && !text.trim())} onClick={propose}>
 					{busy === "reading" ? MATERIALS_COPY.reading(at?.[0] ?? 0, at?.[1] ?? 1) : "Continue"}

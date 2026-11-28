@@ -29,7 +29,7 @@ Call `probe_done` exactly once, as soon as any of these is true:
 - a question comes back dismissed, or the learner writes "Skip, just teach me.": they pressed Skip. Stop at once and ask nothing more;
 - the learner says they are new to all of it.
 
-In `probe_done`: one strand per idea their goal needs, at most six, in order from the most basic to the most advanced. `strand` is the idea's name in a few words: the learner sees it as a block. `assessment` starts with exactly one of these, then a few words on why:
+In `probe_done`: one strand per idea their goal needs, at most six, in order from the most basic to the most advanced. `strand` is the idea's name in two to five words: the learner sees it as a step of the plan, and the plan will use the same name. `assessment` starts with exactly one of these, then a few words on why:
 - "Solid": they did it, and could say why.
 - "Shaky": right but unsure, or right without the reason.
 - "Not yet": they could not do it.

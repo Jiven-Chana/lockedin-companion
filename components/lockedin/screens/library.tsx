@@ -8,13 +8,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { LEARN_COPY, NOTE_COPY, PACK_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, ModuleMark, StatusTag } from "../icons";
 import { MaterialUpload } from "../material-upload";
+import { MicButton, useMic } from "../mic";
 import { ModuleNotes } from "../module-notes";
 import { Tint, useLockedIn } from "../root";
 import { SetWeek } from "../set-week";
@@ -90,6 +91,7 @@ export function LibraryScreen() {
 	};
 	const { now } = useLockedIn();
 	const [q, setQ] = useState("");
+	const mic = useMic(useCallback((t: string) => setQ((x) => (x ? `${x.trimEnd()} ${t}` : t).replace(/[.?!]+$/, "")), []), "search");
 	const [adding, setAdding] = useState<string | null>(null);
 	const [knowing, setKnowing] = useState<string | null>(null);
 	// "Rewrite questions" (v3.1) asks first: it uses the student's AI, so it never happens by itself.
@@ -135,7 +137,8 @@ export function LibraryScreen() {
 		const notes = [l.start ? fmtDay(l.start, now) : null, ...unitNotes(l, thisWeek)].filter(Boolean);
 		return (
 		<div key={l.id} className="li-tl">
-			<span className="li-tl-time">{l.week > 0 || l.start ? weekLabel(l.week) : <SetWeek lectureId={l.id} title={l.title} onSaved={() => void course.reload()} />}</span>
+			{/* The week is a button on every unit made from material (v3.1.1): it can be changed at any time, and can be a range. A timetabled lecture's week comes from the calendar. */}
+			<span className="li-tl-time">{l.start ? weekLabel(l.week, l.weekTo) : <SetWeek lectureId={l.id} title={l.title} week={l.week} weekTo={l.weekTo} onSaved={() => void course.reload()} />}</span>
 			<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 				<Link href={`/app/library/${l.id}`}><b>{l.title}</b></Link>
 				{notes.length ? <span className="li-small li-muted">{notes.join(" · ")}</span> : null}
@@ -150,11 +153,14 @@ export function LibraryScreen() {
 	return (
 		<>
 			<PageHead eyebrow="Library" title="Your course">
-				<label className="li-row" style={{ marginTop: 12, maxWidth: 520, gap: 0, position: "relative" }}>
-					<span className="li-sr">Search units and slides</span>
-					<span style={{ position: "absolute", left: 14, color: "var(--li-muted)" }}><Icon.search /></span>
-					<input className="li-input" style={{ paddingLeft: 44 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your course and slides, e.g. ethnography" />
-				</label>
+				<div className="li-row" style={{ marginTop: 12, gap: 8 }}>
+					<label className="li-row" style={{ flex: "1 1 320px", maxWidth: 520, gap: 0, position: "relative" }}>
+						<span className="li-sr">Search units and slides</span>
+						<span style={{ position: "absolute", left: 14, color: "var(--li-muted)" }}><Icon.search /></span>
+						<input className="li-input" style={{ paddingLeft: 44 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your course and slides, e.g. ethnography" />
+					</label>
+					<MicButton mic={mic} />
+				</div>
 				{/* A module the timetable doesn't know about (V-64): a name is enough. */}
 				<div style={{ marginTop: 12 }}><AddModule onAdd={() => void course.reload()} /></div>
 			</PageHead>
