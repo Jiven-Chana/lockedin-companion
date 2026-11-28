@@ -97,6 +97,7 @@ import {
 	type IntentSuggestion,
 	type LearnSpec,
 	type SessionAttachment,
+	type WrittenMark,
 } from "../../core/companion/types.ts";
 import { CONFIDENCE_STOPS } from "../../core/question-core.ts";
 import type { Clock } from "./clock.ts";
@@ -2323,7 +2324,10 @@ export class CompanionService {
 		// Learn: opening it (again) starts this sitting's clock, so mark it before the view reads the clock.
 		if (session.spec.learn) this.markOpened(session.id, now);
 		// A hand-off's phone answer (F-112) is counted by each engine itself.
-		const { teacherNudged, ...mapped } = await engine.view(session.spec.learn ? (this.store.session(session.id) ?? session) : session, lecture, now);
+		const { teacherNudged, ...seen } = await engine.view(session.spec.learn ? (this.store.session(session.id) ?? session) : session, lecture, now);
+		// Written checks the tutor has marked since the last look (v3.1) go on the student's record, once each. The screen has no use for the list.
+		if (seen.learn?.marks?.length) this.recordMarks(session, seen.learn.marks);
+		const mapped = seen.learn?.marks ? { ...seen, learn: (({ marks: _marks, ...l }) => l)(seen.learn) } : seen;
 		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
 		this.markOpened(session.id, now);
@@ -2366,7 +2370,9 @@ export class CompanionService {
 			if ((!laptop && !phone) || d.correct !== true || d.dontKnow === true) continue;
 			if (typeof d.lectureId !== "string" || typeof d.questionId !== "string") continue;
 			const nodeId = (typeof d.nodeId === "string" && d.nodeId) || node(d.lectureId, d.questionId) || GENERAL_IDEA;
-			out.push({ ideaKey: `${d.lectureId}#${nodeId}`, questionId: d.questionId, at: new Date(e.t), confidence: typeof d.confidence === "number" ? d.confidence : null });
+			// A written check marked right (v3.1) was produced by the student, not picked: it counts as sure.
+			const written = (d as { written?: unknown }).written === true;
+			out.push({ ideaKey: `${d.lectureId}#${nodeId}`, questionId: d.questionId, at: new Date(e.t), confidence: typeof d.confidence === "number" ? d.confidence : written ? GAP_RULES.sureConfidence : null });
 		}
 		return out;
 	}
@@ -2838,6 +2844,41 @@ export class CompanionService {
 			return { name: a.name, text, images: n };
 		});
 		return { block: attachmentBlock(files), images, ids: fresh.map((a) => a.id), names: fresh.map((a) => a.name) };
+	}
+
+	/**
+	 * A written check has no right-or-wrong when it is answered: the tutor marks it in its reply (v3.1). When the mark
+	 * arrives it is recorded like any other answer: "right" counts as a sure right answer (the student produced it
+	 * themselves), "partly" and "not yet" make the idea one to revisit.
+	 */
+	private recordMarks(session: CompanionSession, marks: readonly WrittenMark[]): void {
+		const done = new Set(this.store.session(session.id)?.marked ?? []);
+		const fresh = marks.filter((m) => !done.has(m.questionId));
+		if (fresh.length === 0) return;
+		const now = this.now();
+		let misses = this.store.misses();
+		let missed = false;
+		for (const m of fresh) {
+			const ref = m.nodeId ? learnNodeRef(m.nodeId, session.spec.learn?.lectureIds, session.spec.lectureId, session.spec.learn?.reach) : null;
+			const lectureId = ref?.lectureId || session.spec.lectureId;
+			const record: AnswerRecord = {
+				questionId: m.questionId, questionText: m.questionText, ...(ref?.nodeId ? { nodeId: ref.nodeId } : {}), graded: true, ...(m.written ? { written: m.written } : {}),
+				correct: m.verdict === "right", dontKnow: false, shown: false, correctLabels: m.committed ? [m.committed] : [], ...(m.committed ? { explanation: m.committed } : {}), answeredAt: m.answeredAt,
+			};
+			const miss = missFromAnswer(record, { sessionId: session.id, lectureId, now });
+			if (miss) {
+				misses = mergeMisses(misses, [miss]);
+				missed = true;
+			}
+			this.log("answer", {
+				sessionId: session.id, lectureId, questionId: m.questionId, nodeId: record.nodeId ?? null, slides: [], n: session.answered, engine: session.engine, kind: session.spec.kind, study: "learn",
+				graded: true, guess: false, correct: record.correct, dontKnow: false, confidence: null, why: false, whyLength: 0, assisted: false, msOnQuestion: null, miss: miss?.reason ?? null, chosen: [],
+				written: true, verdict: m.verdict,
+			});
+		}
+		if (missed) this.store.saveMisses(misses);
+		this.store.updateSession(session.id, (s) => ({ ...s, marked: [...new Set([...(s.marked ?? []), ...fresh.map((m) => m.questionId)])] }));
+		this.settleGaps();
 	}
 
 	/** What the first step of a Learn session suggests (v3.1), from the student's own module. No AI. */

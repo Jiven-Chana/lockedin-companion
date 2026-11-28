@@ -997,3 +997,79 @@ describe("attaching a file to a Learn session (v3.1)", () => {
 		await assert.rejects(svc.attach(sessionId, { name: "a.md", bytes: enc("x") }), /only a Learn session/);
 	});
 });
+
+/**
+ * v3.1 Part B: a written check is marked by the tutor, and the mark goes on
+ * the student's record like any other answer.
+ */
+describe("a written check in a session (v3.1)", () => {
+	const explainCall = (id: string) => call(id, "explain", { type: "check", nodeId: "persona-purpose", question: "In two sentences: why do designers write personas?", correctAnswer: "To keep a specific, evidence-based user in view, so decisions are argued from that user's goals." });
+	const writing = (tutor: Tutor, verdicts: Record<string, string>) => {
+		tutor.react = (chatId, input) => {
+			const say = (...m: LhMessage[]) => tutor.say(chatId, ...m);
+			if (input.type === "text" && /^LEARN SESSION/.test(input.text)) {
+				tutor.trees.set(chatId, tree);
+				return say(
+					assistant([call("pd", "probe_done", { assessment: { strands: [{ strand: "What personas are for", assessment: "Not asked." }] } }), text("Thanks.")]), result("pd", "probe_done", { ok: true }), newHandoffMessage(chatId),
+					assistant([text("Two ideas."), call("pi", "plan_init", { mermaid: "graph TD" })]), result("pi", "plan_init", { ok: true, tree }),
+					assistant([text("A persona is a made-up but evidence-based user (Slide 4). Your turn."), explainCall("e1")]),
+				);
+			}
+			if (input.type === "answer" && verdicts[input.toolCallId]) return say(assistant([text(`Verdict: ${verdicts[input.toolCallId]}\nYou named the user; you left out the evidence.`), explainCall(`${input.toolCallId}x`)]));
+		};
+	};
+	const start = async (verdict: string) => {
+		const s = setup();
+		writing(s.tutor, { e1: verdict });
+		const { sessionId } = s.svc.startLearn({ lectureId: "hci-w3-personas" });
+		await s.svc.whenReady(sessionId);
+		return { ...s, sessionId };
+	};
+
+	it("is answered in the student's own words", async () => {
+		const { svc, sessionId } = await start("partly");
+		const v = await svc.view(sessionId);
+		assert.deepEqual([v.status, v.question?.kind, v.question?.guess ?? false, v.question?.options.length], ["question", "write", false, 0]);
+	});
+
+	it("\"partly\": the idea is one to revisit, the answer is on the record once, and the verdict line is not shown", async () => {
+		const { svc, store, events, sessionId } = await start("partly");
+		const q = (await svc.view(sessionId)).question!;
+		await svc.answer(sessionId, { questionId: q.id, text: "So the team remembers who the user is." });
+		assert.equal(store.misses().length, 0, "nothing is marked when it is sent: the tutor has not read it yet");
+		const v = await svc.view(sessionId);
+		const answered = v.learn!.step.find((i) => i.type === "answered")!;
+		assert.equal(answered.type === "answered" ? answered.verdict : null, "partly");
+		assert.deepEqual(v.learn!.step.filter((i) => i.type === "tutor").map((i) => (i.type === "tutor" ? i.text : "")), ["You named the user; you left out the evidence."]);
+		assert.equal((v.learn as { marks?: unknown }).marks, undefined, "the list of marks stays on the server");
+		const [miss] = store.misses();
+		assert.deepEqual([miss?.lectureId, miss?.nodeId, miss?.reason, miss?.status], ["hci-w3-personas", "persona-purpose", "wrong", "open"]);
+		assert.match(miss!.correctLabels[0]!, /^To keep a specific/);
+		const marked = events("answer").filter((e) => e.written === true);
+		assert.deepEqual(marked.map((e) => [e.questionId, e.graded, e.correct, e.verdict, e.nodeId]), [[q.id, true, false, "partly", "persona-purpose"]]);
+		await svc.view(sessionId);
+		await svc.view(sessionId);
+		assert.equal(events("answer").filter((e) => e.written === true).length, 1, "looking again records nothing more");
+		assert.equal(store.misses().length, 1);
+	});
+
+	it("\"right\": no gap, and it counts as a sure right answer", async () => {
+		const { svc, store, events, sessionId } = await start("right");
+		const q = (await svc.view(sessionId)).question!;
+		await svc.answer(sessionId, { questionId: q.id, text: "To keep one evidence-based user in view so decisions are argued from their goals." });
+		const v = await svc.view(sessionId);
+		const answered = v.learn!.step.find((i) => i.type === "answered")!;
+		assert.equal(answered.type === "answered" ? answered.verdict : null, "right");
+		assert.equal(store.misses().length, 0);
+		assert.deepEqual(events("answer").filter((e) => e.written === true).map((e) => [e.correct, e.verdict]), [[true, "right"]]);
+		assert.deepEqual(store.session(sessionId)!.marked, [q.id]);
+	});
+
+	it("\"I don't know\" on a written check is not yet, and goes on the record at once", async () => {
+		const { svc, store, sessionId } = await start("not yet");
+		const q = (await svc.view(sessionId)).question!;
+		await svc.answer(sessionId, { questionId: q.id, dontKnow: true });
+		await svc.view(sessionId);
+		assert.deepEqual(store.misses().map((m) => [m.nodeId, m.status]), [["persona-purpose", "open"]]);
+	});
+});

@@ -381,6 +381,11 @@ export const LEARN_COPY = {
 		revisit: (n: number, named: string) => ({ label: `${n} ${n === 1 ? "idea" : "ideas"} to revisit`, goal: `Go back over what I got wrong: ${named}.` }),
 		sheet: { label: "Work through a sheet", goal: "I'll attach a problem sheet or a worked solution: walk me through it, then set me one like it to try myself." },
 	},
+	/** A written check marked by the tutor (v3.1). Never red, never a score. */
+	verdict: { right: "Right", partly: "Partly there", notyet: "Not yet" },
+	marking: "Your tutor is reading it…",
+	yourAnswer: "What you wrote",
+	fullAnswer: "A full answer",
 	/** The check's result (v3.1): each idea the goal needs, as a block the student can correct. */
 	where: {
 		title: "Where you are",

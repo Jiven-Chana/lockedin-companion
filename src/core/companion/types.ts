@@ -248,6 +248,8 @@ export type LearnItem =
 			dontKnow: boolean;
 			/** Set only for a Check with a right answer. A guess is never marked. */
 			correct?: boolean;
+			/** A written check (v3.1): how the tutor marked it, once it has replied. */
+			verdict?: Verdict;
 			explanation?: string;
 			why?: string;
 		}
@@ -266,6 +268,11 @@ export type LearnArtifactKind = "visual" | "demo" | "research";
 
 /** A file attached to a Learn session (v3.1). `text`: what was read from it; `images`: how many pictures of it are kept beside the session. `sent`: the tutor has been given it. */
 export interface SessionAttachment { id: string; name: string; kind: "text" | "pdf" | "image"; chars: number; images: number; at: string; sent?: boolean }
+
+/** How the tutor marked a written check (v3.1). */
+export type Verdict = "right" | "partly" | "notyet";
+/** A written check and its mark (v3.1), for the student's record. */
+export interface WrittenMark { questionId: string; nodeId?: string; questionText: string; written: string; committed: string; verdict: Verdict; answeredAt: string }
 
 export type WhereLevel = "solid" | "shaky" | "notyet" | "unchecked";
 /** One block of "Where you are" (v3.1). `corrected`: the student changed it. */
@@ -294,6 +301,8 @@ export interface LearnView {
 	slideAt?: number;
 	/** "Where you are" (v3.1): each idea the goal needs, basic first, once the check is over (or skipped). */
 	where?: LearnWhere[];
+	/** Every written check the tutor has marked in this session (v3.1). The service records each once. */
+	marks?: WrittenMark[];
 }
 
 /** The learner's answer as it arrives from the session screen. */
@@ -635,6 +644,8 @@ export interface CompanionSession {
 	learnAt?: { index: number; total: number; title: string; covered: string[]; plan?: { title: string; state: "done" | "current" | "todo" }[] };
 	/** Learn: the module's first-time question (V-52) has not been answered yet, so the tutor has not been started. */
 	awaitingHow?: boolean;
+	/** Written checks whose mark has been recorded (v3.1), by question id. */
+	marked?: string[];
 	/** Files the student attached to this session (v3.1): a problem sheet, a worked solution, a photo of working. Kept with the session only. */
 	attachments?: SessionAttachment[];
 	/** A Learn session whose first step is still to be answered (v3.1): what the student wants, and whether to be checked first. */

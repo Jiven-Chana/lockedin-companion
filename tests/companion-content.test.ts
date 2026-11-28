@@ -65,7 +65,7 @@ describe("seed config", () => {
 		assert.equal(clean!.graph?.enabled, false);
 		assert.equal(clean!.graph?.rendering, false);
 		// Learn switches the tutor's demos, visuals and research back on (V-54). Reading the student's PDFs directly stays off.
-		assert.deepEqual(clean!.agent?.tools, { research: true, demo: true, visual: true, pdf: false });
+		assert.deepEqual(clean!.agent?.tools, { research: true, demo: true, visual: true, pdf: false, explain: true });
 		assert.deepEqual(clean!.agent?.graphTools, { enabled: false });
 		assert.deepEqual(clean!.agent?.fileAccess, { restricted: true, folders: [] });
 		assert.deepEqual(Object.keys(clean!.agent?.prompts ?? {}).sort(), ["prober/10-probe-doctrine.md", "shared/40-formatting.md", "teacher/05-method.md", "teacher/10-planning.md"]);

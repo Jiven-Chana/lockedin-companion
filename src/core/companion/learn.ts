@@ -17,7 +17,7 @@ import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { lastSlideRef, parseSlideRefs, trimSlides } from "./slides.ts";
-import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnWhere, Lecture, SessionSpec, SessionView, StudyMode, WhereLevel } from "./types.ts";
+import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnWhere, Lecture, SessionSpec, SessionView, StudyMode, Verdict, WhereLevel, WrittenMark } from "./types.ts";
 
 /** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
 export function planSize(minutes: number): number {
@@ -168,6 +168,17 @@ function answerOf(m: LhMessage): QuestionAnswerData | null {
 	return d;
 }
 
+/** The tutor's mark on a written check: the first line of its reply, alone on its line (it is told to write it that way). */
+const VERDICT_RE = /^\s*[`*_]*\s*verdict:\s*(right|partly|not yet)\s*[`*_]*\s*(?:\n|$)/i;
+
+/** Split a reply into its verdict line and the rest. The line is for the record; the student never sees it. */
+export function verdictOf(text: string): { verdict: Verdict | null; rest: string } {
+	const m = VERDICT_RE.exec(text);
+	if (!m) return { verdict: null, rest: text };
+	const word = m[1]!.toLowerCase();
+	return { verdict: word === "not yet" ? "notyet" : (word as Verdict), rest: text.slice(m[0].length).trim() };
+}
+
 function answeredItem(id: string, tool: string, d: QuestionAnswerData, type: unknown): LearnItem {
 	const guess = isGuess(tool, d.questionType ?? (typeof type === "string" ? type : undefined));
 	const correct = new Set(d.correctIndices ?? []);
@@ -184,6 +195,8 @@ function answeredItem(id: string, tool: string, d: QuestionAnswerData, type: unk
 		...(written ? { written } : {}),
 		dontKnow: d.dontKnow,
 		...(d.kind === "quiz" && !guess && !shown ? { correct: d.correct === true } : {}),
+		// A written check answered "I don't know" is not yet, without waiting for the tutor to say so.
+		...(d.kind === "explain" && !guess && d.dontKnow && !shown ? { verdict: "notyet" as const } : {}),
 		...(explanation ? { explanation } : {}),
 		...(d.thinking && !shown ? { why: d.thinking } : {}),
 	};
@@ -240,6 +253,8 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 	const steps: LearnItem[][] = [[]];
 	let step = steps[0]!;
 	let planShown = false;
+	/** Answers given in the student's own words to a question with a committed answer. */
+	const written = new Set<string>();
 	for (const m of messages) {
 		if (m.role === "user") {
 			const t = userText(m).trim();
@@ -269,6 +284,7 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 		} else if (m.role === "toolResult") {
 			const d = answerOf(m);
 			if (d) {
+				if (d.kind === "explain") written.add(m.toolCallId);
 				step = [answeredItem(m.toolCallId, m.toolName, d, callTypes.get(m.toolCallId))];
 				steps.push(step);
 			}
@@ -278,6 +294,18 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 			const made = m.customType === "subagent-steer" ? artifactItem(d.toolCallId, d.kind, d.result) : null;
 			step.push(made ?? { type: "failed", id: d.toolCallId, kind: d.kind as LearnArtifactKind });
 		}
+	}
+	// A written check's mark (v3.1) is the first line of the tutor's reply to it. It is taken off the words shown, always;
+	// it marks the answer only when the answer was a check in the student's own words.
+	for (const s of steps) {
+		const first = s[0];
+		const reply = s.find((i): i is Extract<LearnItem, { type: "tutor" }> => i.type === "tutor");
+		if (!reply) continue;
+		const { verdict, rest } = verdictOf(reply.text);
+		if (verdict === null) continue;
+		if (rest) reply.text = rest;
+		else s.splice(s.indexOf(reply), 1);
+		if (first?.type === "answered" && written.has(first.id) && !first.guess && first.verdict === undefined) first.verdict = verdict;
 	}
 	// Still on its way from an earlier step: keep it in view (AFF-H).
 	const last = steps.at(-1)!;
@@ -402,6 +430,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 
 	const slideAt = learnSlideAt(step);
 	const where = learnWhere(messages as LhMessage[]);
+	const marks = writtenMarks(messages as LhMessage[]);
 	const base: SessionView = {
 		id: session.id,
 		engine: "learnharness",
@@ -425,6 +454,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 			finished,
 			...(slideAt !== null ? { slideAt } : {}),
 			...(where ? { where } : {}),
+			...(marks.length ? { marks } : {}),
 		},
 	};
 
@@ -456,6 +486,35 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	const age = typeof newest?.timestamp === "number" ? now.getTime() - newest.timestamp : 0;
 	if (age > LEARN_RULES.stalledMs) return { ...base, status: "reply" };
 	return { ...base, status: "thinking", activity: LEARN_COPY.writing };
+}
+
+/**
+ * Every written check the tutor has marked in this session (v3.1), for the
+ * student's record: the idea, the question, what they wrote, the answer the
+ * tutor committed before asking, and its mark. A guess is never in it.
+ */
+export function writtenMarks(messages: readonly LhMessage[]): WrittenMark[] {
+	const calls = new Map<string, { nodeId?: string; correctAnswer?: string }>();
+	for (const m of messages) {
+		if (m.role !== "assistant") continue;
+		for (const b of m.content) {
+			if (b.type !== "toolCall" || b.name !== "explain") continue;
+			const a = (b.arguments ?? {}) as { nodeId?: unknown; correctAnswer?: unknown };
+			calls.set(b.id, { ...(typeof a.nodeId === "string" ? { nodeId: a.nodeId } : {}), ...(typeof a.correctAnswer === "string" ? { correctAnswer: a.correctAnswer } : {}) });
+		}
+	}
+	const out: WrittenMark[] = [];
+	const answers = new Map<string, QuestionAnswerData>();
+	for (const m of messages) if (m.role === "toolResult") { const d = answerOf(m); if (d) answers.set(m.toolCallId, d); }
+	for (const step of learnSteps(messages)) {
+		const first = step[0];
+		if (first?.type !== "answered" || first.verdict === undefined || first.guess) continue;
+		const call = calls.get(first.id);
+		const d = answers.get(first.id);
+		if (!call || !d) continue;
+		out.push({ questionId: first.id, ...(call.nodeId ? { nodeId: call.nodeId } : {}), questionText: first.stem, written: first.written ?? "", committed: d.committed ?? call.correctAnswer ?? "", verdict: first.verdict, answeredAt: d.answeredAt });
+	}
+	return out;
 }
 
 // ─── the first step and "Where you are" (v3.1) ───────────────────────────────
