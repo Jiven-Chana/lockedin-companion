@@ -81,7 +81,7 @@ describe("first-run seed", () => {
 		assert.equal(settings.agent.fileAccess.restricted, true);
 		// The tutor may read LockedIn's own copies of the slides, and nothing else (v2.0 step 5).
 		assert.deepEqual(settings.agent.fileAccess.folders, [path.resolve(d, "companion", "materials"), path.resolve(ROOT, "companion", "content")]);
-		assert.deepEqual(settings.agent.tools, { research: true, demo: true, visual: true, pdf: false });
+		assert.deepEqual(settings.agent.tools, { research: true, demo: true, visual: true, pdf: false, explain: true });
 		assert.equal(Object.keys(settings.agent.prompts).length, 4);
 		assert.equal(settings.models, undefined, "placeholder slots are not written");
 		assert.deepEqual(r.missingModels, ["strong", "cheap", "vision"]);

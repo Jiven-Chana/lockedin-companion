@@ -5,6 +5,8 @@
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, it } from "node:test";
 import {
 	answerRecordFrom,
@@ -12,6 +14,9 @@ import {
 	suggestForBlock,
 	tutorOwesNextStep,
 	buildLearnOpening,
+	lastSlideRef,
+	learnSlideAt,
+	mapIdeaTitles,
 	gradeAnswer,
 	isGuess,
 	LEARN_RULES,
@@ -85,9 +90,9 @@ const view = (messages: LhMessage[], over: { running?: boolean; failure?: string
 const types = (items: LearnItem[]) => items.map((i) => i.type);
 
 describe("the opening questions are sized to what was asked for (V-47)", () => {
-	const cases: [LearnSpec["scope"], number][] = [["week", 4], ["lecture", 2], ["section", 1]];
+	const cases: [LearnSpec["scope"], number][] = [["week", 4], ["lecture", 4], ["section", 2]];
 	for (const [scope, n] of cases) it(`${scope}: up to ${n}`, () => assert.equal(probeSize(scope), n));
-	it("the numbers live in policy", () => assert.deepEqual(LEARN_RULES.probe, { week: 4, lecture: 2, section: 1 }));
+	it("the numbers live in policy", () => assert.deepEqual(LEARN_RULES.probe, { week: 4, lecture: 4, section: 2 }));
 });
 
 describe("the plan is sized to the time: about one idea per ten minutes", () => {
@@ -106,7 +111,7 @@ describe("what the tutor is told at the start", () => {
 		assert.match(t, /Lecture: Nash equilibrium \(week 2\)/);
 		assert.match(t, /What I want: Teach me this lecture\./);
 		assert.match(t, /Time: about 50 minutes\. I may stop at any point and pick it up later\./);
-		assert.match(t, /Opening questions: at most 2\./);
+		assert.match(t, /Opening questions: at most 4\./);
 		assert.match(t, /Plan: at most 5 ideas\./);
 		assert.match(t, /IDEAS \(plan on these slugs\)\n```mermaid\ngraph TD/);
 		assert.match(t, /SLIDES FILE: \/data\/materials\/gt-w2-nash\/slides\.md/);
@@ -117,7 +122,7 @@ describe("what the tutor is told at the start", () => {
 		const { text: t } = buildLearnOpening({ ...base, spec: { ...session().spec, nodes: ["nash"], learn: { scope: "section", minutes: 25, goal: "nash, I've seen it but can't find one" } } });
 		assert.match(t, /Covers: one section of a lecture\./);
 		assert.match(t, /What I want: nash, I've seen it but can't find one/);
-		assert.match(t, /Opening questions: at most 1\./);
+		assert.match(t, /Opening questions: at most 2\./);
 		assert.match(t, /Focus: only the ideas nash\./);
 		assert.match(t, /Time: about 25 minutes\./);
 	});
@@ -519,5 +524,102 @@ describe("a Learn session that was left is offered again (R-5)", () => {
 		assert.equal(resumableSession([session({ state: "active", lastActivityAt: "2026-11-20T09:00:00.000Z" })], at)?.id, "s1");
 		assert.equal(resumableSession([session({ state: "done" })], at), null);
 		assert.equal(resumableSession([session({ state: "ready" })], at), null);
+	});
+});
+
+/**
+ * v3.1 Part A. Jiven asked a week 1 session for weeks 7 to 9 and was told
+ * "The slides provided here are week 1… give me a filename". The tutor is
+ * now told what else the module holds, and may read it.
+ */
+describe("the tutor is told what else the module holds (v3.1)", () => {
+	const base = { lecture, moduleName: "Game Theory", now, units: [{ lecture, slidesMarkdown: "## Slide 1: Games\nA game has players.", slidesFile: "/data/materials/gt-w2-nash/slides.md", conceptMap: "graph TD\n  nash[\"Nash equilibrium · S2\"]" }] };
+	const other = (id: string, title: string, week: number, ideas: string[]) => ({ lecture: { ...lecture, id, title, week }, ideas, ideasFile: ideas.length ? `/data/materials/${id}/map.mmd` : null, slidesFile: `/data/materials/${id}/slides.md` });
+
+	it("a unit's ideas are read from its map: the titles, without their slide numbers", () => {
+		const map = 'graph TD\n  images["Distribution of Images · S4, S5, S6"] --> gen["Generative Models · S8"]\n  gen --> prior["Generator “prior” distribution of z · S13"]\n  plain[Adversarial training]\n  images --> prior';
+		assert.deepEqual(mapIdeaTitles(map), ["Distribution of Images", "Generative Models", "Generator “prior” distribution of z", "Adversarial training"]);
+		assert.deepEqual(mapIdeaTitles(map, 2), ["Distribution of Images", "Generative Models"]);
+		assert.deepEqual(mapIdeaTitles(""), []);
+	});
+
+	it("each other unit is one line: its week, its ideas, and the two files to read", () => {
+		const { text: t } = buildLearnOpening({ ...base, spec: { ...session().spec }, others: [other("gt-w7", "Cooperative games", 7, ["Coalitions", "The core"]), other("gt-w8", "The Shapley value", 8, [])] });
+		assert.match(t, /OTHER UNITS OF THIS MODULE \(read one only when what I want is in it\)/);
+		assert.match(t, /^M1: Cooperative games \(week 7\) · ideas: Coalitions; The core · IDEAS FILE: \/data\/materials\/gt-w7\/map\.mmd · SLIDES FILE: \/data\/materials\/gt-w7\/slides\.md$/m);
+		assert.match(t, /^M2: The Shapley value \(week 8\) · SLIDES FILE: \/data\/materials\/gt-w8\/slides\.md$/m, "a unit with no map yet still has its slides");
+		assert.ok(t.indexOf("OTHER UNITS") < t.indexOf("SLIDES (cite as"), "before the slides, so it is not lost under them");
+	});
+
+	it("with nothing else in the module, nothing is said", () => {
+		assert.doesNotMatch(buildLearnOpening({ ...base, spec: { ...session().spec } }).text, /OTHER UNITS/);
+		assert.doesNotMatch(buildLearnOpening({ ...base, spec: { ...session().spec }, others: [] }).text, /OTHER UNITS/);
+	});
+
+	it("an idea written m2-<slug> belongs to the second other unit", () => {
+		const reach = ["gt-w7", "gt-w8"];
+		assert.deepEqual(learnNodeRef("m2-shapley", undefined, "gt-w2-nash", reach), { lectureId: "gt-w8", nodeId: "shapley" });
+		assert.deepEqual(learnNodeRef("nash", undefined, "gt-w2-nash", reach), { lectureId: "gt-w2-nash", nodeId: "nash" });
+		assert.deepEqual(learnNodeRef("m9-x", undefined, "gt-w2-nash", reach), { lectureId: "gt-w2-nash", nodeId: "m9-x" }, "a number past the list is not a unit");
+		assert.deepEqual(learnNodeRef("u2-mixed", ["a", "b"], "a", reach), { lectureId: "b", nodeId: "mixed" }, "a week's own units are unchanged");
+		assert.deepEqual(learnNodeRef("m1-core", ["a", "b"], "a", reach), { lectureId: "gt-w7", nodeId: "core" });
+	});
+
+	it("the tutor's instructions say when to read another unit and how to write its ideas", () => {
+		const prompt = fs.readFileSync(path.join(import.meta.dirname, "..", "companion", "seed", "prompts", "teacher", "10-planning.md"), "utf-8");
+		assert.match(prompt, /OTHER UNITS OF THIS MODULE/);
+		assert.match(prompt, /`m1-<slug>`/);
+		assert.match(prompt, /say in one sentence which unit/i);
+		assert.match(prompt, /never ask them for a file: read it/);
+	});
+});
+
+/**
+ * v3.1 Part A. "Slides dont auto switch with new questions. I have 120+
+ * page slides to flick through." The panel showed the lowest slide cited in
+ * the step, never the question's own, and stopped following for good once
+ * the student picked a slide.
+ */
+describe("the slide beside a Learn step (v3.1)", () => {
+	it("the last slide named in a text, in reading order", () => {
+		assert.equal(lastSlideRef("First (Slide 12), then the proof (Slide 4)."), 4);
+		assert.equal(lastSlideRef("See (Slides 7-9) and later (Slide 3, 5)."), 3);
+		assert.equal(lastSlideRef("No slide here."), null);
+		assert.equal(lastSlideRef(undefined), null);
+	});
+
+	const tutor = (t: string) => ({ type: "tutor" as const, id: "t", text: t });
+	const done = (explanation: string) => ({ type: "answered" as const, id: "a", explanation } as never);
+	const cases: Array<[string, Parameters<typeof learnSlideAt>[0], Parameters<typeof learnSlideAt>[1], number | null]> = [
+		["the open question names its slide: that one", [tutor("We saw dominance (Slide 3).")], { stem: "On the payoff table (Slide 41), which row is dominated?" }, 41],
+		["the question names none: the latest slide the tutor cited, not the lowest", [tutor("Recall (Slide 3)."), tutor("Now the minimax objective (Slide 58), built on the discriminator (Slide 19).")], { stem: "What does the discriminator maximise?" }, 19],
+		["the question's own explanation is not looked at: it would give the answer's slide away no more than the teaching did", [tutor("Before we start.")], { stem: "Have a guess.", explanation: "Because (Slide 9)." } as { stem: string }, null],
+		["no question: the latest slide in the step", [tutor("The generator (Slide 13)."), tutor("And the prior (Slide 15).")], null, 15],
+		["an answer just explained counts as the tutor's words", [done("Right: see (Slide 22)."), tutor("Next idea.")], null, 22],
+		["nothing cited", [tutor("Hello.")], null, null],
+		["nothing at all", [], null, null],
+	];
+	for (const [name, step, q, expected] of cases) it(name, () => assert.equal(learnSlideAt(step, q), expected));
+
+	it("the screen shows that slide, and a slide the student picks holds only until the next step or question", () => {
+		const src = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "lockedin", "screens", "learn.tsx"), "utf-8");
+		assert.match(src, /const cited = learn\.slideAt \?\? /);
+		assert.match(src, /useEffect\(\(\) => \{ setSlide\(null\); \}, \[stepKey, q\?\.id\]\)/);
+	});
+
+	it("the view carries it", () => {
+		const msgs = [opening(), assistant([text("One guess first.")]), assistant([text("Strict dominance is on (Slide 3). The table is (Slide 4)."), quizCall("c1", { type: "check", nodeId: "nash" })])];
+		const v = view(msgs);
+		assert.equal(v.learn?.slideAt, 4);
+	});
+});
+
+describe("the slide beside a Practise question (v3.1)", () => {
+	const src = fs.readFileSync(path.join(import.meta.dirname, "..", "components", "lockedin", "screens", "session.tsx"), "utf-8");
+	it("a new question shows its own slide, not one browsed to during the last answer", () => {
+		assert.match(src, /setHint\(null\);\n\t\t\t\/\/ A new question shows its own slide[^\n]*\n\t\t\tsetSlide\(null\);/);
+	});
+	it("in a round across units, the page pictured is the question's own unit's", () => {
+		assert.match(src, /<SlidePage lectureId=\{lectureId \?\? view\.lecture\.id\}/);
 	});
 });

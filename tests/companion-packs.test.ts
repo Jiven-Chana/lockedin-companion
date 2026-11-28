@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { PACK_COPY, PACK_RULES, packStatusLine, type PackMeta, type SlidePage } from "../src/core/companion/index.ts";
+import { PHONE_RULES, PACK_COPY, PACK_RULES, packStatusLine, type PackMeta, type SlidePage } from "../src/core/companion/index.ts";
 import { ManualClock } from "../src/server/companion/clock.ts";
 import { CompanionContent } from "../src/server/companion/content.ts";
 import { ScriptedEngine } from "../src/server/companion/engines/scripted.ts";
@@ -46,7 +46,7 @@ function fakeAi(opts: { gate?: Promise<void>; fail?: (tool: string, nth: number)
 		if (req.toolName === "submit_units") value = { units: [{ title: "Nash", week: 2, from: 1, to: 2 }] };
 		if (req.toolName === "submit_map") value = { nodes: [{ id: "best-response", label: "Best responses", slides: [1] }, { id: "nash", label: "Nash equilibrium", slides: [2] }], edges: [{ from: "best-response", to: "nash" }] };
 		if (req.toolName === "submit_bank")
-			value = { questions: [...Array.from({ length: 6 }, (_, i) => question(i + 1, "best-response")), ...Array.from({ length: 6 }, (_, i) => question(i + 7, "nash")), question(13, "nash", { stem: "x".repeat(120) })] };
+			value = { questions: [...Array.from({ length: 6 }, (_, i) => question(i + 1, "best-response")), ...Array.from({ length: 6 }, (_, i) => question(i + 7, "nash")), question(13, "nash", { stem: "x".repeat(260) })] };
 		if (req.toolName === "submit_explainers")
 			value = { explainers: [{ node: "nash", title: "Nash equilibrium", terms: ["best response"], body: "Everyone is best-responding.", diagram: "flowchart LR\n  a --> b", slides: [2], tryQuestionId: /- (\S+-q7) /.exec(req.user)?.[1] ?? "missing" }] };
 		const problem = req.validate?.(value);
@@ -106,12 +106,12 @@ describe("study packs (F-105)", () => {
 		const p = svc.pack(id);
 		assert.equal(p.meta?.state, "ready");
 		assert.deepEqual(p.meta?.stages, { read: "done", map: "done", explainers: "done", bank: "done" });
-		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_explainers"], "bank before explainers: explainers end in a bank question");
-		assert.equal(p.questions, 12, "the 120-character stem was dropped");
+		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_check", "submit_explainers"], "bank before explainers: explainers end in a bank question; the small check follows the bank (v3.1)");
+		assert.equal(p.questions, 12, "the 260-character stem was dropped");
 		assert.deepEqual(p.meta?.dropped.map((d) => d.stage), ["bank"]);
 		assert.equal(p.explainers.length, 1);
 		assert.deepEqual(p.meta?.models, { map: "fake/strong", bank: "fake/cheap", explainers: "fake/strong" });
-		assert.equal(Math.round((p.meta?.costUsd ?? 0) * 100), 3);
+		assert.equal(Math.round((p.meta?.costUsd ?? 0) * 100), 4);
 		assert.match(fs.readFileSync(path.join(store.materialsDir(id), "map.mmd"), "utf-8"), /best-response --> nash/);
 		for (const e of ["pack_started", "pack_stage", "pack_ready"]) assert.ok(events().includes(e as never), e);
 	});
@@ -171,14 +171,14 @@ describe("study packs (F-105)", () => {
 		svc.regeneratePack(id, {});
 		await svc.packs!.idle();
 		assert.equal(svc.pack(id).meta?.state, "ready");
-		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_explainers"], "nothing was done before the cancel, so all stages ran");
+		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_check", "submit_explainers"], "nothing was done before the cancel, so all stages ran");
 		ai.calls.length = 0;
 		svc.regeneratePack(id, {});
 		await svc.packs!.idle();
 		assert.deepEqual(ai.calls, [], "a finished pack resumes with nothing left to do");
 		svc.regeneratePack(id, { fresh: true });
 		await svc.packs!.idle();
-		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_explainers"], "fresh regenerates everything");
+		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_check", "submit_explainers"], "fresh regenerates everything");
 	});
 
 	it("an authored map is kept (the demo lectures)", async () => {
@@ -203,7 +203,7 @@ describe("a pack survives a bad minute (v1.0 T-4, V-23)", () => {
 		await s.svc.packs!.idle();
 		assert.equal(s.svc.pack(s.id).meta?.state, "ready");
 		assert.deepEqual(s.sleeps, [DELAYS[0]]);
-		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_bank", "submit_explainers"], "only the failed stage ran again");
+		assert.deepEqual(ai.calls, ["submit_map", "submit_bank", "submit_bank", "submit_check", "submit_explainers"], "only the failed stage ran again");
 		assert.equal(packStatusLine(during!), PACK_COPY.retrying(DELAYS[0]! / 1000), "the lecture page says it is trying again");
 		assert.equal(s.svc.pack(s.id).meta?.waiting, undefined);
 		assert.equal(s.events().filter((e) => e === "pack_retry").length, 1);
@@ -314,4 +314,168 @@ describe("the lecture page's line about a pack", () => {
 		["paused", { state: "cancelled" }, null],
 	];
 	for (const [name, over, line] of cases) it(name, () => assert.equal(packStatusLine(meta(over)), line));
+});
+
+/**
+ * v3.1 Part A: the questions are read back once by a small second call that
+ * sees only the questions, duplicates go, a unit's round uses the student's
+ * history, and "Rewrite questions" writes the questions again and nothing else.
+ */
+describe("Practise questions are checked, and rewritten only on request (v3.1)", () => {
+	const applied = (i: number, node: string, over: Record<string, unknown> = {}) => question(i, node, { stem: `Case ${i}: payoffs are (${i}, ${i + 1}) and (${i + 2}, ${i}). What follows for ${node}?`, difficulty: 3, ...over });
+	/** A stand-in AI whose bank and check answers a test sets. */
+	const ai = (bank: () => unknown[], check?: (listed: string) => unknown) => {
+		const base = fakeAi();
+		const generate: Generate = async <T,>(req: GenerateRequest) => {
+			if (req.toolName === "submit_bank") {
+				base.calls.push(req.toolName);
+				base.requests.push(req);
+				const value = { questions: bank() };
+				const problem = req.validate?.(value);
+				if (problem) throw new Error(`invalid: ${problem}`);
+				return { value: value as T, model: "fake/cheap", cost: 0.01, ms: 1 };
+			}
+			if (req.toolName === "submit_check" && check) {
+				base.calls.push(req.toolName);
+				base.requests.push(req);
+				const value = check(req.user);
+				if (value instanceof Error) throw value;
+				return { value: value as T, model: "fake/cheap", cost: 0.001, ms: 1 };
+			}
+			return base.generate<T>(req);
+		};
+		return { ...base, generate };
+	};
+	const twelve = () => [...Array.from({ length: 6 }, (_, i) => applied(i + 1, "best-response")), ...Array.from({ length: 6 }, (_, i) => applied(i + 7, "nash"))];
+
+	it("the second call is shown the questions and their options, and nothing of the slides or the marked answers", async () => {
+		const a = ai(twelve, () => ({ verdicts: [] }));
+		const { svc, id } = await setup(a);
+		await svc.packs!.idle();
+		const req = a.requests.find((r) => r.toolName === "submit_check")!;
+		assert.equal(req.slot, "cheap");
+		assert.match(req.user, /^QUESTIONS\n\n1\. Case 1: /);
+		assert.match(req.user, /\n   A\. Right 1\n   B\. Wrong A 1\n   C\. Wrong B 1/);
+		assert.doesNotMatch(req.user, /SLIDES|## Slide|Body of|correct|Because/);
+		assert.equal(svc.pack(id).questions, 12);
+	});
+
+	it("a question it cannot answer as posed is dropped, and one it answers differently; both are recorded", async () => {
+		const a = ai(twelve, () => ({ verdicts: [{ n: 2, answerable: false, answer: null }, { n: 5, answerable: true, answer: 2 }, { n: 1, answerable: true, answer: 0 }] }));
+		const { svc, store, id } = await setup(a);
+		await svc.packs!.idle();
+		const p = svc.pack(id);
+		assert.equal(p.questions, 10);
+		assert.deepEqual(p.meta?.dropped.map((d) => d.reason), ["could not be answered as posed", "a second reading picked a different answer"]);
+		const logged = store.events().find((e) => e.type === "pack_checked")!;
+		assert.deepEqual([logged.data.asked, logged.data.unanswerable, logged.data.disagreed], [12, 1, 1]);
+	});
+
+	it("if the second call fails, the questions that passed the rules are kept and nothing is written again", async () => {
+		const a = ai(twelve, () => new Error("ChatGPT request failed."));
+		const { svc, id, events } = await setup(a);
+		await svc.packs!.idle();
+		assert.equal(svc.pack(id).meta?.state, "ready");
+		assert.equal(svc.pack(id).questions, 12);
+		assert.equal(a.calls.filter((c) => c === "submit_bank").length, 1);
+		assert.ok(events().includes("pack_check_skipped" as never));
+	});
+
+	it("two questions that ask the same thing: the later one is dropped", async () => {
+		const a = ai(() => [...twelve(), applied(1, "best-response", { options: ["Other right", "Other wrong", "Other wrong 2"] })], () => ({ verdicts: [] }));
+		const { svc, id } = await setup(a);
+		await svc.packs!.idle();
+		assert.equal(svc.pack(id).questions, 12);
+		assert.deepEqual(svc.pack(id).meta?.dropped.map((d) => d.reason), ["asks the same thing as another question"]);
+	});
+
+	it("a question that points at the lecture is sent back to be rewritten, with the reason", async () => {
+		let n = 0;
+		const a = ai(() => (++n === 1 ? [...twelve().slice(0, 11), applied(12, "nash", { stem: "In the lecture's example, which strategy is a best response?" })] : twelve()), () => ({ verdicts: [] }));
+		await assert.rejects(a.generate({ slot: "cheap", system: "", user: "", toolName: "submit_bank", toolDescription: "", schema: {}, validate: (v) => {
+			const qs = (v as { questions: { stem: string }[] }).questions;
+			return qs.some((x) => /lecture/.test(x.stem)) ? "fix these questions: #12: \"the lecture's\" points outside the question" : null;
+		} }), /points outside the question/);
+	});
+
+	it("a unit's \"Practise this\" does not ask the same questions every time", async () => {
+		const { svc, id } = await setup(ai(twelve, () => ({ verdicts: [] })));
+		await svc.packs!.idle();
+		const round = async () => {
+			const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: id, study: "practise" }));
+			await svc.whenReady(sessionId);
+			const asked: string[] = [];
+			for (let i = 0; i < 5; i++) {
+				const v = await svc.view(sessionId);
+				if (v.status !== "question" || !v.question) break;
+				asked.push(v.question.id);
+				await svc.answer(sessionId, { questionId: v.question.id, indices: [v.question.options[0]!.index], confidence: 70 });
+				const after = await svc.view(sessionId);
+				if (after.status === "question" && after.question?.id === v.question.id) break;
+			}
+			return asked;
+		};
+		const first = await round();
+		const second = await round();
+		assert.equal(first.length, 5);
+		assert.equal(second.length, 5);
+		assert.equal(second.filter((q) => first.includes(q)).length, 0, "twelve questions: the second round is five the first did not ask");
+		assert.equal(new Set([...first, ...second].map((q) => q.split("-q")[0])).size, 1);
+	});
+
+	it("\"Rewrite questions\" writes each unit's questions again and keeps its map and explainers", async () => {
+		let version = 1;
+		const a = ai(() => twelve().map((x) => ({ ...x, stem: `${x.stem.replace("?", "")} (v${version})?` })), () => ({ verdicts: [] }));
+		const { svc, store, id } = await setup(a);
+		await svc.packs!.idle();
+		const before = svc.pack(id);
+		assert.deepEqual([before.meta?.state, before.meta?.stages, before.explainers.length, before.meta?.dropped], ["ready", { read: "done", map: "done", explainers: "done", bank: "done" }, 1, []]);
+		const oldIds = (JSON.parse(fs.readFileSync(path.join(store.materialsDir(id), "bank.json"), "utf-8")) as { id: string }[]).map((x) => x.id);
+		a.calls.length = 0;
+		version = 2;
+		assert.deepEqual(svc.rewriteQuestions("GT"), { units: 1 });
+		await svc.packs!.idle();
+		assert.deepEqual(a.calls, ["submit_bank", "submit_check"], "no map and no explainers: those are the dear stages");
+		const after = svc.pack(id);
+		assert.equal(after.meta?.state, "ready");
+		assert.equal(after.questions, 12);
+		const bank = JSON.parse(fs.readFileSync(path.join(store.materialsDir(id), "bank.json"), "utf-8")) as { id: string; stem: string; node: string }[];
+		assert.ok(bank.every((x) => /\(v2\)\?$/.test(x.stem)));
+		assert.equal(bank.filter((x) => oldIds.includes(x.id)).length, 0, "new questions get new ids: an old id never comes to mean a different question");
+		assert.equal(after.explainers.length, before.explainers.length);
+		assert.ok(bank.some((x) => x.id === after.explainers[0]!.tryQuestionId && x.node === after.explainers[0]!.node), "the explainer ends on a question that exists, on its own idea");
+		assert.ok(store.events().some((e) => e.type === "questions_rewrite" && e.data.units === 1));
+	});
+
+	it("a notification's question is one short enough to read on a lock screen, when the unit has one", async () => {
+		const long = "A firm sets a price above marginal cost and a rival can undercut it by a penny and take the whole market. What does each firm's best response lead to?";
+		const a = ai(() => [applied(1, "best-response", { stem: long }), ...twelve().slice(1)], () => ({ verdicts: [] }));
+		const { svc, id } = await setup(a);
+		await svc.packs!.idle();
+		assert.ok(long.length > PHONE_RULES.notifyStemMax);
+		const first = svc.questionFor(id)!;
+		assert.match(first.stem, /^Case 2: /, "the long one is first in the unit, and is passed over");
+		// With only long ones left unused, a long one is still better than none.
+		const used = new Set((JSON.parse(fs.readFileSync(path.join(svc.packs!["deps"].dir(id), "bank.json"), "utf-8")) as { id: string; stem: string }[]).filter((x) => x.stem !== long).map((x) => x.id));
+		assert.equal(svc.questionFor(id, used)!.stem, long);
+	});
+
+	it("one unit's questions can be written again by themselves", async () => {
+		const a = ai(twelve, () => ({ verdicts: [] }));
+		const { svc, id } = await setup(a);
+		await svc.packs!.idle();
+		a.calls.length = 0;
+		svc.regeneratePack(id, { questions: true });
+		await svc.packs!.idle();
+		assert.deepEqual(a.calls, ["submit_bank", "submit_check"]);
+		assert.equal(svc.pack(id).meta?.state, "ready");
+	});
+
+	it("with nothing to rewrite, or no AI, it says so and starts nothing", async () => {
+		const { svc } = await setup(ai(twelve), { aiReady: false });
+		assert.throws(() => svc.rewriteQuestions("GT"), /Connect your AI/);
+		const s = await setup(ai(twelve, () => ({ verdicts: [] })));
+		await s.svc.packs!.idle();
+		assert.throws(() => s.svc.rewriteQuestions("NOPE"), /module/i);
+	});
 });

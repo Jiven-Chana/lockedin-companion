@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LEARN_COPY, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel } from "@/src/core";
+import { LEARN_COPY, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel, MATERIALS_RULES } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -78,8 +78,8 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => void practise("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
 					{lecture.start ? <button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button> : null}
 					<label className="li-btn ghost" style={{ cursor: "pointer" }}>
-						{lecture.hasMaterials ? "Replace material" : "Add slides (PDF)"}
-						<input type="file" accept=".pdf,application/pdf" className="li-sr" onChange={async (e) => {
+						{lecture.hasMaterials ? "Replace material" : "Add slides or notes"}
+						<input type="file" accept={MATERIALS_RULES.accept} className="li-sr" onChange={async (e) => {
 							const f = e.target.files?.[0];
 							if (!f) return;
 							setMsg("Reading your slides…");
@@ -88,7 +88,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 								setMsg(`${r.slideCount} slides added${r.needsCaption.length ? `; no text found on ${r.needsCaption.length}` : ""}.`);
 								void lectures.reload(); void slides.reload(); void map.reload();
 							} catch (err) {
-								setMsg(err instanceof ApiError ? err.message : "Couldn't read that PDF");
+								setMsg(err instanceof ApiError ? err.message : "Couldn't read that file");
 							}
 						}} />
 					</label>

@@ -14,6 +14,7 @@ import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUEST
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { LearnAsk } from "../learn-ask";
+import { LearnIntent } from "../learn-intent";
 import { LearnScreen } from "./learn";
 import { MicButton, useMic } from "../mic";
 import { InlineProse, Prose } from "../prose";
@@ -85,6 +86,8 @@ export function SessionScreen({ id }: { id: string }) {
 			setConf(null);
 			setWhy("");
 			setHint(null);
+			// A new question shows its own slide (v3.1): one browsed to during the last answer does not carry over.
+			setSlide(null);
 			qRef.current?.focus();
 		}
 	}, [showQuestion, view?.question?.id]);
@@ -210,8 +213,8 @@ export function SessionScreen({ id }: { id: string }) {
 		);
 	}
 
-	// The module's first Learn session (V-52): one card, once, before the tutor starts.
-	if (view.status === "ask" && view.ask) {
+	// Every Learn session opens on what the student wants (v3.1); the module's first one then asks how they like to learn (V-52). The tutor starts after.
+	if (view.status === "ask" && (view.ask || view.intent)) {
 		return (
 			<Tint module={view.lecture.module}>
 				<div className="li-focus li-learn">
@@ -221,7 +224,11 @@ export function SessionScreen({ id }: { id: string }) {
 						<button type="button" className="li-x" onClick={stop}><Icon.pause />Stop for now</button>
 					</div>
 					<div className="li-panes" data-panel="closed">
-						<section className="li-qcard"><LearnAsk sessionId={id} name={view.ask.name} canCopy={view.ask.canCopy} onDone={() => void load()} /></section>
+						<section className="li-qcard">
+							{view.intent
+								? <LearnIntent sessionId={id} name={view.intent.name} suggestions={view.intent.suggestions} attachments={view.attachments ?? []} onDone={() => void load()} />
+								: <LearnAsk sessionId={id} name={view.ask!.name} canCopy={view.ask!.canCopy} onDone={() => void load()} />}
+						</section>
 					</div>
 				</div>
 			</Tint>
@@ -411,7 +418,7 @@ export function SessionScreen({ id }: { id: string }) {
 							</div>
 							<div className="li-slide" data-page={s && hasPdf ? "true" : "false"}>
 								{s && hasPdf ? null : <span className="li-eyebrow li-slide-muted">{view.practiseOf ?? `${view.lecture.module} · ${view.lecture.title}`}</span>}
-								{s ? <SlidePage lectureId={view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
+								{s ? <SlidePage lectureId={lectureId ?? view.lecture.id} slide={s} hasPdf={hasPdf} /> : <p className="li-slide-muted" style={{ margin: 0 }}>No material for this yet. Add it from the Library with "Add course material".</p>}
 							</div>
 							{pos.total > 0 && pos.total <= MATERIALS_RULES.maxSlideDots ? <div className="li-dots" aria-hidden="true">{slides.map((x) => <span key={x.number} data-on={x.number === pos.number ? "true" : "false"} />)}</div> : null}
 							<span className="li-small li-muted">The panel follows the slide the explanation cites. Click any slide chip to open it here.</span>

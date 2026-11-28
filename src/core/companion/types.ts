@@ -40,6 +40,10 @@ export interface LearnSpec {
 	goal?: string;
 	/** A week in one session: every unit taught, in course order. The first is the session's `lectureId`. */
 	lectureIds?: string[];
+	/** The student's choice on the first step (v3.1): true = "Check what I know first", false = "Skip, start teaching". Absent: a session from before v3.1. */
+	check?: boolean;
+	/** The module's other units (v3.1), in course order: the tutor may read one when what the student wants is in it. Their ideas are written `m1-<slug>`, `m2-<slug>`. */
+	reach?: string[];
 	/** How long the sitting is meant to be: the block's length, or the student's usual block length. */
 	minutes: number;
 }
@@ -69,6 +73,8 @@ export interface SessionSpec {
 	seedAnswers?: SeedAnswer[];
 	/** A study block's first step (V-44): the session opens on this bank question. */
 	firstQuestionId?: string;
+	/** Practise on one unit (v3.1): the questions chosen for this round from the student's history, in the order to ask them. The round fills up from the unit's set after them. */
+	order?: string[];
 	/** Learn or Practise (V-40). Absent means Learn. */
 	study?: StudyMode;
 	/** Learn (V-47): set on every session the tutor teaches. */
@@ -167,6 +173,10 @@ export interface SessionView {
 	learn?: LearnView;
 	/** status "ask" (V-52): the module being asked about, and whether another module's answer can be reused. */
 	ask?: { module: string; name: string; canCopy: boolean };
+	/** Learn (v3.1): the files attached to this session, sent to the tutor or still waiting to go with the next message. */
+	attachments?: SessionAttachment[];
+	/** status "ask" (v3.1): the first step of a Learn session, "What do you want from this session?". Nothing has been sent to the AI yet. */
+	intent?: { name: string; suggestions: (IntentSuggestion & { sessionId?: string })[] };
 }
 
 // ─── what LockedIn knows about you (V-52, V-53) ─────────────────────────────
@@ -240,6 +250,8 @@ export type LearnItem =
 			dontKnow: boolean;
 			/** Set only for a Check with a right answer. A guess is never marked. */
 			correct?: boolean;
+			/** A written check (v3.1): how the tutor marked it, once it has replied. */
+			verdict?: Verdict;
 			explanation?: string;
 			why?: string;
 		}
@@ -255,6 +267,20 @@ export type LearnItem =
 	| { type: "aside"; id: string; ask: string; answer: string };
 
 export type LearnArtifactKind = "visual" | "demo" | "research";
+
+/** A file attached to a Learn session (v3.1). `text`: what was read from it; `images`: how many pictures of it are kept beside the session. `sent`: the tutor has been given it. */
+export interface SessionAttachment { id: string; name: string; kind: "text" | "pdf" | "image"; chars: number; images: number; at: string; sent?: boolean }
+
+/** How the tutor marked a written check (v3.1). */
+export type Verdict = "right" | "partly" | "notyet";
+/** A written check and its mark (v3.1), for the student's record. */
+export interface WrittenMark { questionId: string; nodeId?: string; questionText: string; written: string; committed: string; verdict: Verdict; answeredAt: string }
+
+export type WhereLevel = "solid" | "shaky" | "notyet" | "unchecked";
+/** One block of "Where you are" (v3.1). `corrected`: the student changed it. */
+export interface LearnWhere { title: string; level: WhereLevel; note?: string; corrected?: boolean }
+/** A suggestion on the first step of a Learn session (v3.1): tapping it fills in the goal. `attach`: it is about a file the student adds. */
+export interface IntentSuggestion { id: "unit" | "stopped" | "week" | "revisit" | "sheet"; label: string; goal: string; attach?: boolean }
 
 export interface LearnView {
 	/** Where the loop is: the opening guesses, the plan being agreed, or teaching. */
@@ -273,6 +299,12 @@ export interface LearnView {
 	covered?: string[];
 	/** A week in one session: the unit the current idea belongs to. The slide panel shows its slides. */
 	unit?: { id: string; title: string };
+	/** The slide to show beside this step (v3.1): the open question's own, else the latest one the tutor cited. */
+	slideAt?: number;
+	/** "Where you are" (v3.1): each idea the goal needs, basic first, once the check is over (or skipped). */
+	where?: LearnWhere[];
+	/** Every written check the tutor has marked in this session (v3.1). The service records each once. */
+	marks?: WrittenMark[];
 }
 
 /** The learner's answer as it arrives from the session screen. */
@@ -614,6 +646,12 @@ export interface CompanionSession {
 	learnAt?: { index: number; total: number; title: string; covered: string[]; plan?: { title: string; state: "done" | "current" | "todo" }[] };
 	/** Learn: the module's first-time question (V-52) has not been answered yet, so the tutor has not been started. */
 	awaitingHow?: boolean;
+	/** Written checks whose mark has been recorded (v3.1), by question id. */
+	marked?: string[];
+	/** Files the student attached to this session (v3.1): a problem sheet, a worked solution, a photo of working. Kept with the session only. */
+	attachments?: SessionAttachment[];
+	/** A Learn session whose first step is still to be answered (v3.1): what the student wants, and whether to be checked first. */
+	awaitingIntent?: boolean;
 	/** Learn: when the clock for this sitting started. Reset when a stopped session is picked up. */
 	sittingFrom?: string;
 }
@@ -687,6 +725,9 @@ export const COMPANION_EVENT_TYPES = [
 	"pack_retry",
 	"pack_ready",
 	"pack_failed",
+	"pack_checked", // v3.1: the small second check of a unit's questions { lectureId, asked, unanswerable, disagreed, model }
+	"pack_check_skipped", // v3.1: that check failed, so the questions that passed the rules were kept { lectureId, error }
+	"questions_rewrite", // v3.1: "Rewrite questions" on a module { module, units }
 	"explainer_opened",
 	"map_node_clicked",
 	// v0.1 F-108
@@ -749,6 +790,8 @@ export const COMPANION_EVENT_TYPES = [
 	"learn_said",
 	// v2.0 step 6: the first-time question and the notes (V-52, V-53). The notes' words are never logged.
 	"how_answered",
+	"learn_attached", // v3.1: a file attached to a Learn session { sessionId, kind, chars, images }
+	"learn_intent", // v3.1: the first step answered { sessionId, module, suggestion: id|null, typed, check, attached }
 	"note_edited",
 	"note_rewritten",
 	"note_rewrite_failed",

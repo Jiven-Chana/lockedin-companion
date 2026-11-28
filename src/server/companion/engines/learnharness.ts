@@ -15,13 +15,13 @@ import type { PlanTree } from "../../../core/contracts.ts";
 import { hasProbeDone, needsContinuation, pendingQuestionOf, type LhMessage } from "../../../core/native-messages.ts";
 import { QUESTION_TOOLS, toolQuestionKind } from "../../../core/pending.ts";
 import { dismissedAnswer } from "../../../core/question-core.ts";
-import { learnSteps, mapLearnView, tutorOwesNextStep, type LearnMade } from "../../../core/companion/learn.ts";
-import { HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
+import { learnSteps, mapLearnView, tutorOwesNextStep, unmarkedCheck, type LearnMade } from "../../../core/companion/learn.ts";
+import { ATTACH_COPY, HINT_REQUEST, keepGoingText, LEARN_COPY, LEARN_SAYS, PREPARE_RULES, SESSION_COPY, SHOW_ME_THINKING, TEACHER_RULES } from "../../../core/companion/policy.ts";
 import { answerRecordFrom, AnswerInputError, gradeAnswer, questionDataFromCall } from "../../../core/companion/question-data.ts";
 import { mapChatToView, SUPPORTED_QUESTION_TOOLS } from "../../../core/companion/view-mapper.ts";
 import type { AnswerInput, CompanionSession, Lecture } from "../../../core/companion/types.ts";
 import { badRequest, CompanionError, conflict, EngineError } from "../errors.ts";
-import type { PrepareContext, SessionEngine, SessionPatch } from "./types.ts";
+import type { MessageImage, PrepareContext, SessionEngine, SessionPatch } from "./types.ts";
 
 export interface LhSendResult {
 	status: number;
@@ -117,7 +117,8 @@ export class LearnHarnessEngine implements SessionEngine {
 
 	async start(_session: CompanionSession, ctx: PrepareContext): Promise<SessionPatch> {
 		const chatId = this.port.createChat(ctx.title);
-		await this.send(chatId, { type: "text", text: ctx.openingMessage });
+		const images = (ctx.openingImages ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }));
+		await this.send(chatId, { type: "text", text: ctx.openingMessage, ...(images.length ? { images } : {}) });
 		return { chatId };
 	}
 
@@ -203,7 +204,8 @@ export class LearnHarnessEngine implements SessionEngine {
 		if (v.status !== "reply" || v.learn?.phase !== "teach" || v.learn.finished || session.state === "stopped" || !tutorOwesNextStep(this.record(session))) return v;
 		const thinking = { ...v, status: "thinking" as const, activity: LEARN_COPY.writing };
 		try {
-			return (await this.askForQuestion(this.chatId(session), LEARN_SAYS.carryOn)) ? { ...thinking, teacherNudged: true } : thinking;
+			// A written check left unmarked is asked for its mark; anything else for the next step.
+			return (await this.askForQuestion(this.chatId(session), unmarkedCheck(this.record(session)) ? LEARN_SAYS.markIt : LEARN_SAYS.carryOn)) ? { ...thinking, teacherNudged: true } : thinking;
 		} catch {
 			return v;
 		}
@@ -272,8 +274,14 @@ export class LearnHarnessEngine implements SessionEngine {
 		return { text: text.trim(), patch: { hintedQuestionIds: [...new Set([...(session.hintedQuestionIds ?? []), questionId])] } };
 	}
 
-	async say(session: CompanionSession, text: string): Promise<{ queued: boolean }> {
+	async say(session: CompanionSession, text: string, images: MessageImage[] = []): Promise<{ queued: boolean }> {
 		const chatId = this.chatId(session);
+		// Something attached (v3.1) goes as the student's own turn, with its pictures: it cannot be slipped into a reply the tutor is still writing.
+		if (images.length > 0) {
+			if (this.port.running(chatId)) throw new CompanionError("tutor_writing", 409, ATTACH_COPY.busy);
+			await this.send(chatId, { type: "text", text, images: images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType })) });
+			return { queued: false };
+		}
 		// Mid-reply: the tutor picks it up at its next pause. If that turn ends first, it goes as an ordinary message.
 		if (this.port.running(chatId) && (await this.port.steer(chatId, text))) return { queued: true };
 		// "Skip, just teach me" with a guess still open: the open question is dismissed, which is how the tutor

@@ -22,6 +22,10 @@ import { safeMermaid } from "../../core/companion/diagram.ts";
 import { GAP_RULES, MATERIALS_RULES, PACK_COPY, PACK_RULES } from "../../core/companion/policy.ts";
 import { parseSlides, trimSlides } from "../../core/companion/slides.ts";
 import {
+	type ColdVerdict,
+	retargetExplainers,
+	dedupeQuestions,
+	applyColdCheck,
 	checkExplainer,
 	stripQuestionIds,
 	checkMapNodes,
@@ -47,7 +51,7 @@ export interface StudyPackDeps {
 	mapSource: (lectureId: string) => string | null;
 	generate: Generate;
 	promptsDir: string;
-	log: (type: "pack_started" | "pack_stage" | "pack_retry" | "pack_ready" | "pack_failed" | "gap_questions_written", data: Record<string, unknown>) => void;
+	log: (type: "pack_started" | "pack_stage" | "pack_retry" | "pack_ready" | "pack_failed" | "pack_checked" | "pack_check_skipped" | "gap_questions_written", data: Record<string, unknown>) => void;
 	now: () => Date;
 	/** Is the student's AI reachable right now? After a failed try this decides between waiting for it and trying again. Default: yes. */
 	connected?: () => Promise<boolean>;
@@ -107,6 +111,15 @@ const BANK_SCHEMA = {
 					explanation: { type: "string" }, slides: { type: "array", items: { type: "integer" } }, node: { type: "string" }, difficulty: { type: "integer", minimum: 1, maximum: 3 },
 				},
 			},
+		},
+	},
+};
+const CHECK_SCHEMA = {
+	type: "object", additionalProperties: false, required: ["verdicts"],
+	properties: {
+		verdicts: {
+			type: "array",
+			items: { type: "object", additionalProperties: false, required: ["n", "answerable", "answer"], properties: { n: { type: "integer" }, answerable: { type: "boolean" }, answer: { type: ["integer", "null"] } } },
 		},
 	},
 };
@@ -180,12 +193,21 @@ export class StudyPacks {
 		fs.writeFileSync(/* turbopackIgnore: true */ this.file(meta.lectureId, "pack.json"), JSON.stringify(meta, null, "\t"));
 	}
 
-	/** Queue a pack (one at a time, so a whole semester doesn't fire a burst of calls). `fresh` regenerates every stage. */
-	start(lectureId: string, opts: { fresh?: boolean } = {}): PackMeta {
+	/**
+	 * Queue a pack (one at a time, so a whole semester doesn't fire a burst of calls). `fresh` regenerates every stage.
+	 * `bank` writes only the questions again (v3.1): the map and the explainers, which are the dear stages, are kept.
+	 */
+	start(lectureId: string, opts: { fresh?: boolean; bank?: boolean } = {}): PackMeta {
 		if (this.running.has(lectureId)) return this.status(lectureId)!;
 		const prev = this.status(lectureId);
 		const meta = newPackMeta(lectureId, this.deps.now().toISOString());
 		if (prev && !opts.fresh) for (const s of Object.keys(meta.stages) as PackStage[]) if (prev.stages[s] === "done" || prev.stages[s] === "skipped") meta.stages[s] = prev.stages[s];
+		if (opts.bank && !opts.fresh && meta.stages.map === "done" && fs.existsSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"))) {
+			// The old questions are kept aside until the new ones are written, so one the student has met keeps its id if it is written again.
+			meta.stages.bank = "pending";
+			if (prev?.lastQuestionNumber !== undefined) meta.lastQuestionNumber = prev.lastQuestionNumber;
+			fs.renameSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"), /* turbopackIgnore: true */ this.file(lectureId, "bank.prev.json"));
+		}
 		if (opts.fresh) {
 			// The old bank is kept aside until the new one is written, so questions the student has met keep their ids.
 			if (fs.existsSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"))) fs.renameSync(/* turbopackIgnore: true */ this.file(lectureId, "bank.json"), /* turbopackIgnore: true */ this.file(lectureId, "bank.prev.json"));
@@ -373,12 +395,32 @@ export class StudyPacks {
 					},
 				});
 				spend(r, "bank");
-				const usable: Omit<BankQuestion, "id">[] = [];
+				const passed: Omit<BankQuestion, "id">[] = [];
 				r.value.questions.forEach((q, i) => {
 					const problem = checkQuestion({ ...q, id: `q${i + 1}` } as BankQuestion, ctx);
 					if (problem) meta.dropped.push({ stage: "bank", id: `${id}-#${i + 1}`, reason: problem });
-					else usable.push(q);
+					else passed.push(q);
 				});
+				// v3.1: no two questions that ask the same thing…
+				const unique = dedupeQuestions(passed);
+				for (const d of unique.dropped) meta.dropped.push({ stage: "bank", id: `${id}-#dup${d.index + 1}`, reason: "asks the same thing as another question" });
+				// …and one small second call that sees only the questions, never the slides: what it cannot answer as posed does not stand on its own.
+				let usable = unique.kept;
+				if (usable.length > 0) {
+					try {
+						const listed = usable.map((q, i) => `${i + 1}. ${q.stem}\n   A. ${q.options[0]}\n   B. ${q.options[1]}\n   C. ${q.options[2]}`).join("\n\n");
+						const c = await this.deps.generate<{ verdicts?: ColdVerdict[] }>({ slot: PACK_RULES.slots.check, system: this.prompt("bank-check.md"), user: `QUESTIONS\n\n${listed}`, toolName: "submit_check", toolDescription: "Submit your check of each question.", schema: CHECK_SCHEMA, signal });
+						if (c.cost !== null) meta.costUsd = (meta.costUsd ?? 0) + c.cost;
+						const checked = applyColdCheck(usable, Array.isArray(c.value?.verdicts) ? c.value.verdicts : []);
+						for (const d of checked.dropped) meta.dropped.push({ stage: "bank", id: `${id}-#check${d.index + 1}`, reason: d.reason === "unanswerable" ? "could not be answered as posed" : "a second reading picked a different answer" });
+						this.deps.log("pack_checked", { lectureId: id, asked: usable.length, unanswerable: checked.dropped.filter((d) => d.reason === "unanswerable").length, disagreed: checked.dropped.filter((d) => d.reason === "disagrees").length, model: c.model });
+						usable = checked.kept;
+					} catch (err) {
+						// The check is an extra: without it the questions that passed the rules are kept, and writing them again would cost more than it is worth.
+						if (signal.aborted) throw err;
+						this.deps.log("pack_check_skipped", { lectureId: id, error: err instanceof Error ? err.message.slice(0, 200) : "unknown" });
+					}
+				}
 				if (usable.length === 0) throw new Error("no usable questions");
 				// A pack made again keeps the ids of questions the student may have answered (V-39).
 				const previous = read<BankQuestion[]>(this.file(id, "bank.prev.json")) ?? [];
@@ -387,6 +429,9 @@ export class StudyPacks {
 				const bank = assigned.bank;
 				fs.writeFileSync(/* turbopackIgnore: true */ this.file(id, "bank.json"), JSON.stringify(bank, null, "\t"));
 				fs.rmSync(/* turbopackIgnore: true */ this.file(id, "bank.prev.json"), { force: true });
+				// Questions written again under explainers that were kept (v3.1): each explainer still ends on a question that exists.
+				const kept = meta.stages.explainers === "done" ? read<Explainer[]>(this.file(id, "explainers.json")) : null;
+				if (kept) fs.writeFileSync(/* turbopackIgnore: true */ this.file(id, "explainers.json"), JSON.stringify(retargetExplainers(kept, bank), null, "\t"));
 				return "done";
 			});
 			const bank = this.bank(id) ?? [];

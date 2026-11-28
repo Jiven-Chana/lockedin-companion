@@ -68,7 +68,8 @@ export function pickPractise(input: PractiseInput): PractiseCandidate[] {
 		ideas.set(key, idea);
 	}
 	for (const idea of ideas.values()) {
-		idea.queue.sort((a, b) => timesOf(a) - timesOf(b) || lastOf(a) - lastOf(b) || a.question.difficulty - b.question.difficulty || a.question.id.localeCompare(b.question.id));
+		// Where history cannot tell two questions apart, the harder one comes first (v3.1: applied before recalled).
+		idea.queue.sort((a, b) => timesOf(a) - timesOf(b) || lastOf(a) - lastOf(b) || b.question.difficulty - a.question.difficulty || a.question.id.localeCompare(b.question.id));
 	}
 
 	// Least recently asked first; never asked comes before everything. Ties by key, so the order is stable.
@@ -83,14 +84,14 @@ export function pickPractise(input: PractiseInput): PractiseCandidate[] {
 	/**
 	 * Take an idea's next question: the one asked least often, and of those the
 	 * one asked longest ago. Where history can't tell them apart (never asked),
-	 * the difficulty the round has least of.
+	 * the difficulty the round has least of, and of those the harder (v3.1).
 	 */
 	const take = (idea: Idea) => {
 		const first = idea.queue[0]!;
 		const tied = idea.queue.filter((c) => timesOf(c) === timesOf(first) && lastOf(c) === lastOf(first));
 		const choice = tied.reduce((best, c) => {
 			const d = perDifficulty[c.question.difficulty]! - perDifficulty[best.question.difficulty]!;
-			return d < 0 || (d === 0 && c.question.difficulty < best.question.difficulty) ? c : best;
+			return d < 0 || (d === 0 && c.question.difficulty > best.question.difficulty) ? c : best;
 		});
 		idea.queue.splice(idea.queue.indexOf(choice), 1);
 		perDifficulty[choice.question.difficulty] = (perDifficulty[choice.question.difficulty] ?? 0) + 1;

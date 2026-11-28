@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { SessionAttachment, AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -63,6 +63,8 @@ export interface PackData { meta: PackMeta | null; explainers: Explainer[]; ques
 export interface CourseModule { code: string; name: string; weekOneStart?: string; readingWeeks?: number[]; share?: "less" | "more"; week: number | null; reading: boolean; units: LectureWithStatus[] }
 export interface MaterialProposal {
 	uploadId: string;
+	/** Files in the request that could not be read, by name (v3.1). The others are in `files`. */
+	failed: { name: string; error: string }[];
 	files: { file: number; name: string; kind: "pdf" | "text"; pageCount: number; noText: number[]; units: { title: string; week: number; pages: [number, number]; chars: number }[]; via: "name" | "ai" | "fallback"; note: string | null }[];
 }
 export type AiFullStatus = AiStatus & { catalog: CatalogModel[] };
@@ -199,9 +201,14 @@ export const lockedIn = {
 	/** The module's Learn start sheet (step 5): one suggestion, this week, and the topics a typed goal is matched against. */
 	learnSheet: (module: string) => api<LearnSheet>(`/learn?module=${encodeURIComponent(module)}`),
 	/** Start Learn (V-47): a lecture, one part of it (`nodes`), or the module's lectures this week. */
-	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week?: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	/** The first step of a Learn session (v3.1): what the student wants and whether to be checked first; or `resume`, to drop this session for a stopped one. */
+	answerIntent: (id: string, body: { goal?: string; check: boolean; suggestion?: string } | { resume: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/intent`, { body }),
+	/** Attach one file to a Learn session (v3.1), and take one back before it is sent. */
+	attach: (id: string, form: FormData) => api<{ attachments: SessionAttachment[] }>(`/sessions/${encodeURIComponent(id)}/attachments`, { raw: form }),
+	removeAttachment: (id: string, attId: string) => api<{ attachments: SessionAttachment[] }>(`/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attId)}`, { method: "DELETE" }),
 	/** Say something to the tutor (V-54). With `questionId` it is answered beside the open question. */
-	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
+	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" } | { correct: { title: string; level: "solid" | "shaky" | "notyet" } }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
 	finish: (id: string) => api(`/sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
 	/** The first-time card (V-52): the taps, "the same as my other modules", or skip. The tutor then starts. */
 	answerHow: (id: string, body: HowPrefs | { same: true } | { skip: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/how`, { body }),
@@ -266,7 +273,9 @@ export const lockedIn = {
 	addModule: (name: string) => api<{ code: string; name: string }>("/modules", { body: { name } }),
 	setModuleColour: (code: string, colour: string | null) => api<{ code: string; colour: string }>(`/modules/${encodeURIComponent(code)}/colour`, { method: "PUT", body: { colour } }),
 	setModuleShare: (code: string, share: WeekShare) => api<{ code: string; share: WeekShare }>(`/modules/${encodeURIComponent(code)}/share`, { method: "PUT", body: { share } }),
-	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
+	/** "Rewrite questions" on a module (v3.1): on request only, it uses the student's AI. */
+	rewriteQuestions: (code: string) => api<{ units: number }>(`/modules/${encodeURIComponent(code)}/questions`, { method: "POST" }),
+	quickMaterials: (code: string, form: FormData) => api<{ units: Lecture[]; skipped: number; failed: { name: string; error: string }[] }>(`/modules/${encodeURIComponent(code)}/materials/quick`, { raw: form }),
 	renameUnit: (lectureId: string, title: string) => api<Lecture>(`/lectures/${encodeURIComponent(lectureId)}/title`, { method: "PUT", body: { title } }),
 	// v0.1 onboarding (J1′) and Connect your AI (F-101)
 	calendarPreview: (body: { url: string } | { text: string }) => api<{ events: number; modules: DetectedModule[] }>("/onboarding/calendar", { body }),
