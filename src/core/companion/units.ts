@@ -5,7 +5,7 @@
  * work out which teaching week a module is in.
  */
 
-import { LIBRARY_COPY, WEEK_COPY } from "./policy.ts";
+import { ATTACH_COPY, ATTACH_RULES, LIBRARY_COPY, WEEK_COPY } from "./policy.ts";
 import { addDays, dateKey, startOfWeek } from "./time.ts";
 import type { ModuleInfo } from "./types.ts";
 
@@ -226,4 +226,53 @@ export async function eachFile<F extends { name: string }, T>(files: readonly F[
 		}
 	}
 	return { done, failed };
+}
+
+/**
+ * What kind of file was attached to a Learn session (v3.1): a picture the AI
+ * can read (PNG, JPEG, WebP), or any kind course material comes in. Null
+ * for anything else (a Word file, a HEIC photo).
+ */
+export function attachmentKind(name: string, head: Uint8Array): "image" | "pdf" | "text" | "html" | null {
+	const png = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+	const jpeg = head[0] === 0xff && head[1] === 0xd8;
+	const webp = head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 && head[8] === 0x57 && head[9] === 0x45;
+	if (png || jpeg || webp || /\.(png|jpe?g|webp)$/i.test(name)) return "image";
+	return materialKind(name, head);
+}
+
+/** The picture's type, from its first bytes or its name. */
+export function imageMime(name: string, head: Uint8Array): "image/png" | "image/jpeg" | "image/webp" {
+	if (head[0] === 0x89 || /\.png$/i.test(name)) return "image/png";
+	if (head[0] === 0x52 || /\.webp$/i.test(name)) return "image/webp";
+	return "image/jpeg";
+}
+
+/**
+ * Attached files as the part of a message the tutor reads (v3.1): each by
+ * name, its text, and how many pictures of it travel with the message. The
+ * text of all of them shares one budget; a short file keeps all of itself
+ * and a long one says where it was cut.
+ */
+export function attachmentBlock(files: readonly { name: string; text: string; images: number }[]): string {
+	if (files.length === 0) return "";
+	const budget = ATTACH_RULES.textTokenBudget * 4;
+	// Share the room out: files under an even share keep everything, and what they leave goes to the longer ones.
+	let room = budget;
+	let left = files.length;
+	const allowance = new Map<number, number>();
+	for (const [i, f] of [...files.entries()].sort((a, b) => a[1].text.length - b[1].text.length)) {
+		const share = Math.floor(room / left);
+		const take = Math.min(f.text.length, share);
+		allowance.set(i, take);
+		room -= take;
+		left -= 1;
+	}
+	const parts = files.map((f, i) => {
+		const take = allowance.get(i)!;
+		const text = f.text.length > take ? `${f.text.slice(0, take).trimEnd()}\n${ATTACH_COPY.cut}` : f.text.trim();
+		const pictures = f.images > 0 ? `(${f.images} ${f.images === 1 ? "picture" : "pictures"} of this file ${f.images === 1 ? "is" : "are"} attached to this message.)` : "";
+		return [`### ${f.name}`, text, pictures].filter(Boolean).join("\n");
+	});
+	return [`ATTACHED BY ME (${files.length} ${files.length === 1 ? "file" : "files"})`, ...parts].join("\n\n").replace(/^(ATTACHED BY ME \([^)]*\))\n\n/, "$1\n");
 }

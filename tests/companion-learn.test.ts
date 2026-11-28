@@ -90,9 +90,9 @@ const view = (messages: LhMessage[], over: { running?: boolean; failure?: string
 const types = (items: LearnItem[]) => items.map((i) => i.type);
 
 describe("the opening questions are sized to what was asked for (V-47)", () => {
-	const cases: [LearnSpec["scope"], number][] = [["week", 4], ["lecture", 2], ["section", 1]];
+	const cases: [LearnSpec["scope"], number][] = [["week", 4], ["lecture", 4], ["section", 2]];
 	for (const [scope, n] of cases) it(`${scope}: up to ${n}`, () => assert.equal(probeSize(scope), n));
-	it("the numbers live in policy", () => assert.deepEqual(LEARN_RULES.probe, { week: 4, lecture: 2, section: 1 }));
+	it("the numbers live in policy", () => assert.deepEqual(LEARN_RULES.probe, { week: 4, lecture: 4, section: 2 }));
 });
 
 describe("the plan is sized to the time: about one idea per ten minutes", () => {
@@ -111,7 +111,7 @@ describe("what the tutor is told at the start", () => {
 		assert.match(t, /Lecture: Nash equilibrium \(week 2\)/);
 		assert.match(t, /What I want: Teach me this lecture\./);
 		assert.match(t, /Time: about 50 minutes\. I may stop at any point and pick it up later\./);
-		assert.match(t, /Opening questions: at most 2\./);
+		assert.match(t, /Opening questions: at most 4\./);
 		assert.match(t, /Plan: at most 5 ideas\./);
 		assert.match(t, /IDEAS \(plan on these slugs\)\n```mermaid\ngraph TD/);
 		assert.match(t, /SLIDES FILE: \/data\/materials\/gt-w2-nash\/slides\.md/);
@@ -122,7 +122,7 @@ describe("what the tutor is told at the start", () => {
 		const { text: t } = buildLearnOpening({ ...base, spec: { ...session().spec, nodes: ["nash"], learn: { scope: "section", minutes: 25, goal: "nash, I've seen it but can't find one" } } });
 		assert.match(t, /Covers: one section of a lecture\./);
 		assert.match(t, /What I want: nash, I've seen it but can't find one/);
-		assert.match(t, /Opening questions: at most 1\./);
+		assert.match(t, /Opening questions: at most 2\./);
 		assert.match(t, /Focus: only the ideas nash\./);
 		assert.match(t, /Time: about 25 minutes\./);
 	});

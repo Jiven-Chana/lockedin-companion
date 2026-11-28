@@ -299,7 +299,12 @@ export const PRACTISE_COPY = {
  * section 1); a sitting is as long as a study block and never ends by itself.
  */
 export const LEARN_RULES = {
-	probe: { week: 4, lecture: 2, section: 1 } as Record<LearnScope, number>,
+	/** The opening check, when the student asks for one (v3.1): a few short questions, about two minutes. */
+	probe: { week: 4, lecture: 4, section: 2 } as Record<LearnScope, number>,
+	/** "Where you are": at most this many blocks. */
+	whereMax: 6,
+	/** "Ideas to revisit" named in a suggested goal before "and n more". */
+	revisitNamed: 3,
 	/** The plan is sized to the time: about one idea per this many minutes, and never fewer or more than these. */
 	minutesPerIdea: 10,
 	minIdeas: 2,
@@ -314,11 +319,41 @@ export const LEARN_RULES = {
 	/** A typed goal: how many matching topics the start sheet offers. */
 	suggestions: 3,
 	/** A typed goal is at most this long. */
-	goalMax: 300,
+	goalMax: 500,
 	/** What the student types to the tutor is at most this long. */
 	sayMax: 2_000,
 	/** Nothing running and the tutor's turn still not started after this long: the student can carry on themselves. */
 	stalledMs: 20_000,
+} as const;
+
+/**
+ * A file attached to a Learn session (v3.1): a problem sheet, a worked solution, a photo of working.
+ * AI usage is the constraint: text is sent as text, and only a page with no text, or a picture, goes as a picture.
+ */
+export const ATTACH_RULES = {
+	maxPerSession: 5,
+	maxFileBytes: 25 * 1024 * 1024,
+	maxImageBytes: 8 * 1024 * 1024,
+	/** All the attached text sent with one message, in estimated tokens (~4 characters each), shared between the files. */
+	textTokenBudget: 6_000,
+	/** Pages of a PDF with no text that are sent as pictures. */
+	pageImages: 3,
+	accept: ".pdf,.md,.markdown,.txt,.html,.htm,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/markdown,text/html,image/png,image/jpeg,image/webp",
+} as const;
+
+export const ATTACH_COPY = {
+	button: "Attach",
+	hint: "A problem sheet, a worked solution or a photo of your working. It stays with this session.",
+	wrongKind: (name: string) => `${name}: attach a PDF, text, a web page or a picture (PNG, JPG or WebP)`,
+	tooBig: (name: string) => `${name} is too big to attach`,
+	tooMany: "A session takes up to 5 files.",
+	busy: "Your tutor is writing. Send the file when it stops.",
+	noPictures: "Your AI can't read pictures. Attach a PDF or text instead.",
+	remove: "Remove",
+	cut: "(cut here: the file is longer)",
+	noTextPage: "(no text on this page: see its picture)",
+	/** What is sent for the student when they attach something and type nothing. */
+	sentWith: (names: readonly string[]) => `I've attached ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]}.`,
 } as const;
 
 /** What LockedIn sends the tutor on the student's behalf. The tutor's instructions (companion/seed/prompts) name these exact lines. */
@@ -326,9 +361,34 @@ export const LEARN_SAYS = {
 	skipProbe: "Skip, just teach me.",
 	planOk: "Looks good.",
 	carryOn: "Carry on.",
+	/** The student corrects a block of "Where you are" (v3.1). `learnWhere` reads these back. */
+	correct: (title: string, level: "solid" | "shaky" | "notyet") => `Correction: "${title}" is ${level === "notyet" ? "not yet" : level} for me. Plan from that.`,
 } as const;
 
 export const LEARN_COPY = {
+	/** The first step of every Learn session (v3.1): plain screen, no AI until it is answered. */
+	intent: {
+		title: "What do you want from this session?",
+		placeholder: "Say it your way, e.g. I want to solve problems on GANs from weeks 7 to 9",
+		unsure: "Not sure? Pick one:",
+		check: "Check what I know first",
+		checkNote: "A few short questions, about 2 minutes. Nothing is marked.",
+		skip: "Skip, start teaching",
+		attach: "Attach a problem sheet or worked solution",
+		unit: (title: string) => ({ label: `This unit: ${title}`, goal: `Teach me ${title}.` }),
+		stopped: (idea: string, unit: string) => ({ label: `Pick up: ${idea}`, goal: idea === unit ? `Carry on with ${unit}.` : `Carry on from ${idea} in ${unit}.` }),
+		week: (title: string) => ({ label: `This week: ${title}`, goal: `Teach me this week's unit, ${title}.` }),
+		revisit: (n: number, named: string) => ({ label: `${n} ${n === 1 ? "idea" : "ideas"} to revisit`, goal: `Go back over what I got wrong: ${named}.` }),
+		sheet: { label: "Work through a sheet", goal: "I'll attach a problem sheet or a worked solution: walk me through it, then set me one like it to try myself." },
+	},
+	/** The check's result (v3.1): each idea the goal needs, as a block the student can correct. */
+	where: {
+		title: "Where you are",
+		note: "From what you said. Change any that are wrong, and the plan follows.",
+		skipped: "You skipped the check, so the plan starts from what you asked for.",
+		levels: { solid: "Solid", shaky: "Shaky", notyet: "Not yet", unchecked: "Not checked" },
+		change: "Change",
+	},
 	button: "Learn this",
 	moduleButton: "Learn",
 	ideaButton: "Learn this idea",

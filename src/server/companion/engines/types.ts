@@ -23,9 +23,14 @@ import type {
 	SessionView,
 } from "../../../core/companion/types.ts";
 
+/** A picture sent with a message (v3.1): base64, as the engine takes it. */
+export interface MessageImage { data: string; mimeType: string }
+
 export interface PrepareContext {
 	title: string;
 	openingMessage: string;
+	/** Pictures of what the student attached before the session started (v3.1). */
+	openingImages?: MessageImage[];
 	misses: Miss[];
 }
 
@@ -46,7 +51,7 @@ export interface SessionEngine {
 	 * Learn (V-54): the student types or says something to the tutor. `queued`
 	 * when the tutor was mid-reply and picks it up at its next pause.
 	 */
-	say?(session: CompanionSession, text: string): Promise<{ queued: boolean }>;
+	say?(session: CompanionSession, text: string, images?: MessageImage[]): Promise<{ queued: boolean }>;
 	/**
 	 * Learn: something asked while a question is open. The tutor answers beside
 	 * the question, which stays open. Null when it could only be sent as an

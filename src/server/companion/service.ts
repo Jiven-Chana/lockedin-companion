@@ -28,9 +28,9 @@ import {
 	blockFocus,
 } from "../../core/companion/nudges.ts";
 import { buildOpeningMessage } from "../../core/companion/opening-message.ts";
-import { buildLearnOpening, learnCovers, learnNodeRef, mapIdeaTitles, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
+import { buildLearnOpening, intentSuggestions, learnCovers, learnNodeRef, mapIdeaTitles, suggestForBlock, type LearnTopic } from "../../core/companion/learn.ts";
 import { cleanPrefs, howFromOthers, howNote, owesHowCard, wordCount } from "../../core/companion/notes.ts";
-import { PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, TODAY_COPY, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
+import { ATTACH_COPY, ATTACH_RULES, PHONE_BLOCK_COPY, PHONE_RULES, PLAN_RULES, TODAY_COPY, SETUP_COPY, SETUP_RULES, BLOCK_RULES, GAP_COPY, GAP_RULES, LEARN_COPY, LEARN_RULES, LEARN_SAYS, NOTE_COPY, NOTE_RULES, PRACTISE_COPY, PRACTISE_RULES, RESUME_RULES, CALENDAR_RULES, DEFAULT_APPEARANCE, DEFAULT_PLAN, HANDOFF_COPY, NUDGE_TEXT, PLAN_COPY, DEFAULT_PREFS, FIRST_TASTE_LECTURE, KEEP_GOING_QUESTIONS, MATERIALS_RULES, MILESTONES, NUDGE_RULES, PACK_COPY, PLACEMENT_COPY, PREPARE_RULES, PROGRESS_COPY, SESSION_BUDGETS, SESSION_COPY } from "../../core/companion/policy.ts";
 import { codeFromName, detectModules, MODULE_CODE_RE } from "../../core/companion/module-detect.ts";
 import { CompanionAi, type AiPort, type KeyVerifier } from "./ai.ts";
 import { CourseMaterials, unitPages, type UploadedFile } from "./materials.ts";
@@ -50,7 +50,7 @@ import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
-import { checkProposal, currentWeek, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
+import { attachmentBlock, attachmentKind, checkProposal, currentWeek, imageMime, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, phoneToday, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
@@ -94,11 +94,14 @@ import {
 	type SetupView,
 	type SetupWeek,
 	type WeekShare,
+	type IntentSuggestion,
+	type LearnSpec,
+	type SessionAttachment,
 } from "../../core/companion/types.ts";
 import { CONFIDENCE_STOPS } from "../../core/question-core.ts";
 import type { Clock } from "./clock.ts";
 import type { CompanionContent } from "./content.ts";
-import type { SessionEngine } from "./engines/types.ts";
+import type { MessageImage, SessionEngine } from "./engines/types.ts";
 import { badRequest, CompanionError, conflict, notFound } from "./errors.ts";
 import { assertSafeId, type CompanionStore } from "./store.ts";
 
@@ -115,6 +118,8 @@ export interface CompanionServiceDeps {
 	/** On a LearnHarness prepare failure, retry the session on the scripted engine. */
 	autoFallback?: boolean;
 	readyTimeoutMs?: number;
+	/** Every Learn session opens on "What do you want from this session?" (v3.1) and starts the tutor once it is answered. Off unless the app turns it on. */
+	intentStep?: boolean;
 	convertPdf?: PdfConverter;
 	/** Test seam: the waits between a study pack's tries. */
 	packSleep?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -2184,8 +2189,10 @@ export class CompanionService {
 		};
 		// The module's first Learn session (V-52): "How do you like to learn this?" comes first. The tutor starts once it is answered or skipped.
 		const waiting = !!opts.askHow && !!spec.learn && owesHowCard(this.store.notes(), lecture.module);
-		this.store.saveSession(waiting ? { ...session, awaitingHow: true } : session);
-		if (!waiting) this.beginPrepare(session.id, !!opts.nudgeKey);
+		// v3.1: every Learn session opens on what the student wants. Nothing is sent to the AI until they have said.
+		const intent = !!this.deps.intentStep && !!spec.learn;
+		this.store.saveSession({ ...session, ...(waiting ? { awaitingHow: true } : {}), ...(intent ? { awaitingIntent: true } : {}) });
+		if (!waiting && !intent) this.beginPrepare(session.id, !!opts.nudgeKey);
 		return { sessionId: session.id };
 	}
 
@@ -2225,8 +2232,10 @@ export class CompanionService {
 				misses,
 				now: this.now(),
 			});
-			const patch = await engine.start(session, { title: `${lecture.module} · ${lecture.title}`, openingMessage: text, misses });
-			const started2 = this.store.updateSession(sessionId, (s) => ({ ...s, ...patch }));
+			// What the student attached on the first step (v3.1) goes with the opening message.
+			const attached = session.spec.learn ? this.takeAttachments(session) : null;
+			const patch = await engine.start(session, { title: `${lecture.module} · ${lecture.title}`, openingMessage: attached?.block ? `${text}\n${attached.block}\n` : text, ...(attached?.images.length ? { openingImages: attached.images } : {}), misses });
+			const started2 = this.store.updateSession(sessionId, (s) => ({ ...s, ...patch, ...(attached?.ids.length ? { attachments: (s.attachments ?? []).map((a) => (attached.ids.includes(a.id) ? { ...a, sent: true } : a)) } : {}) }));
 			if (!started2) return;
 			await this.untilReady(started2, engine, started);
 		} catch (err) {
@@ -2295,6 +2304,10 @@ export class CompanionService {
 				goal: goalFor(session.spec, lecture, session.budget), answered: 0, budget: session.budget, canHint: false, slideRefs: [],
 			};
 			if (session.state === "error") return { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) };
+			if (session.awaitingIntent) {
+				const name = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name ?? lecture.module;
+				return { ...base, status: "ask", intent: { name, suggestions: this.intentFor(session, lecture) } };
+			}
 			if (session.awaitingHow) {
 				const notes = this.store.notes();
 				// Still owed: the card. Answered meanwhile (another tab, another session of this module): start the tutor.
@@ -2741,6 +2754,134 @@ export class CompanionService {
 	 * another module's answer, or `{ skip: true }`. Either way the module is
 	 * never asked again, and the tutor starts.
 	 */
+	// ─── attachments (v3.1) ─────────────────────────────────────────────────────
+
+	private attachmentsDir(sessionId: string): string {
+		return path.join(/* turbopackIgnore: true */ this.store.dir, "attachments", assertSafeId(sessionId, "session id"));
+	}
+
+	/**
+	 * Attach a file to a Learn session (v3.1): a problem sheet, a worked solution, a photo of working. It is read here,
+	 * with no AI: text as text, and only a picture or a PDF page with no text is kept as a picture. It goes to the
+	 * tutor with the opening message, or with the student's next message.
+	 */
+	async attach(id: string, file: UploadedFile): Promise<{ attachments: SessionAttachment[] }> {
+		const { session } = this.requireSession(id);
+		if (!session.spec.learn) throw conflict("not_learn", "only a Learn session takes a file");
+		if ((session.attachments ?? []).length >= ATTACH_RULES.maxPerSession) throw badRequest(ATTACH_COPY.tooMany);
+		if (file.bytes.length === 0) throw badRequest(`${file.name} is empty`);
+		const kind = attachmentKind(file.name, file.bytes);
+		if (!kind) throw badRequest(ATTACH_COPY.wrongKind(file.name));
+		if (file.bytes.length > (kind === "image" ? ATTACH_RULES.maxImageBytes : ATTACH_RULES.maxFileBytes)) throw badRequest(ATTACH_COPY.tooBig(file.name));
+		const attId = this.id("att").replace(/[^A-Za-z0-9_-]/g, "");
+		const dir = this.attachmentsDir(id);
+		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
+		const at = (name: string) => path.join(/* turbopackIgnore: true */ dir, name);
+		let text = "";
+		let images = 0;
+		if (kind === "image") {
+			const mime = imageMime(file.name, file.bytes);
+			fs.writeFileSync(/* turbopackIgnore: true */ at(`${attId}-1.${mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg"}`), file.bytes);
+			images = 1;
+		} else {
+			const read = await this.courseMaterials.toPages(file);
+			if (read.kind === "pdf") {
+				const blank = read.pages.filter((p) => p.kind !== "text" || !(p.markdown ?? "").trim()).map((p) => p.number);
+				const pictured = new Set<number>();
+				if (blank.length && this.deps.renderPdfPage) {
+					fs.writeFileSync(/* turbopackIgnore: true */ at(`${attId}.pdf`), file.bytes);
+					for (const n of blank.slice(0, ATTACH_RULES.pageImages)) {
+						const png = await this.deps.renderPdfPage(at(`${attId}.pdf`), n).catch(() => null);
+						if (!png) continue;
+						fs.writeFileSync(/* turbopackIgnore: true */ at(`${attId}-${++images}.png`), png);
+						pictured.add(n);
+					}
+					fs.rmSync(/* turbopackIgnore: true */ at(`${attId}.pdf`), { force: true });
+				}
+				text = read.pages.map((p) => `## Page ${p.number}\n${p.kind === "text" && (p.markdown ?? "").trim() ? p.markdown!.trim() : pictured.has(p.number) ? ATTACH_COPY.noTextPage : "(no text on this page)"}`).join("\n\n");
+			} else text = read.pages.map((p) => (p.markdown ?? "").trim()).filter(Boolean).join("\n\n");
+			fs.writeFileSync(/* turbopackIgnore: true */ at(`${attId}.md`), text, "utf-8");
+		}
+		const item: SessionAttachment = { id: attId, name: file.name.slice(0, 120), kind: kind === "html" ? "text" : kind, chars: text.length, images, at: this.now().toISOString() };
+		const updated = this.store.updateSession(id, (s) => ({ ...s, attachments: [...(s.attachments ?? []), item] }))!;
+		this.log("learn_attached", { sessionId: id, kind: item.kind, chars: item.chars, images });
+		return { attachments: updated.attachments ?? [] };
+	}
+
+	/** Take an attachment back before it has been sent to the tutor. */
+	removeAttachment(id: string, attId: string): { attachments: SessionAttachment[] } {
+		const { session } = this.requireSession(id);
+		const item = (session.attachments ?? []).find((a) => a.id === attId);
+		if (!item) throw notFound("attachment");
+		if (item.sent) throw conflict("already_sent", "your tutor already has this file");
+		const dir = this.attachmentsDir(id);
+		if (fs.existsSync(/* turbopackIgnore: true */ dir)) for (const f of fs.readdirSync(/* turbopackIgnore: true */ dir)) if (f.startsWith(`${attId}.`) || f.startsWith(`${attId}-`)) fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, f), { force: true });
+		const updated = this.store.updateSession(id, (s) => ({ ...s, attachments: (s.attachments ?? []).filter((a) => a.id !== attId) }))!;
+		return { attachments: updated.attachments ?? [] };
+	}
+
+	/** The attachments the tutor has not been given yet, as the part of a message it reads and the pictures that go with it. */
+	private takeAttachments(session: CompanionSession): { block: string; images: MessageImage[]; ids: string[]; names: string[] } {
+		const fresh = (session.attachments ?? []).filter((a) => !a.sent);
+		if (fresh.length === 0) return { block: "", images: [], ids: [], names: [] };
+		const dir = this.attachmentsDir(session.id);
+		const images: MessageImage[] = [];
+		const files = fresh.map((a) => {
+			const text = a.kind === "image" ? "" : (() => { try { return fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, `${a.id}.md`), "utf-8"); } catch { return ""; } })();
+			let n = 0;
+			for (let i = 1; i <= a.images; i++) {
+				const f = fs.existsSync(/* turbopackIgnore: true */ dir) ? fs.readdirSync(/* turbopackIgnore: true */ dir).find((x) => x.startsWith(`${a.id}-${i}.`)) : undefined;
+				if (!f) continue;
+				images.push({ data: fs.readFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, f)).toString("base64"), mimeType: f.endsWith(".png") ? "image/png" : f.endsWith(".webp") ? "image/webp" : "image/jpeg" });
+				n++;
+			}
+			return { name: a.name, text, images: n };
+		});
+		return { block: attachmentBlock(files), images, ids: fresh.map((a) => a.id), names: fresh.map((a) => a.name) };
+	}
+
+	/** What the first step of a Learn session suggests (v3.1), from the student's own module. No AI. */
+	private intentFor(session: CompanionSession, lecture: Lecture): (IntentSuggestion & { sessionId?: string })[] {
+		const mod = this.store.profile()?.modules.find((m) => m.code === lecture.module);
+		const units = this.learnUnits(lecture.module);
+		const week = mod ? currentWeek(mod, this.now()).week : null;
+		const stopped = this.unfinishedLearn((s) => s.id !== session.id && units.some((u) => learnCovers(s, u.id)));
+		const stoppedUnit = stopped ? this.lectureById(stopped.spec.lectureId) : undefined;
+		const revisit = this.gaps().modules.find((m) => m.code === lecture.module)?.ideas.map((i) => i.title) ?? [];
+		return intentSuggestions({
+			unit: session.spec.learn?.scope === "week" ? null : { title: lecture.title, week: lecture.week },
+			stopped: stopped && stoppedUnit ? { idea: stopped.learnAt?.title || stoppedUnit.title, unit: stoppedUnit.title } : null,
+			thisWeek: week ? units.filter((u) => u.week === week).map((u) => ({ title: u.title, week: u.week })) : [],
+			revisit,
+		}).map((x) => (x.id === "stopped" && stopped ? { ...x, sessionId: stopped.id } : x));
+	}
+
+	/**
+	 * The first step answered (v3.1). `{ goal?, check, suggestion? }`: what the student wants in their words (or a suggestion they
+	 * tapped), and whether to be checked first. Only now does the tutor start. `{ resume: true }` drops this session: they chose to pick up another.
+	 */
+	answerIntent(id: string, raw: unknown): { ok: true } {
+		const { session, lecture } = this.requireSession(id);
+		if (!session.spec.learn) throw conflict("not_learn", "only a Learn session asks this");
+		if (!session.awaitingIntent) throw conflict("already_started", "this session has already started");
+		const r = (raw ?? {}) as { goal?: unknown; check?: unknown; suggestion?: unknown; resume?: unknown };
+		if (r.resume === true) {
+			this.store.updateSession(id, ({ awaitingIntent: _i, awaitingHow: _h, ...s }) => ({ ...s, state: "done", endedAt: this.now().toISOString() }));
+			return { ok: true };
+		}
+		if (r.goal !== undefined && (typeof r.goal !== "string" || r.goal.length > LEARN_RULES.goalMax)) throw badRequest(`say what you want in under ${LEARN_RULES.goalMax} characters`);
+		if (typeof r.check !== "boolean") throw badRequest("check must be true or false");
+		const goal = typeof r.goal === "string" ? r.goal.replace(/\s+/g, " ").trim() : "";
+		const learn: LearnSpec = { ...session.spec.learn, check: r.check, ...(goal ? { goal } : {}) };
+		this.store.updateSession(id, ({ awaitingIntent: _i, ...s }) => ({ ...s, spec: { ...s.spec, learn } }));
+		const suggestions = this.intentFor(session, lecture);
+		const picked = typeof r.suggestion === "string" ? suggestions.find((x) => x.id === r.suggestion) : undefined;
+		this.log("learn_intent", { sessionId: id, module: lecture.module, suggestion: picked?.id ?? null, typed: !!goal && goal !== picked?.goal, check: r.check, attached: (session.attachments ?? []).length });
+		// The module's first Learn session still owes "How do you like to learn this?" (V-52); otherwise the tutor starts.
+		if (!this.store.session(id)?.awaitingHow) this.beginPrepare(id);
+		return { ok: true };
+	}
+
 	answerHow(id: string, raw: unknown): { ok: true } {
 		const { session, lecture } = this.requireSession(id);
 		if (!session.spec.learn) throw conflict("not_learn", "only a Learn session asks this");
@@ -2754,7 +2895,7 @@ export class CompanionService {
 		this.log("how_answered", { module: lecture.module, how: r.skip === true ? "skip" : r.same === true ? "same" : text ? "taps" : "skip", rows: ["start", "steps", "check"].filter((k) => k in prefs).length, typed: "more" in prefs });
 		if (session.awaitingHow) {
 			this.store.updateSession(id, ({ awaitingHow: _waiting, ...s }) => s);
-			this.beginPrepare(id);
+			if (!session.awaitingIntent) this.beginPrepare(id);
 		}
 		return { ok: true };
 	}
@@ -2924,7 +3065,13 @@ export class CompanionService {
 	 * the student typed or said, handed to the tutor in their words.
 	 */
 	startLearn(raw: unknown, opts: { minutes?: number; kind?: SessionKind; firstQuestionId?: string; nudgeKey?: string } = {}): { sessionId: string } {
-		const r = (raw ?? {}) as { lectureId?: unknown; module?: unknown; week?: unknown; goal?: unknown; nodes?: unknown };
+		const r = { ...((raw ?? {}) as { lectureId?: unknown; module?: unknown; week?: unknown; goal?: unknown; nodes?: unknown }) };
+		// "Learn" on a module (v3.1): the unit the module is at. What the student wants is asked on the session's first step, and the whole module is in reach.
+		if (r.lectureId === undefined && r.week !== true && typeof r.module === "string") {
+			const sheet = this.learnSheet(r.module);
+			if (!sheet.suggestion) throw new CompanionError("no_material", 409, LEARN_COPY.nothingToLearn);
+			r.lectureId = sheet.suggestion.lectureId;
+		}
 		let goal: string | undefined;
 		if (r.goal !== undefined) {
 			if (typeof r.goal !== "string" || r.goal.length > LEARN_RULES.goalMax) throw badRequest(`goal must be text under ${LEARN_RULES.goalMax} characters`);
@@ -2982,13 +3129,28 @@ export class CompanionService {
 		if (!session.spec.learn || !engine.say) throw conflict("not_learn", "only a Learn session takes a message");
 		if (session.state === "error") throw conflict("session_error", "this session failed; start a new one or retry");
 		const r = (raw ?? {}) as { text?: unknown; say?: unknown; questionId?: unknown };
-		const preset = typeof r.say === "string" && Object.hasOwn(LEARN_SAYS, r.say) ? (r.say as keyof typeof LEARN_SAYS) : null;
-		if (r.say !== undefined && !preset) throw badRequest(`say must be one of ${Object.keys(LEARN_SAYS).join(", ")}`);
-		const text = preset ? LEARN_SAYS[preset] : typeof r.text === "string" ? r.text.trim() : "";
+		const presets = { skipProbe: LEARN_SAYS.skipProbe, planOk: LEARN_SAYS.planOk, carryOn: LEARN_SAYS.carryOn };
+		const preset = typeof r.say === "string" && Object.hasOwn(presets, r.say) ? (r.say as keyof typeof presets) : null;
+		if (r.say !== undefined && !preset) throw badRequest(`say must be one of ${Object.keys(presets).join(", ")}`);
+		// A block of "Where you are" corrected (v3.1): one of LockedIn's own lines, with the idea's name in it.
+		const fix = (raw as { correct?: { title?: unknown; level?: unknown } } | null)?.correct;
+		if (fix !== undefined && (typeof fix?.title !== "string" || !fix.title.trim() || fix.title.length > 160 || (fix.level !== "solid" && fix.level !== "shaky" && fix.level !== "notyet"))) throw badRequest("correct needs a title and a level: solid, shaky or notyet");
+		// Files attached and not yet sent (v3.1) go with whatever the student says next; with nothing typed, one line says they were attached.
+		const attached = !preset && !fix ? this.takeAttachments(session) : null;
+		const typed = fix ? LEARN_SAYS.correct((fix.title as string).replace(/"/g, "'").trim(), fix.level as "solid" | "shaky" | "notyet") : preset ? presets[preset] : typeof r.text === "string" ? r.text.trim() : "";
+		const text = typed || (attached?.ids.length ? ATTACH_COPY.sentWith(attached.names) : "");
 		if (!text) throw badRequest("say something first");
 		if (text.length > LEARN_RULES.sayMax) throw badRequest(`keep it under ${LEARN_RULES.sayMax} characters`);
 		const now = this.now();
 		const touch = (extra: Partial<CompanionSession> = {}) => this.store.updateSession(id, (s) => ({ ...s, ...extra, lastActivityAt: now.toISOString(), state: s.state === "stopped" || s.state === "ready" ? "active" : s.state }));
+		if (attached?.ids.length) {
+			// As the student's own turn, with its pictures. With a question open the tutor would not take it: the screen asks for the answer first.
+			if (typeof r.questionId === "string" && r.questionId) throw conflict("question_open", "Answer or skip this question first, then send your file.");
+			await engine.say(session, `${text}\n\n${attached.block}`, attached.images);
+			touch({ attachments: (this.store.session(id)?.attachments ?? []).map((a) => (attached.ids.includes(a.id) ? { ...a, sent: true } : a)) });
+			this.log("learn_said", { sessionId: id, how: "attached", chars: typed.length });
+			return { queued: false, answer: null };
+		}
 		if (!preset && typeof r.questionId === "string" && r.questionId && engine.ask) {
 			const { answer } = await engine.ask(session, r.questionId, text);
 			if (answer) this.store.updateSession(id, (s) => ({ ...s, asides: [...(s.asides ?? []), { questionId: r.questionId as string, ask: text, answer, at: now.toISOString() }] }));

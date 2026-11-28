@@ -17,7 +17,7 @@ import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
 import { lastSlideRef, parseSlideRefs, trimSlides } from "./slides.ts";
-import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView, StudyMode } from "./types.ts";
+import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnWhere, Lecture, SessionSpec, SessionView, StudyMode, WhereLevel } from "./types.ts";
 
 /** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
 export function planSize(minutes: number): number {
@@ -101,7 +101,8 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 		...(week ? [] : [`Lecture: ${unitLine(lecture)}`]),
 		`What I want: ${learn.goal?.replace(/\s+/g, " ").trim() || DEFAULT_WANT[learn.scope]}`,
 		`Time: about ${learn.minutes} minutes. I may stop at any point and pick it up later.`,
-		`Opening questions: at most ${probeSize(learn.scope)}.`,
+		// v3.1: the student chose on the first step. A session from before has no choice recorded.
+		learn.check === false ? "Opening check: skipped. Ask nothing; start from what I want." : learn.check === true ? `Opening check: yes, at most ${probeSize(learn.scope)} questions.` : `Opening questions: at most ${probeSize(learn.scope)}.`,
 		`Plan: at most ${planSize(learn.minutes)} ideas.`,
 		...(spec.nodes?.length ? [`Focus: only the ideas ${spec.nodes.join(", ")}.`] : []),
 		...(input.firstStep ? [`First step: start on the same point as "${input.firstStep.stem}"${input.firstStep.slide ? ` (Slide ${input.firstStep.slide})` : ""}.`] : []),
@@ -147,7 +148,9 @@ export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | und
 
 const OPENING_RE = /^(LEARN|APP) SESSION\b/;
 /** Lines LockedIn sends for a button press. They are not something the student typed, so the step doesn't repeat them. */
-const OWN_LINES: readonly string[] = Object.values(LEARN_SAYS);
+const OWN_LINES: readonly string[] = (Object.values(LEARN_SAYS) as unknown[]).filter((v): v is string => typeof v === "string");
+/** A correction to "Where you are" is a button press too: it shows on its block, not as something typed. */
+const CORRECTION_RE = /^Correction: "(.+)" is (solid|shaky|not yet) for me\./;
 const ARTIFACT_KINDS: readonly string[] = ["visual", "demo", "research"];
 /** Markers that are bookkeeping, not something that happened in the lesson. */
 const QUIET_MARKERS: readonly string[] = ["plan-block", "compaction", "side-question", "side-question-told", "graph-context"];
@@ -240,7 +243,7 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 	for (const m of messages) {
 		if (m.role === "user") {
 			const t = userText(m).trim();
-			if (t && !OPENING_RE.test(t) && !OWN_LINES.includes(t)) step.push({ type: "you", id: m.id, text: t });
+			if (t && !OPENING_RE.test(t) && !OWN_LINES.includes(t) && !CORRECTION_RE.test(t)) step.push({ type: "you", id: m.id, text: t });
 		} else if (m.role === "assistant") {
 			m.content.forEach((b, i) => {
 				if (b.type === "text") {
@@ -398,6 +401,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	}
 
 	const slideAt = learnSlideAt(step);
+	const where = learnWhere(messages as LhMessage[]);
 	const base: SessionView = {
 		id: session.id,
 		engine: "learnharness",
@@ -420,6 +424,7 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 			timeUp: !!endsAt && now.getTime() >= endsAt.getTime(),
 			finished,
 			...(slideAt !== null ? { slideAt } : {}),
+			...(where ? { where } : {}),
 		},
 	};
 
@@ -451,6 +456,74 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	const age = typeof newest?.timestamp === "number" ? now.getTime() - newest.timestamp : 0;
 	if (age > LEARN_RULES.stalledMs) return { ...base, status: "reply" };
 	return { ...base, status: "thinking", activity: LEARN_COPY.writing };
+}
+
+// ─── the first step and "Where you are" (v3.1) ───────────────────────────────
+
+/**
+ * What the first step of a Learn session suggests, from the student's own
+ * module: the unit they started from, where they stopped, this week's unit,
+ * what is waiting to be revisited, and working through a sheet. Tapping one
+ * fills in the goal; nothing here calls the AI.
+ */
+export function intentSuggestions(input: {
+	unit: { title: string; week: number } | null;
+	stopped: { idea: string; unit: string } | null;
+	thisWeek: readonly { title: string; week: number }[];
+	revisit: readonly string[];
+}): IntentSuggestion[] {
+	const out: IntentSuggestion[] = [];
+	if (input.unit) out.push({ id: "unit", ...LEARN_COPY.intent.unit(input.unit.title) });
+	if (input.stopped) out.push({ id: "stopped", ...LEARN_COPY.intent.stopped(input.stopped.idea, input.stopped.unit) });
+	const week = input.thisWeek.find((u) => u.title !== input.unit?.title);
+	if (week) out.push({ id: "week", ...LEARN_COPY.intent.week(week.title) });
+	if (input.revisit.length) {
+		const named = input.revisit.slice(0, LEARN_RULES.revisitNamed);
+		const more = input.revisit.length - named.length;
+		out.push({ id: "revisit", ...LEARN_COPY.intent.revisit(input.revisit.length, `${named.join(", ")}${more > 0 ? ` and ${more} more` : ""}`) });
+	}
+	out.push({ id: "sheet", ...LEARN_COPY.intent.sheet, attach: true });
+	return out;
+}
+
+/** What the tutor said of one idea, as a level. It is told to start with "Solid", "Shaky", "Not yet" or "Not asked"; the older phrases are read too. */
+export function whereLevel(said: string): WhereLevel {
+	const t = said.trim().toLowerCase();
+	if (/^(solid|got it)/.test(t)) return "solid";
+	if (/^(shaky|right but)/.test(t)) return "shaky";
+	if (/^not yet/.test(t)) return "notyet";
+	return "unchecked";
+}
+
+/**
+ * "Where you are": the check's hand-over as blocks, basic first, or null
+ * while the check is still running. A correction the student sent
+ * (LEARN_SAYS.correct) overrides the tutor's reading of that idea.
+ */
+export function learnWhere(messages: readonly LhMessage[]): LearnWhere[] | null {
+	let strands: { strand?: unknown; assessment?: unknown }[] | null = null;
+	const corrections = new Map<string, WhereLevel>();
+	for (const m of messages) {
+		if (m.role === "assistant") {
+			for (const b of m.content) {
+				if (b.type !== "toolCall" || b.name !== "probe_done" || strands) continue;
+				const given = (b.arguments as { assessment?: { strands?: unknown } } | undefined)?.assessment?.strands;
+				if (Array.isArray(given)) strands = given as { strand?: unknown; assessment?: unknown }[];
+			}
+		} else if (m.role === "user") {
+			const c = CORRECTION_RE.exec(userText(m).trim());
+			if (c) corrections.set(c[1]!, c[2] === "not yet" ? "notyet" : (c[2] as WhereLevel));
+		}
+	}
+	if (!strands || !hasProbeDone(messages as LhMessage[])) return null;
+	return strands.flatMap((s): LearnWhere[] => {
+		const title = typeof s.strand === "string" ? s.strand.trim() : "";
+		if (!title) return [];
+		const said = typeof s.assessment === "string" ? s.assessment.trim() : "";
+		const note = said.replace(/^(solid|shaky|not yet|not asked|not checked|got it, and sure|right but guessing)\s*[:.,;-]?\s*/i, "").trim();
+		const fixed = corrections.get(title);
+		return [{ title, level: fixed ?? whereLevel(said), ...(note && !fixed ? { note } : {}), ...(fixed ? { corrected: true } : {}) }];
+	}).slice(0, LEARN_RULES.whereMax);
 }
 
 /**

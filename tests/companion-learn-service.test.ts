@@ -89,7 +89,7 @@ class Tutor implements LhPort {
 	texts = () => this.sent.flatMap((s) => (s.input.type === "text" ? [s.input.text] : []));
 }
 
-function setup(opts: { connected?: boolean; start?: Date; asked?: boolean; generate?: Generate } = {}) {
+function setup(opts: { connected?: boolean; start?: Date; asked?: boolean; generate?: Generate; intentStep?: boolean } = {}) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "companion-learn-"));
 	const store = new CompanionStore(dir);
 	const content = new CompanionContent(store, CONTENT);
@@ -102,6 +102,10 @@ function setup(opts: { connected?: boolean; start?: Date; asked?: boolean; gener
 		engines: { scripted: new ScriptedEngine((id) => content.scriptedSet(id), (picks) => content.practiseSet(picks)), learnharness: new LearnHarnessEngine(tutor, { pollMs: 2 }) },
 		defaultEngine: opts.connected === false ? "scripted" : "learnharness",
 		readyTimeoutMs: 500,
+		...(opts.intentStep ? { intentStep: true } : {}),
+		// A stand-in PDF reader for attachments: the bytes after "%PDF" are the pages, split on "|"; a page called IMG has no text.
+		convertPdf: async (data) => new TextDecoder().decode(data.slice(4)).split("|").map((t, i) => (t === "IMG" ? { number: i + 1, kind: "image-only" as const } : { number: i + 1, kind: "text" as const, markdown: t })),
+		renderPdfPage: async (_file, page) => new TextEncoder().encode(`png of page ${page}`),
 		promptsDir: path.join(import.meta.dirname, "..", "companion", "prompts"),
 		...(opts.generate ? { generate: opts.generate } : {}),
 		newId: (p) => `${p}${++n}`,
@@ -155,7 +159,7 @@ describe("starting Learn (V-47)", () => {
 		assert.equal(session.state, "ready");
 		const opening = tutor.texts()[0]!;
 		assert.match(opening, /^LEARN SESSION\nModule: HCI/);
-		assert.match(opening, /Opening questions: at most 2\./);
+		assert.match(opening, /Opening questions: at most 4\./);
 		assert.match(opening, /SLIDES FILE: .*hci-w3-personas[/\\]slides\.md/);
 		assert.match(opening, /IDEAS \(plan on these slugs\)/);
 		const v = await svc.view(sessionId);
@@ -170,7 +174,7 @@ describe("starting Learn (V-47)", () => {
 		await svc.whenReady(sessionId);
 		assert.equal(store.session(sessionId)!.spec.learn?.scope, "section");
 		assert.match(tutor.texts()[0]!, /What I want: personas, I've seen them but don't get the point\n/);
-		assert.match(tutor.texts()[0]!, /Opening questions: at most 1\./);
+		assert.match(tutor.texts()[0]!, /Opening questions: at most 2\./);
 		assert.match(tutor.texts()[0]!, /Focus: only the ideas persona-purpose\./);
 	});
 
@@ -747,5 +751,249 @@ describe("the whole module is in reach of a Learn session (v3.1)", () => {
 		assert.deepEqual(learn.reach, ["hci-w1-intro", "hci-w2-users"]);
 		assert.match(tutor.texts()[0]!, /^UNIT 2: /m);
 		assert.match(tutor.texts()[0]!, /^M2: .*\(week 2\)/m);
+	});
+});
+
+/**
+ * v3.1 Part B: every Learn session opens on "What do you want from this
+ * session?". It is plain screen: the tutor is not contacted until the
+ * student has answered.
+ */
+describe("the first step of a Learn session (v3.1)", () => {
+	it("a new session waits, with suggestions from the module, and nothing has been sent to the AI", async () => {
+		const { svc, store, tutor } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		assert.equal(tutor.sent.length, 0);
+		assert.equal(store.session(sessionId)!.awaitingIntent, true);
+		const v = await svc.view(sessionId);
+		assert.equal(v.status, "ask");
+		assert.equal(v.intent?.name, store.profile()!.modules.find((m) => m.code === "HCI")!.name);
+		assert.deepEqual(v.intent?.suggestions.map((x) => x.id), ["unit", "sheet"]);
+		assert.equal(v.intent?.suggestions[0]!.goal, `Teach me ${v.lecture.title}.`);
+		assert.equal(tutor.sent.length, 0, "looking at the first step sends nothing either");
+	});
+
+	it("\"Check what I know first\": the tutor is told the goal in the student's words and to check", async () => {
+		const { svc, store, tutor, events } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		assert.deepEqual(svc.answerIntent(sessionId, { goal: "  I know what personas are but   can't write one ", check: true }), { ok: true });
+		await svc.whenReady(sessionId);
+		const opening = tutor.texts()[0]!;
+		assert.match(opening, /What I want: I know what personas are but can't write one\n/);
+		assert.match(opening, /Opening check: yes, at most 4 questions\./);
+		assert.equal(store.session(sessionId)!.awaitingIntent, undefined);
+		assert.deepEqual(events("learn_intent"), [{ sessionId, module: "HCI", suggestion: null, typed: true, check: true, attached: 0 }]);
+		assert.equal((await svc.view(sessionId)).learn?.phase, "probe");
+	});
+
+	it("\"Skip, start teaching\" with a suggestion tapped: the tutor is told to ask nothing", async () => {
+		const { svc, tutor, events } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		const goal = (await svc.view(sessionId)).intent!.suggestions[0]!.goal;
+		svc.answerIntent(sessionId, { goal, check: false, suggestion: "unit" });
+		await svc.whenReady(sessionId);
+		assert.match(tutor.texts()[0]!, /Opening check: skipped\. Ask nothing; start from what I want\./);
+		assert.deepEqual(events("learn_intent").map((e) => [e.suggestion, e.typed, e.check]), [["unit", false, false]]);
+	});
+
+	it("with no goal typed, the tutor is given the stock one", async () => {
+		const { svc, tutor } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		svc.answerIntent(sessionId, { check: false });
+		await svc.whenReady(sessionId);
+		assert.match(tutor.texts()[0]!, /What I want: Teach me this lecture\./);
+	});
+
+	it("a module's first Learn session asks what you want, then how you like to learn, then starts", async () => {
+		const { svc, tutor } = setup({ intentStep: true, asked: false });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		assert.ok((await svc.view(sessionId)).intent);
+		svc.answerIntent(sessionId, { goal: "personas", check: true });
+		await svc.whenReady(sessionId);
+		const v = await svc.view(sessionId);
+		assert.equal(v.status, "ask");
+		assert.ok(v.ask && !v.intent, "now the how-you-learn card");
+		assert.equal(tutor.sent.length, 0);
+		svc.answerHow(sessionId, { skip: true });
+		await svc.whenReady(sessionId);
+		assert.match(tutor.texts()[0]!, /What I want: personas/);
+	});
+
+	it("\"Learn\" on a module starts on the unit the module is at", async () => {
+		const { svc, store } = setup({ intentStep: true });
+		const { sessionId } = svc.startLearn({ module: "HCI" });
+		assert.equal(store.session(sessionId)!.spec.lectureId, "hci-w1-intro");
+		assert.equal(store.session(sessionId)!.awaitingIntent, true);
+	});
+
+	it("a session stopped part-way is offered, and picking it up drops the new one", async () => {
+		const { svc, store, tutor } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const first = svc.startLearn({ lectureId: "hci-w3-personas" }).sessionId;
+		svc.answerIntent(first, { check: false });
+		await svc.whenReady(first);
+		await svc.say(first, { say: "planOk" });
+		await svc.view(first);
+		await svc.stop(first);
+		const second = svc.startLearn({ lectureId: "hci-w4-fieldwork" }).sessionId;
+		const stopped = (await svc.view(second)).intent!.suggestions.find((x) => x.id === "stopped");
+		assert.equal(stopped?.sessionId, first);
+		assert.match(stopped!.label, /^Pick up: /);
+		svc.answerIntent(second, { resume: true });
+		assert.equal(store.session(second)!.state, "done");
+		assert.equal(store.session(second)!.awaitingIntent, undefined);
+	});
+
+	it("refuses a second answer, a goal that is too long, and a missing choice", async () => {
+		const { svc } = setup({ intentStep: true });
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		assert.throws(() => svc.answerIntent(sessionId, { goal: "x".repeat(501), check: true }), /under 500 characters/);
+		assert.throws(() => svc.answerIntent(sessionId, { goal: "personas" }), /check must be true or false/);
+		svc.answerIntent(sessionId, { check: true });
+		assert.throws(() => svc.answerIntent(sessionId, { check: true }), /already started/);
+	});
+
+	it("without the first step switched on, a session starts at once as before", async () => {
+		const { svc, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		assert.equal(tutor.sent.length, 1);
+	});
+});
+
+describe("\"Where you are\" in a session (v3.1)", () => {
+	const strands = [{ strand: "What personas are for", assessment: "Solid: said it in a sentence." }, { strand: "Scenarios", assessment: "Not yet." }];
+	const withWhere = (tutor: Tutor) => {
+		tutor.react = (chatId, input) => {
+			if (input.type === "text" && /^LEARN SESSION/.test(input.text)) {
+				tutor.trees.set(chatId, tree);
+				tutor.say(chatId,
+					assistant([call("pd", "probe_done", { assessment: { strands } }), text("Thanks.")]), result("pd", "probe_done", { ok: true }), newHandoffMessage(chatId),
+					assistant([text("Two ideas, starting with scenarios."), call("pi", "plan_init", { mermaid: "graph TD" })]), result("pi", "plan_init", { ok: true, tree }),
+					assistant([text("Does that look right?")], "stop"),
+				);
+			} else if (input.type === "text") tutor.say(chatId, assistant([text("Replanned.")], "stop"));
+		};
+	};
+
+	it("the check's result is shown as blocks beside the plan, basic first", async () => {
+		const { svc, tutor } = setup();
+		withWhere(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		const v = await svc.view(sessionId);
+		assert.equal(v.learn?.phase, "plan");
+		assert.deepEqual(v.learn?.where, [{ title: "What personas are for", level: "solid", note: "said it in a sentence." }, { title: "Scenarios", level: "notyet" }]);
+	});
+
+	it("correcting a block tells the tutor in one of LockedIn's own lines, and the block changes", async () => {
+		const { svc, tutor } = setup();
+		withWhere(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		await svc.say(sessionId, { correct: { title: "Scenarios", level: "solid" } });
+		assert.equal(tutor.texts().at(-1), 'Correction: "Scenarios" is solid for me. Plan from that.');
+		const v = await svc.view(sessionId);
+		assert.deepEqual(v.learn?.where?.map((w) => [w.title, w.level, w.corrected ?? false]), [["What personas are for", "solid", false], ["Scenarios", "solid", true]]);
+		assert.ok(!v.learn?.step.some((i) => i.type === "you"), "it is a button press, not something typed");
+		await assert.rejects(svc.say(sessionId, { correct: { title: "Scenarios", level: "wobbly" } }), /solid, shaky or notyet/);
+	});
+});
+
+/**
+ * v3.1 Part B: a problem sheet, a worked solution or a photo of working,
+ * attached to a Learn session. Read here with no AI; text goes as text and
+ * only what has no text goes as a picture.
+ */
+describe("attaching a file to a Learn session (v3.1)", () => {
+	const enc = (t: string) => new TextEncoder().encode(t);
+	const pdf = (...pages: string[]) => new Uint8Array([0x25, 0x50, 0x44, 0x46, ...enc(pages.join("|"))]);
+	const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+	const images = (input: ChatInput) => (input.type === "text" ? (input.images ?? []) : []);
+
+	it("attached on the first step, it goes to the tutor with the opening message", async () => {
+		const { svc, store, tutor, events } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		const r = await svc.attach(sessionId, { name: "Sheet 7.pdf", bytes: pdf("Q1. Write a persona for a first-year student.", "IMG") });
+		assert.deepEqual(r.attachments.map((a) => [a.name, a.kind, a.images, a.sent ?? false]), [["Sheet 7.pdf", "pdf", 1, false]]);
+		assert.equal(tutor.sent.length, 0, "attaching sends nothing");
+		svc.answerIntent(sessionId, { goal: "walk me through the sheet", check: false, suggestion: "sheet" });
+		await svc.whenReady(sessionId);
+		const first = tutor.sent[0]!.input;
+		const opening = tutor.texts()[0]!;
+		assert.match(opening, /What I want: walk me through the sheet/);
+		assert.match(opening, /\nATTACHED BY ME \(1 file\)\n\n?### Sheet 7\.pdf\n## Page 1\nQ1\. Write a persona for a first-year student\.\n\n## Page 2\n\(no text on this page: see its picture\)/);
+		assert.equal(images(first).length, 1, "the page with no text travels as a picture; the page with text does not");
+		assert.equal(images(first)[0]!.mimeType, "image/png");
+		assert.equal(store.session(sessionId)!.attachments![0]!.sent, true);
+		assert.deepEqual(events("learn_attached").map((e) => [e.kind, e.images]), [["pdf", 1]]);
+		assert.deepEqual(events("learn_intent").map((e) => e.attached), [1]);
+	});
+
+	it("attached mid-session, it goes with the next thing the student says; with nothing typed, one line says so", async () => {
+		const { svc, store, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		const v = await svc.view(sessionId);
+		await svc.answer(sessionId, { questionId: v.question!.id, indices: [1] });
+		await svc.view(sessionId);
+		await svc.attach(sessionId, { name: "worked.md", bytes: enc("# Q1\nStep 1: name the user.\nStep 2: give them a goal.") });
+		await svc.attach(sessionId, { name: "my working.png", bytes: png });
+		const before = tutor.sent.length;
+		assert.deepEqual(await svc.say(sessionId, { text: "" }), { queued: false, answer: null });
+		const sent = tutor.sent[before]!.input;
+		assert.equal(sent.type, "text");
+		const said = sent.type === "text" ? sent.text : "";
+		assert.match(said, /^I've attached worked\.md and my working\.png\.\n\nATTACHED BY ME \(2 files\)/);
+		assert.match(said, /### worked\.md\n# Q1\nStep 1: name the user\./);
+		assert.match(said, /### my working\.png\n\(1 picture of this file is attached to this message\.\)/);
+		assert.deepEqual(images(sent).map((i) => i.mimeType), ["image/png"]);
+		assert.ok(store.session(sessionId)!.attachments!.every((a) => a.sent));
+		// The next message carries nothing: each file is sent once.
+		await svc.say(sessionId, { text: "start at question 2" });
+		const next = tutor.sent.at(-1)!.input;
+		assert.equal(next.type === "text" ? next.text : "", "start at question 2");
+	});
+
+	it("can be taken back before it is sent, and not after", async () => {
+		const { svc, tutor } = setup({ intentStep: true });
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		const a = (await svc.attach(sessionId, { name: "sheet.md", bytes: enc("Q1") })).attachments[0]!;
+		assert.deepEqual(svc.removeAttachment(sessionId, a.id).attachments, []);
+		const b = (await svc.attach(sessionId, { name: "sheet.md", bytes: enc("Q1") })).attachments[0]!;
+		svc.answerIntent(sessionId, { check: false });
+		await svc.whenReady(sessionId);
+		assert.throws(() => svc.removeAttachment(sessionId, b.id), /already has this file/);
+	});
+
+	it("refuses what it cannot read, a sixth file, and a file sent over an open question", async () => {
+		const { svc, tutor } = setup();
+		teachingTutor(tutor);
+		const { sessionId } = svc.startLearn({ lectureId: "hci-w3-personas" });
+		await svc.whenReady(sessionId);
+		await assert.rejects(svc.attach(sessionId, { name: "sheet.docx", bytes: enc("PK") }), /sheet\.docx: attach a PDF, text, a web page or a picture/);
+		await assert.rejects(svc.attach(sessionId, { name: "empty.md", bytes: new Uint8Array() }), /empty\.md is empty/);
+		const q = (await svc.view(sessionId)).question!;
+		await svc.attach(sessionId, { name: "a.md", bytes: enc("one") });
+		await assert.rejects(svc.say(sessionId, { text: "here", questionId: q.id }), /Answer or skip this question first/);
+		for (const n of ["b", "c", "d", "e"]) await svc.attach(sessionId, { name: `${n}.md`, bytes: enc(n) });
+		await assert.rejects(svc.attach(sessionId, { name: "f.md", bytes: enc("f") }), /up to 5 files/);
+	});
+
+	it("a Practise session takes no file", async () => {
+		const { svc } = setup({ connected: false });
+		const { sessionId } = svc.createSession(svc.parseSpec({ kind: "post-lecture", lectureId: "hci-w3-personas" }));
+		await svc.whenReady(sessionId);
+		await assert.rejects(svc.attach(sessionId, { name: "a.md", bytes: enc("x") }), /only a Learn session/);
 	});
 });
