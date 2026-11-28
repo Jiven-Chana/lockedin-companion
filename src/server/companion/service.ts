@@ -2307,7 +2307,7 @@ export class CompanionService {
 			if (session.state === "error") return { ...base, status: "error", error: session.error ?? "prepare_failed", practiceAvailable: this.canPractise(session) };
 			if (session.awaitingIntent) {
 				const name = this.store.profile()?.modules.find((m) => m.code === lecture.module)?.name ?? lecture.module;
-				return { ...base, status: "ask", intent: { name, suggestions: this.intentFor(session, lecture) } };
+				return { ...base, status: "ask", intent: { name, suggestions: this.intentFor(session, lecture) }, attachments: session.attachments ?? [] };
 			}
 			if (session.awaitingHow) {
 				const notes = this.store.notes();
@@ -2328,7 +2328,9 @@ export class CompanionService {
 		// Written checks the tutor has marked since the last look (v3.1) go on the student's record, once each. The screen has no use for the list.
 		if (seen.learn?.marks?.length) this.recordMarks(session, seen.learn.marks);
 		const mapped = seen.learn?.marks ? { ...seen, learn: (({ marks: _marks, ...l }) => l)(seen.learn) } : seen;
-		const v = mapped.status === "error" ? { ...mapped, practiceAvailable: this.canPractise(session) } : mapped;
+		const attachments = session.spec.learn ? (this.store.session(session.id)?.attachments ?? []) : [];
+		const withFiles = attachments.length ? { ...mapped, attachments } : mapped;
+		const v = withFiles.status === "error" ? { ...withFiles, practiceAvailable: this.canPractise(session) } : withFiles;
 		if (teacherNudged) this.log("teacher_nudged", { sessionId: session.id, answered: v.answered, budget: v.budget, engine: session.engine });
 		this.markOpened(session.id, now);
 		this.store.updateSession(session.id, (s) => {

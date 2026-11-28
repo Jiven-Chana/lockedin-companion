@@ -14,6 +14,7 @@ import { BLOCK_RULES, CONFIDENCE_TAPS, GAP_COPY, PRACTISE_COPY, KEEP_GOING_QUEST
 import { ApiError, lockedIn, type SlideSection } from "../api";
 import { fmtDay, fmtTime, useLocalFlag, usePoll } from "../hooks";
 import { LearnAsk } from "../learn-ask";
+import { LearnIntent } from "../learn-intent";
 import { LearnScreen } from "./learn";
 import { MicButton, useMic } from "../mic";
 import { InlineProse, Prose } from "../prose";
@@ -212,8 +213,8 @@ export function SessionScreen({ id }: { id: string }) {
 		);
 	}
 
-	// The module's first Learn session (V-52): one card, once, before the tutor starts.
-	if (view.status === "ask" && view.ask) {
+	// Every Learn session opens on what the student wants (v3.1); the module's first one then asks how they like to learn (V-52). The tutor starts after.
+	if (view.status === "ask" && (view.ask || view.intent)) {
 		return (
 			<Tint module={view.lecture.module}>
 				<div className="li-focus li-learn">
@@ -223,7 +224,11 @@ export function SessionScreen({ id }: { id: string }) {
 						<button type="button" className="li-x" onClick={stop}><Icon.pause />Stop for now</button>
 					</div>
 					<div className="li-panes" data-panel="closed">
-						<section className="li-qcard"><LearnAsk sessionId={id} name={view.ask.name} canCopy={view.ask.canCopy} onDone={() => void load()} /></section>
+						<section className="li-qcard">
+							{view.intent
+								? <LearnIntent sessionId={id} name={view.intent.name} suggestions={view.intent.suggestions} attachments={view.attachments ?? []} onDone={() => void load()} />
+								: <LearnAsk sessionId={id} name={view.ask!.name} canCopy={view.ask!.canCopy} onDone={() => void load()} />}
+						</section>
 					</div>
 				</div>
 			</Tint>

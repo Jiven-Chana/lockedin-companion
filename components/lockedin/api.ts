@@ -3,7 +3,7 @@
  * Types come from the core barrel, the only src module components may import.
  */
 
-import type { AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
+import type { SessionAttachment, AiStatus, EnergyTime, SetupView, SetupWeek, WeekShare, CatalogModel, Explainer, PackMeta, CompanionSession, DetectedModule, HowPrefs, KeyProvider, LearnItem, LearnTopic, Lecture, ModuleNotesView, NudgeRecord, Profile, Routine, ScoreRange, SessionSpec, SessionView, SlotChoices, StudyBlock } from "@/src/core";
 
 export class ApiError extends Error {
 	constructor(readonly status: number, readonly code: string, message: string) {
@@ -201,9 +201,14 @@ export const lockedIn = {
 	/** The module's Learn start sheet (step 5): one suggestion, this week, and the topics a typed goal is matched against. */
 	learnSheet: (module: string) => api<LearnSheet>(`/learn?module=${encodeURIComponent(module)}`),
 	/** Start Learn (V-47): a lecture, one part of it (`nodes`), or the module's lectures this week. */
-	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	startLearn: (body: { lectureId: string; nodes?: string[]; goal?: string } | { module: string; week?: true; goal?: string }) => api<{ sessionId: string }>("/learn", { body }),
+	/** The first step of a Learn session (v3.1): what the student wants and whether to be checked first; or `resume`, to drop this session for a stopped one. */
+	answerIntent: (id: string, body: { goal?: string; check: boolean; suggestion?: string } | { resume: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/intent`, { body }),
+	/** Attach one file to a Learn session (v3.1), and take one back before it is sent. */
+	attach: (id: string, form: FormData) => api<{ attachments: SessionAttachment[] }>(`/sessions/${encodeURIComponent(id)}/attachments`, { raw: form }),
+	removeAttachment: (id: string, attId: string) => api<{ attachments: SessionAttachment[] }>(`/sessions/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attId)}`, { method: "DELETE" }),
 	/** Say something to the tutor (V-54). With `questionId` it is answered beside the open question. */
-	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
+	say: (id: string, body: { text: string; questionId?: string } | { say: "skipProbe" | "planOk" | "carryOn" } | { correct: { title: string; level: "solid" | "shaky" | "notyet" } }) => api<{ queued: boolean; answer: string | null }>(`/sessions/${encodeURIComponent(id)}/say`, { body }),
 	finish: (id: string) => api(`/sessions/${encodeURIComponent(id)}/finish`, { method: "POST" }),
 	/** The first-time card (V-52): the taps, "the same as my other modules", or skip. The tutor then starts. */
 	answerHow: (id: string, body: HowPrefs | { same: true } | { skip: true }) => api<{ ok: true }>(`/sessions/${encodeURIComponent(id)}/how`, { body }),

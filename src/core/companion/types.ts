@@ -173,6 +173,8 @@ export interface SessionView {
 	learn?: LearnView;
 	/** status "ask" (V-52): the module being asked about, and whether another module's answer can be reused. */
 	ask?: { module: string; name: string; canCopy: boolean };
+	/** Learn (v3.1): the files attached to this session, sent to the tutor or still waiting to go with the next message. */
+	attachments?: SessionAttachment[];
 	/** status "ask" (v3.1): the first step of a Learn session, "What do you want from this session?". Nothing has been sent to the AI yet. */
 	intent?: { name: string; suggestions: (IntentSuggestion & { sessionId?: string })[] };
 }
