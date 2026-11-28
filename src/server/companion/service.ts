@@ -50,7 +50,7 @@ import { scheduleWeek, type NudgeQuestion } from "../../core/companion/nudges.ts
 import { FEELINGS, lastWeekSummary, proposeTarget, type Feeling } from "../../core/companion/checkin.ts";
 import { validateRoutine } from "../../core/companion/routine.ts";
 import type { Generate } from "./generate.ts";
-import { attachmentBlock, attachmentKind, checkProposal, currentWeek, imageMime, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
+import { attachmentBlock, attachmentKind, checkProposal, coversWeek, currentWeek, imageMime, unitTooShort, weekOneStartFor, type ProposedUnit } from "../../core/companion/units.ts";
 import { lecturesWithStatus, phoneToday, roadmap, searchLectures, tryNowLecture, weekSummary, welcomeBack } from "../../core/companion/progress.ts";
 import { assembleSlidesMarkdown, parseSlideRefs, parseSlides, slideTitles, type SlidePage } from "../../core/companion/slides.ts";
 import { nodeStatuses, splitNodeLabel, starterMap, type MapEvidence, type MapNode } from "../../core/companion/concept-map.ts";
@@ -946,10 +946,14 @@ export class CompanionService {
 		const unit = this.store.lectures().find((l) => l.id === lectureId);
 		if (!unit) throw notFound("lecture");
 		if (isTimed(unit)) throw badRequest("a timetabled lecture's week comes from your calendar");
-		const week = (body as { week?: unknown } | null)?.week;
+		const { week, weekTo } = (body ?? {}) as { week?: unknown; weekTo?: unknown };
 		if (!Number.isInteger(week) || (week as number) < 1 || (week as number) > 52) throw badRequest("week must be 1 to 52");
-		const updated = this.store.updateLecture(lectureId, (l) => ({ ...l, week: week as number }))!;
-		this.log("unit_week_set", { lectureId, module: unit.module, from: unit.week, to: week });
+		// A unit may cover a range of weeks (v3.1.1): "Weeks 7 to 9". The same week again, or none, is one week.
+		if (weekTo !== undefined && weekTo !== null && (!Number.isInteger(weekTo) || (weekTo as number) < 1 || (weekTo as number) > 52)) throw badRequest("the last week must be 1 to 52");
+		if (typeof weekTo === "number" && weekTo < (week as number)) throw badRequest("the last week can't be before the first");
+		const to = typeof weekTo === "number" && weekTo > (week as number) ? weekTo : undefined;
+		const updated = this.store.updateLecture(lectureId, ({ weekTo: _was, ...l }) => ({ ...l, week: week as number, ...(to ? { weekTo: to } : {}) }))!;
+		this.log("unit_week_set", { lectureId, module: unit.module, from: unit.week, to: week, ...(to ? { weekTo: to } : {}) });
 		return updated;
 	}
 
@@ -2895,7 +2899,7 @@ export class CompanionService {
 		return intentSuggestions({
 			unit: session.spec.learn?.scope === "week" ? null : { title: lecture.title, week: lecture.week },
 			stopped: stopped && stoppedUnit ? { idea: stopped.learnAt?.title || stoppedUnit.title, unit: stoppedUnit.title } : null,
-			thisWeek: week ? units.filter((u) => u.week === week).map((u) => ({ title: u.title, week: u.week })) : [],
+			thisWeek: week ? units.filter((u) => coversWeek(u, week)).map((u) => ({ title: u.title, week: u.week })) : [],
 			revisit,
 		}).map((x) => (x.id === "stopped" && stopped ? { ...x, sessionId: stopped.id } : x));
 	}
@@ -3083,7 +3087,7 @@ export class CompanionService {
 		const next = units.find((u) => !learned.has(u.id)) ?? units[0];
 		const stoppedUnit = stopped ? units.find((u) => u.id === stopped.spec.lectureId) : undefined;
 		const { week } = currentWeek(mod, now);
-		const thisWeek = week ? units.filter((u) => u.week === week) : [];
+		const thisWeek = week ? units.filter((u) => coversWeek(u, week)) : [];
 		const topics: LearnTopic[] = units.map((u) => ({ lectureId: u.id, title: u.title, week: u.week }));
 		for (const idea of this.packIdeas()) {
 			const unit = units.find((u) => u.id === idea.lectureId);
@@ -3128,7 +3132,7 @@ export class CompanionService {
 			if (typeof r.module !== "string") throw badRequest("module is required for this week");
 			const mod = this.requireModule(r.module);
 			const { week } = currentWeek(mod, this.now());
-			lectureIds = week ? this.learnUnits(mod.code).filter((u) => u.week === week).map((u) => u.id) : [];
+			lectureIds = week ? this.learnUnits(mod.code).filter((u) => coversWeek(u, week)).map((u) => u.id) : [];
 			if (lectureIds.length === 0) throw new CompanionError("nothing_this_week", 409, LEARN_COPY.nothingThisWeek);
 			if (lectureIds.length > 1) scope = "week";
 		} else {

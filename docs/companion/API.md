@@ -67,7 +67,7 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |
 | GET | `/lectures` | `?module=HCI&q=personas` | `{ lectures: (Lecture & { status: "answered" \| "revisit" \| "not-started", revisit })[] }` |
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
-| PUT | `/lectures/:id/week` | `{ week: 1–52 }` | The unit, with its week set (v1.0, V-25: "Set week" on a unit that reads "Week not set"). `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
+| PUT | `/lectures/:id/week` | `{ week: 1–52, weekTo?: 1–52 }` | The unit, with its week set (v1.0, V-25), at any time and not only while it reads "Week not set" (v3.1.1, V-99). `weekTo` after `week` makes a range ("Weeks 7 to 9"); the same week or none is one week. `400` when `weekTo` is before `week`. `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
 | GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }], hasPdf }` for the slide panel. Slide numbers are the original file's page numbers, so a unit can run 18 to 38. `hasPdf` is true only when the stored PDF has content |

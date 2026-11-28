@@ -605,18 +605,28 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-answered ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .li-answered li { display: flex; gap: 10px; align-items: baseline; }
 .li-answered li[data-answer="true"] { font-weight: 700; }
-/* "Where you are" (v3.1): each idea the goal needs as a block, the most basic at the bottom. Solid is mint (secured),
-   shaky and not yet are lilac (to work on), not checked has no colour. A state is its word as well as its colour. */
-.li-where-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.li-where-list li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: 14px; border: 2px solid var(--li-edge); background: var(--li-card); }
-.li-where-list li[data-level="solid"] { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
-.li-where-list li[data-level="shaky"], .li-where-list li[data-level="notyet"] { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
-.li-where-main { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
-.li-where-level { flex: none; padding: 1px 11px; border-radius: 999px; border: 2px solid currentColor; font-size: 0.84em; font-weight: 700; }
-.li-where-pick { flex-basis: 100%; }
-.li-where-list .li-seg { background: var(--li-on-card); border-color: var(--li-on); }
-.li-where-list .li-seg button { color: var(--li-on); border-color: var(--li-on); }
-.li-where-list .li-seg button[aria-pressed="true"] { background: var(--li-on); color: var(--li-on-card); }
+/* One plan (v3.1.1): what the check found is on each step. Solid is mint (secured), shaky and not yet are lilac (to work on),
+   not checked has no colour. A level is its word as well as its colour. */
+.li-plan-main { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
+.li-plan-note { font-weight: 400; }
+.li-plan li { flex-wrap: wrap; }
+.li-plan-level { flex: none; padding: 1px 11px; border-radius: 999px; border: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); font-size: 0.84em; font-weight: 700; white-space: nowrap; }
+.li-plan-level[data-level="solid"] { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-plan-level[data-level="shaky"], .li-plan-level[data-level="notyet"] { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
+.li-plan-pick { flex-basis: 100%; }
+.li-plan li .li-link { color: inherit; }
+/* The stages of a Learn session (v3.1.1). In the bar: the path, with the stage you are in filled. On each part of the
+   lesson: its name and what happens there, so a guess, the teaching and a check never look alike. */
+.li-stages { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.li-stages i { font-style: normal; font-size: 0.8em; font-weight: 700; padding: 1px 10px; border-radius: 8px; border: 2px solid var(--li-bar-quiet); color: var(--li-bar-quiet); white-space: nowrap; }
+.li-stages i[data-on="true"] { background: var(--li-bar-ink); border-color: var(--li-bar-ink); color: var(--li-bar); text-transform: uppercase; letter-spacing: 0.03em; }
+.li-stage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.li-stage-head b { font-family: var(--li-font-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.95em; padding: 1px 10px; border-radius: 8px; border: 2px solid currentColor; }
+.li-stage-head > span:last-child { font-size: 0.88em; }
+.li-step > .li-stage-head { color: var(--li-quiet); }
+/* A unit's week is a button: it can be changed, and can be a range. */
+.li-week-chip { cursor: pointer; font-family: var(--li-font-display); font-weight: 800; font-size: 1em; padding: 2px 12px; box-shadow: 3px 3px 0 var(--li-edge); }
+.li-week-chip:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--li-edge); }
 /* The first step of a Learn session: a suggestion is a block to tap; the one tapped stays pressed. */
 .li-suggest { width: auto; min-height: 46px; padding: 8px 16px; }
 .li-suggest[aria-pressed="true"] { background: var(--li-sand); transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--li-edge); }
@@ -630,8 +640,9 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-artifact iframe { width: 100%; border: 0; border-radius: 10px; background: #ffffff; }
 .li-making { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--li-soft); }
 /* The line to the tutor stays in reach at the bottom of the window, however long the step is. */
-.li-say { display: flex; gap: 10px; align-items: flex-end; border-top: 2px dashed var(--li-sand); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-card); z-index: 2; }
-.li-say textarea { resize: none; }
+.li-say { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; border-top: 2px dashed var(--li-sand); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-card); z-index: 2; }
+/* The box keeps room to write in: in a narrow column Speak and Send drop to the line below it (v3.1.1). */
+.li-say textarea { resize: none; flex: 1 1 220px; min-width: 0; width: auto; }
 /* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
 .li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
 .li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }

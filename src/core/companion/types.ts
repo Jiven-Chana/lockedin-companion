@@ -277,6 +277,10 @@ export type Verdict = "right" | "partly" | "notyet";
 export interface WrittenMark { questionId: string; nodeId?: string; questionText: string; written: string; committed: string; verdict: Verdict; answeredAt: string }
 
 export type WhereLevel = "solid" | "shaky" | "notyet" | "unchecked";
+/** A step of the plan with what the check found for it (v3.1.1). `checked`: the name the check used for the idea, which a change is sent under. */
+export type LeveledStep = LearnPlanNode & { level?: WhereLevel; note?: string; corrected?: boolean; checked?: string };
+/** Where a Learn session is (v3.1.1): finding the student's level, agreeing the plan, then for each idea a guess, the teaching, a check. */
+export type LearnStage = "level" | "plan" | "guess" | "learn" | "check";
 /** One block of "Where you are" (v3.1). `corrected`: the student changed it. */
 export interface LearnWhere { title: string; level: WhereLevel; note?: string; corrected?: boolean }
 /** A suggestion on the first step of a Learn session (v3.1): tapping it fills in the goal. `attach`: it is about a file the student adds. */
@@ -499,6 +503,8 @@ export interface Lecture {
 	title: string;
 	/** Teaching week; 0 = not known (a unit from material with no week on it). */
 	week: number;
+	/** The last week a unit covers, when it covers more than one (v3.1.1): "Weeks 7 to 9". Absent for one week. */
+	weekTo?: number;
 	/** Course order within the module, for the roadmap (INT-01-e). */
 	order: number;
 	/** Absent for a course unit made from material (V-18). */

@@ -2,7 +2,8 @@
 
 /**
  * Me → Voice (v0.1 F-116, O-5): the student's own Deepgram key turns on
- * the Speak button in the session's "why" box. Optional; nothing needs it.
+ * the Speak button beside every box where a student writes words (v3.1.1).
+ * Optional; nothing needs it.
  */
 
 import { useState } from "react";
@@ -24,7 +25,7 @@ export function VoiceSection({ voice: loaded }: { voice: boolean | null }) {
 			const s = await lockedIn.ai.voice(value);
 			resetVoiceAvailable(!!s.voice);
 			setKey("");
-			setMsg(s.voice ? "✓ Saved. Sessions now show a Speak button under “Why?”." : "Removed. The Speak button is hidden.");
+			setMsg(s.voice ? "✓ Saved. A Speak button now sits beside every box you can write in." : "Removed. The Speak button is hidden.");
 			setSaved(!!s.voice);
 		} catch (e) {
 			setMsg(e instanceof ApiError ? e.message : "Couldn't save the key. Try again.");
@@ -35,7 +36,7 @@ export function VoiceSection({ voice: loaded }: { voice: boolean | null }) {
 
 	return (
 		<div className="li-stack" style={{ gap: 12 }}>
-			<span className="li-muted">Optional. Say your reason instead of typing it. Tapping an answer is always enough.</span>
+			<span className="li-muted">Optional. Say it instead of typing, in any box you can write in. Tapping an answer is always enough.</span>
 			{voice ? (
 				<div className="li-row" style={{ gap: 12, alignItems: "center" }}>
 					<span>✓ Dictation is on (your Deepgram key).</span>
