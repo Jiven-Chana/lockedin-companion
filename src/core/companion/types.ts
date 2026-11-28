@@ -779,6 +779,9 @@ export const COMPANION_EVENT_TYPES = [
 	"block_where",
 	// v0.1 F-116
 	"dictation_used",
+	// v3.2: a guess made on a picture (right, another block, or "show me"), and a picture stepped to its end. Nothing reads them; they are for the study's records.
+	"picture_gap",
+	"picture_done",
 	// v0.1 F-118
 	"motion_changed",
 	// v0.1 dry run: the teacher stopped before the budget and was asked to continue
@@ -823,6 +826,8 @@ export const CLIENT_EVENT_TYPES: readonly CompanionEventType[] = [
 	"explainer_opened",
 	"map_node_clicked",
 	"dictation_used",
+	"picture_gap",
+	"picture_done",
 ];
 
 export interface EventLogEntry {

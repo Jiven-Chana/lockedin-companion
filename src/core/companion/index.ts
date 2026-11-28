@@ -33,6 +33,7 @@ export * from "./routine.ts";
 export * from "./sync.ts";
 export * from "./phone-round.ts";
 export * from "./diagram.ts";
+export * from "./picture.ts";
 export * from "./score.ts";
 export * from "./milestones.ts";
 export * from "./practise.ts";

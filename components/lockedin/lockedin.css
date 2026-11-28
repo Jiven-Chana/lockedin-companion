@@ -382,6 +382,41 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-idea[data-s="notyet"] .li-status { background: transparent; color: var(--li-ink); border-color: var(--li-ink); }
 /* A block in a diagram that is not a concept map: it only shows something, so it is flat. */
 .li-idea.plain { background: var(--li-card); color: var(--li-ink); border-color: var(--li-edge); box-shadow: none; justify-content: center; }
+/* A picture that builds up (v3.2). A block that has not arrived keeps its place, unseen. The step's own blocks are in the
+   module's colour and lifted; the others stand back. A guessed block is mint; the reason is mint when right and lilac when not. */
+.li-pic { display: flex; flex-direction: column; gap: 12px; border: var(--li-edge-w) solid var(--li-edge); border-radius: 18px; background: var(--li-card); color: var(--li-ink); padding: 14px 16px; }
+.li-pic-head { gap: 10px; min-height: 38px; }
+.li-pic-ask { margin: 0; font-family: var(--li-font-display); font-weight: 800; font-size: 1.1em; line-height: 1.25; }
+/* The picture's box is exactly as wide as the picture. What is said about it sits beside it when the row has room, and under it when not. */
+.li-pic-main { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-start; }
+.li-pic-map { flex-grow: 0; flex-shrink: 1; min-width: 0; max-width: 100%; }
+.li-pic-map .li-map-box { padding: 0; }
+.li-pic-side { flex: 1 1 210px; min-width: min(210px, 100%); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.li-pic-all { margin-top: 4px; }
+.li-pic-block { position: relative; padding: 6px 10px; text-align: center; align-items: center; transition: opacity 200ms ease, transform 200ms ease, background-color 200ms ease; }
+.li-pic-block[data-gone] { opacity: 0; transform: translateY(8px); visibility: hidden; }
+.li-pic-block[data-lit] { background: var(--li-mod); color: var(--li-on); border-color: var(--li-on); box-shadow: 4px 4px 0 var(--li-edge); }
+.li-pic-block[data-dim] { opacity: 0.5; }
+.li-pic-block[data-hole] { border-style: dashed; font-size: 1.5em; }
+.li-pic-block[data-tone="mint"] { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-pic-note { position: absolute; top: -13px; right: 10px; padding: 0 10px; border-radius: 999px; background: var(--li-ink); color: var(--li-card); font-style: normal; font-size: 0.74em; font-weight: 700; white-space: nowrap; }
+.li-map-links g[data-gone] { visibility: hidden; }
+.li-pic-dots { display: inline-flex; gap: 6px; }
+.li-pic-dots i { width: 22px; height: 12px; border: 2px solid var(--li-edge); border-radius: 4px; background: var(--li-card); }
+.li-pic-dots i[data-s="done"] { background: var(--li-mint); }
+.li-pic-dots i[data-s="now"] { background: var(--li-mod); width: 34px; }
+.li-pic-say { min-height: 3.2em; align-self: stretch; }
+.li-pic-say > :last-child { margin-bottom: 0; }
+.li-pic-tray { display: flex; flex-wrap: wrap; gap: 10px; }
+.li-pic-tray .li-btn { text-align: left; }
+.li-pic-tray .li-btn[aria-pressed="true"] { outline: 3px solid var(--li-ink); outline-offset: 2px; opacity: 1; }
+.li-pic-skip { align-self: flex-start; }
+.li-pic-verdict { align-self: stretch; border: var(--li-edge-w) solid var(--li-on); border-radius: 12px; padding: 10px 14px; color: var(--li-on); }
+.li-pic-verdict[data-tone="mint"] { background: var(--li-mint); }
+.li-pic-verdict[data-tone="lilac"] { background: var(--li-lilac); }
+.li-pic-large { width: min(96vw, 1500px); max-height: calc(100vh - 64px); overflow: auto; border-radius: 20px; }
+.li-pic[data-large] { padding: 18px 24px 24px; }
+.li-pic[data-large] .li-pic-side { font-size: 1.12em; }
 .li-map-col .li-idea { position: static; flex-direction: row-reverse; align-items: center; justify-content: space-between; min-height: 58px; }
 .li-map-col .li-idea b { flex: 1 1 auto; }
 /* The ideas arrive in order the first time; one whose standing changed pulses once. */
