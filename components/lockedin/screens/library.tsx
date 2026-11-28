@@ -8,14 +8,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
+import { useCallback, useState } from "react";
+import { LEARN_COPY, NOTE_COPY, PACK_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
 import { Icon, ModuleMark, StatusTag } from "../icons";
-import { LearnSheet } from "../learn-sheet";
 import { MaterialUpload } from "../material-upload";
+import { MicButton, useMic } from "../mic";
 import { ModuleNotes } from "../module-notes";
 import { Tint, useLockedIn } from "../root";
 import { SetWeek } from "../set-week";
@@ -91,9 +91,20 @@ export function LibraryScreen() {
 	};
 	const { now } = useLockedIn();
 	const [q, setQ] = useState("");
+	const mic = useMic(useCallback((t: string) => setQ((x) => (x ? `${x.trimEnd()} ${t}` : t).replace(/[.?!]+$/, "")), []), "search");
 	const [adding, setAdding] = useState<string | null>(null);
-	const [learning, setLearning] = useState<string | null>(null);
 	const [knowing, setKnowing] = useState<string | null>(null);
+	// "Rewrite questions" (v3.1) asks first: it uses the student's AI, so it never happens by itself.
+	const [rewriting, setRewriting] = useState<string | null>(null);
+	async function rewrite(code: string) {
+		setRewriting(null);
+		try {
+			const r = await lockedIn.rewriteQuestions(code);
+			setMsg(PACK_COPY.rewrite.started(r.units));
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
+		}
+	}
 	const [msg, setMsg] = useState<string | null>(null);
 	const course = useData(() => lockedIn.course());
 	const search = useData(() => (q.trim() ? lockedIn.lectures(q.trim()) : Promise.resolve(null)), [q]);
@@ -108,6 +119,16 @@ export function LibraryScreen() {
 		}
 	}
 
+	// "Learn" on a module (v3.1): the session opens on "What do you want from this session?", with the whole module in reach.
+	async function learnModule(code: string) {
+		try {
+			const { sessionId } = await lockedIn.startLearn({ module: code });
+			router.push(`/app/session/${sessionId}`);
+		} catch (e) {
+			setMsg(e instanceof ApiError ? e.message : "Couldn't start that");
+		}
+	}
+
 	const hits = search.data ? new Set(search.data.map((l) => l.id)) : null;
 	const modules = course.data ?? [];
 
@@ -116,7 +137,8 @@ export function LibraryScreen() {
 		const notes = [l.start ? fmtDay(l.start, now) : null, ...unitNotes(l, thisWeek)].filter(Boolean);
 		return (
 		<div key={l.id} className="li-tl">
-			<span className="li-tl-time">{l.week > 0 || l.start ? weekLabel(l.week) : <SetWeek lectureId={l.id} title={l.title} onSaved={() => void course.reload()} />}</span>
+			{/* The week is a button on every unit made from material (v3.1.1): it can be changed at any time, and can be a range. A timetabled lecture's week comes from the calendar. */}
+			<span className="li-tl-time">{l.start ? weekLabel(l.week, l.weekTo) : <SetWeek lectureId={l.id} title={l.title} week={l.week} weekTo={l.weekTo} onSaved={() => void course.reload()} />}</span>
 			<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 				<Link href={`/app/library/${l.id}`}><b>{l.title}</b></Link>
 				{notes.length ? <span className="li-small li-muted">{notes.join(" · ")}</span> : null}
@@ -131,11 +153,14 @@ export function LibraryScreen() {
 	return (
 		<>
 			<PageHead eyebrow="Library" title="Your course">
-				<label className="li-row" style={{ marginTop: 12, maxWidth: 520, gap: 0, position: "relative" }}>
-					<span className="li-sr">Search units and slides</span>
-					<span style={{ position: "absolute", left: 14, color: "var(--li-muted)" }}><Icon.search /></span>
-					<input className="li-input" style={{ paddingLeft: 44 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your course and slides, e.g. ethnography" />
-				</label>
+				<div className="li-row" style={{ marginTop: 12, gap: 8 }}>
+					<label className="li-row" style={{ flex: "1 1 320px", maxWidth: 520, gap: 0, position: "relative" }}>
+						<span className="li-sr">Search units and slides</span>
+						<span style={{ position: "absolute", left: 14, color: "var(--li-muted)" }}><Icon.search /></span>
+						<input className="li-input" style={{ paddingLeft: 44 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your course and slides, e.g. ethnography" />
+					</label>
+					<MicButton mic={mic} />
+				</div>
 				{/* A module the timetable doesn't know about (V-64): a name is enough. */}
 				<div style={{ marginTop: 12 }}><AddModule onAdd={() => void course.reload()} /></div>
 			</PageHead>
@@ -155,7 +180,7 @@ export function LibraryScreen() {
 								<span className="li-small li-muted">{m.units.filter((l) => l.status !== "not-started").length} of {m.units.length} started</span>
 								{/* A quick round across the whole module (V-40): only once a unit has material to draw questions from. */}
 								{/* The two ways to study a module (V-40): the tutor, or a quick round. Each needs a unit with material. */}
-								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" aria-expanded={learning === m.code} onClick={() => setLearning(learning === m.code ? null : m.code)}>{LEARN_COPY.moduleButton}</button> : null}
+								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void learnModule(m.code)}>{LEARN_COPY.moduleButton}</button> : null}
 								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
 							</div>
 							{/* What the app holds about you here (V-53): one quiet link, closed until asked for. */}
@@ -164,12 +189,19 @@ export function LibraryScreen() {
 									{/* Beside the module's other quiet actions (v3.0.1), so a long module name never pushes it onto a row of its own. */}
 									<button type="button" className="li-btn ghost" onClick={() => setAdding(adding === m.code ? null : m.code)}><Icon.plus />Add course material</button>
 									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
+									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={rewriting === m.code} onClick={() => setRewriting(rewriting === m.code ? null : m.code)}>{PACK_COPY.rewrite.button}</button> : null}
 									<span style={{ flexGrow: 1 }} />
 									<ShareControl mod={m} onChange={() => void course.reload()} onError={setMsg} />
 								</div>
 							) : null}
+							{rewriting === m.code ? (
+								<div className="li-note li-row" role="group" aria-label={PACK_COPY.rewrite.button} style={{ gap: 10 }}>
+									<span style={{ flexGrow: 1 }}>{PACK_COPY.rewrite.confirm(m.units.filter((l) => l.hasMaterials).length)}</span>
+									<button type="button" className="li-btn" onClick={() => void rewrite(m.code)}>{PACK_COPY.rewrite.yes}</button>
+									<button type="button" className="li-btn ghost" onClick={() => setRewriting(null)}>{PACK_COPY.rewrite.no}</button>
+								</div>
+							) : null}
 							{knowing === m.code ? <ModuleNotes code={m.code} onClose={() => setKnowing(null)} /> : null}
-							{learning === m.code ? <LearnSheet code={m.code} onClose={() => setLearning(null)} onPractise={() => void practise(m.code)} /> : null}
 							{adding === m.code ? (
 								<MaterialUpload code={m.code} name={m.name} onClose={() => setAdding(null)} onSaved={(n) => { setAdding(null); setMsg(`${n} ${n === 1 ? "unit" : "units"} added to ${m.name}.`); void course.reload(); }} />
 							) : null}

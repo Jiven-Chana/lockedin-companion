@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Dictation for LockedIn's free-text boxes (v0.1 F-116): the engine's
+ * Dictation for LockedIn's free-text boxes (v0.1 F-116; on every box where
+ * a student writes words since v3.1.1): the engine's
  * Deepgram streaming (components/dictation.tsx) behind one small mic
  * button. Hidden without a Deepgram key (Me → Voice). Never required:
  * tapping stays the rule. Speech lands in the box when you stop, and
@@ -46,7 +47,7 @@ export function MicButton({ mic }: { mic: ReturnType<typeof useMic> }) {
 	const label = dictation.phase === "connecting" ? "Starting…" : dictation.phase === "recording" ? "Stop" : dictation.phase === "stopping" ? "Finishing…" : "Speak";
 	return (
 		<span className="li-row" style={{ gap: 8, alignItems: "center" }}>
-			<button type="button" className={`li-btn${live ? " primary" : ""}`} aria-pressed={live} disabled={dictation.phase === "stopping"} onClick={toggle} title={live ? "Stop and put what you said in the box" : "Say your reason instead of typing"}>
+			<button type="button" className={`li-btn${live ? " primary" : ""}`} aria-pressed={live} disabled={dictation.phase === "stopping"} onClick={toggle} title={live ? "Stop and put what you said in the box" : "Say it instead of typing"}>
 				<span aria-hidden="true">{live ? "■" : "🎙"}</span> {label}
 			</button>
 			{dictation.error ? <span className="li-small li-muted" role="alert">{dictation.error.startsWith("Dictation needs") ? "Add a Deepgram key in Me → Voice to speak." : dictation.error}</span> : null}

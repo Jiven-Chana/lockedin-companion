@@ -55,6 +55,11 @@ export class CompanionContent {
 		return md ? slideTitles(md).map((s) => s.title) : [];
 	}
 
+	/** Where the lecture's concept map is kept, for the tutor to read (v3.1). */
+	conceptMapPath(lectureId: string): string | null {
+		return this.find(lectureId, "map.mmd");
+	}
+
 	/** The lecture's concept map (mermaid graph TD), if one was authored or saved. */
 	conceptMapSource(lectureId: string): string | null {
 		const p = this.find(lectureId, "map.mmd");
@@ -110,15 +115,16 @@ export class CompanionContent {
 	}
 
 	/** Write converted slides (materials upload). */
-	writeMaterials(lectureId: string, files: { slidesMd: string; pdf?: Uint8Array }): string {
+	/** `pdf: null` removes a PDF kept from before (v3.1): text put in its place has no pages to picture. */
+	writeMaterials(lectureId: string, files: { slidesMd: string; pdf?: Uint8Array | null }): string {
 		const dir = this.store.materialsDir(lectureId);
 		fs.mkdirSync(/* turbopackIgnore: true */ dir, { recursive: true });
 		fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.md"), files.slidesMd, "utf-8");
 		// The old PDF may be one file shared with sibling units (a hard link): remove
 		// the name before writing, so only this unit changes. Its page pictures go too.
 		fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "pages"), { recursive: true, force: true });
+		if (files.pdf !== undefined) fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), { force: true });
 		if (files.pdf) {
-			fs.rmSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), { force: true });
 			fs.writeFileSync(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ dir, "slides.pdf"), files.pdf);
 		}
 		return dir;

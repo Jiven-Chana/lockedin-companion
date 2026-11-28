@@ -300,7 +300,7 @@ describe("new questions written around a gap (V-39)", () => {
 
 	it("a repeat of an existing question, a question on another idea, or one that breaks the rules is not used", async () => {
 		const { svc, replies } = await setup(day(20, 13));
-		replies.push({ questions: [written("nash 1"), written("On another idea?", { node: "mixed" }), written("x".repeat(120)), written("A good one?"), written("Another good one?"), written("A third good one?")] });
+		replies.push({ questions: [written("nash 1"), written("On another idea?", { node: "mixed" }), written("x".repeat(220)), written("A good one?"), written("Another good one?"), written("A third good one?")] });
 		const out = await svc.packs!.writeForIdea("gt-2", "nash", missed, 5);
 		assert.deepEqual(out.map((q) => q.stem), ["A good one?", "Another good one?", "A third good one?"]);
 	});

@@ -125,6 +125,8 @@ export function createCompanionService(env: Record<string, string | undefined> =
 		...(env.COMPANION_RELAY_URL?.startsWith("http") ? { relay: { url: env.COMPANION_RELAY_URL } } : {}),
 		promptsDir: path.join(/* turbopackIgnore: true */ PATHS.root, "companion", "prompts"),
 		autoFallback: env.COMPANION_AUTO_FALLBACK === "1",
+		// v3.1: every Learn session opens on "What do you want from this session?".
+		intentStep: true,
 		...(Number.isFinite(timeout) && timeout > 0 ? { readyTimeoutMs: timeout } : {}),
 		convertPdf: pdfConverter,
 		renderPdfPage: (file, page) => renderPdfPage(file, page, MATERIALS_RULES.pageImageDpi),

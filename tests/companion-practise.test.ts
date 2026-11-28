@@ -99,8 +99,9 @@ describe("a round is weighted to gaps, and stays mixed", () => {
 describe("a question is not repeated until the others on its idea are used", () => {
 	const candidates = ["u1:a:1", "u1:a:2", "u1:a:3"].map(q);
 	const table: [string, Record<string, [number, number]>, string][] = [
-		["nothing asked: the easiest", {}, "u1:a:1"],
-		["one asked: one of the others", { "u1:a:1": [1, 100] }, "u1:a:2"],
+		// v3.1: where history cannot choose, the harder question is asked (applied before recalled).
+		["nothing asked: the hardest", {}, "u1:a:3"],
+		["one asked: the harder of the others", { "u1:a:1": [1, 100] }, "u1:a:3"],
 		["two asked: the third", { "u1:a:1": [1, 100], "u1:a:2": [1, 200] }, "u1:a:3"],
 		["all asked once: the one asked longest ago", { "u1:a:1": [1, 300], "u1:a:2": [1, 100], "u1:a:3": [1, 200] }, "u1:a:2"],
 		["asked unevenly: the least asked", { "u1:a:1": [3, 900], "u1:a:2": [2, 100], "u1:a:3": [3, 50] }, "u1:a:2"],

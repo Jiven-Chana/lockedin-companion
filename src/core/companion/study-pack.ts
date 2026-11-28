@@ -15,11 +15,11 @@ import type { ScriptedSet } from "./types.ts";
 
 export interface BankQuestion {
 	id: string;
-	/** ≤ 90 characters, so it fits a phone notification (N-1 v2). */
+	/** ≤ 200 characters (v3.1): a complete question that stands on its own, with the numbers or the case it needs. */
 	stem: string;
 	options: [string, string, string];
 	correct: 0 | 1 | 2;
-	/** ≤ 140 characters. */
+	/** ≤ 200 characters. */
 	explanation: string;
 	slides: number[];
 	/** The concept-map node it tests. */
@@ -129,12 +129,49 @@ export function checkMapNodes(nodes: readonly PackNode[], slides: ReadonlySet<nu
 	return null;
 }
 
+/**
+ * Words that point away from the question to something the student may not
+ * have in front of them (v3.1): the lecture, the slides, an example "above".
+ * A Practise question is asked days later, and on the phone with no slide.
+ * Kept narrow on purpose: "the class of functions", "the unit circle" and
+ * "a deck of cards" are ordinary course words and must pass.
+ */
+const LEANS: readonly RegExp[] = [
+	/\b(?:the|this|that|today's|our|your)\s+(?:lecturer?|slides?|slide\s+deck|notes|handout|course)(?:'s|s')?\b/i,
+	/\bslides?\s+\d+/i,
+	/\b(?:in|from)\s+(?:the\s+)?lecture\b/i,
+	/\bfrom\s+(?:the\s+)?class\b/i,
+	/\b(?:example|figure|diagram|table|graph|picture|image|plot|equation|formula|matrix|payoffs?|case|result|definition)\s+(?:above|below|shown|given\s+(?:above|earlier)|from\s+(?:earlier|before))\b/i,
+	/\b(?:shown|given|defined|described|stated)\s+(?:above|below|earlier|previously)\b/i,
+	/\bfrom\s+(?:earlier|before|the\s+previous\s+(?:question|example))\b/i,
+	/\bas\s+(?:we\s+)?(?:saw|shown|discussed|seen|covered|mentioned)\b/i,
+	/\bwe\s+(?:saw|discussed|covered)\b/i,
+];
+
+/** The phrase in a question that leans on something outside it, or null when it stands on its own. */
+export function leansOnContext(text: string | undefined): string | null {
+	for (const re of LEANS) {
+		const m = re.exec(text ?? "");
+		if (m) return m[0];
+	}
+	return null;
+}
+
+const NOT_AN_ANSWER = /^(?:all|none|both|neither|any|either)\s+(?:of\s+)?(?:the\s+)?(?:above|these|those|options)\b|^(?:both|neither)\s+[a-c]\s+(?:and|nor)\s+[a-c]\b|^[a-c]\s+and\s+[a-c]\b/i;
+
 export function checkQuestion(q: Partial<BankQuestion>, ctx: PackContext): string | null {
 	if (!q.stem?.trim()) return "a stem is required";
 	if (q.stem.length > PACK_RULES.stemMax) return `the stem is ${q.stem.length} characters; keep it to ${PACK_RULES.stemMax}`;
 	if (!Array.isArray(q.options) || q.options.length !== 3 || q.options.some((o) => typeof o !== "string" || !o.trim())) return "exactly 3 non-empty options";
 	if (new Set(q.options.map((o) => o.trim().toLowerCase())).size !== 3) return "the 3 options must differ";
 	if (q.correct !== 0 && q.correct !== 1 && q.correct !== 2) return "correct is 0, 1 or 2";
+	// v3.1: a question stands on its own, and its right answer cannot be picked without knowing the material.
+	const lean = leansOnContext(q.stem) ?? q.options.map((o) => leansOnContext(o)).find(Boolean);
+	if (lean) return `"${lean}" points outside the question: it stands on its own, so state the numbers or the case it needs`;
+	if (q.options.some((o) => NOT_AN_ANSWER.test(o.trim()))) return "each option is a real answer, never \"all of the above\" or \"both A and B\"";
+	const right = q.options[q.correct]!.trim().length;
+	const longestWrong = Math.max(...q.options.filter((_, i) => i !== q.correct).map((o) => o.trim().length));
+	if (right >= PACK_RULES.giveaway.ratio * longestWrong && right - longestWrong >= PACK_RULES.giveaway.chars) return "the right answer stands out by its length: write the options at the same length and form";
 	if (!q.explanation?.trim()) return "an explanation is required";
 	if (q.explanation.length > PACK_RULES.explanationMax) return `the explanation is ${q.explanation.length} characters; keep it to ${PACK_RULES.explanationMax}`;
 	if (!q.node || !ctx.nodes.has(q.node)) return `node "${q.node}" isn't on the map`;
@@ -174,6 +211,72 @@ export function stripQuestionIds(body: string, ids: Iterable<string>): string {
 
 /** A stem reduced to what makes it the same question: case, spacing and punctuation don't. */
 export const stemKey = (stem: string) => stem.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * A unit's questions without the ones that ask the same thing twice (v3.1):
+ * the later of two stems that share most of their words is dropped.
+ */
+export function dedupeQuestions<T extends { stem: string }>(questions: readonly T[]): { kept: T[]; dropped: { index: number; like: number }[] } {
+	const isNumber = (w: string) => /^\d+$/.test(w);
+	const all = questions.map((q) => stemKey(q.stem).split(" ").filter(Boolean));
+	const words = all.map((ws) => new Set(ws.filter((w) => !isNumber(w))));
+	// The same wording over different numbers is a different case to work, not the same question.
+	const numbers = all.map((ws) => ws.filter(isNumber).sort().join(" "));
+	const kept: number[] = [];
+	const dropped: { index: number; like: number }[] = [];
+	questions.forEach((_, i) => {
+		const like = kept.find((k) => {
+			if (numbers[i] !== numbers[k]) return false;
+			const a = words[i]!, b = words[k]!;
+			const shared = [...a].filter((w) => b.has(w)).length;
+			const all = a.size + b.size - shared;
+			return all > 0 && shared / all >= PACK_RULES.duplicateOverlap;
+		});
+		if (like === undefined) kept.push(i);
+		else dropped.push({ index: i, like });
+	});
+	return { kept: kept.map((i) => questions[i]!), dropped };
+}
+
+/** What the second check said of one question: `n` counts from 1, `answer` is the option it would pick. */
+export interface ColdVerdict { n: number; answerable: boolean; answer: number | null }
+
+/**
+ * Act on the small second check (v3.1), which was shown the questions and
+ * nothing else. A question it could not answer as posed is dropped: it does
+ * not stand on its own. One it answered differently is dropped too, unless
+ * that would leave fewer than `floor` questions: the checker has no slides,
+ * so a run of disagreements is as likely to be its mistake as the writer's.
+ */
+export function applyColdCheck<T extends { correct: number }>(questions: readonly T[], verdicts: readonly ColdVerdict[], floor: number = PACK_RULES.coldFloor): { kept: T[]; dropped: { index: number; reason: "unanswerable" | "disagrees" }[] } {
+	const reason = new Map<number, "unanswerable" | "disagrees">();
+	for (const v of verdicts) {
+		const i = v.n - 1;
+		const q = questions[i];
+		if (!q || reason.has(i)) continue;
+		if (v.answerable === false) reason.set(i, "unanswerable");
+		else if (v.answer === 0 || v.answer === 1 || v.answer === 2) { if (v.answer !== q.correct) reason.set(i, "disagrees"); }
+	}
+	if (questions.length - reason.size < floor) for (const [i, r] of reason) if (r === "disagrees") reason.delete(i);
+	return {
+		kept: questions.filter((_, i) => !reason.has(i)),
+		dropped: [...reason].sort((a, b) => a[0] - b[0]).map(([index, r]) => ({ index, reason: r })),
+	};
+}
+
+/**
+ * After a unit's questions are rewritten (v3.1), an explainer whose closing
+ * question no longer exists ends on another question of its own idea; with
+ * none on that idea it is dropped. No AI call: explainers are the dear stage.
+ */
+export function retargetExplainers(explainers: readonly Explainer[], bank: readonly BankQuestion[]): Explainer[] {
+	const ids = new Set(bank.map((q) => q.id));
+	return explainers.flatMap((e) => {
+		if (ids.has(e.tryQuestionId)) return [e];
+		const other = bank.find((q) => q.node === e.node);
+		return other ? [{ ...e, tryQuestionId: other.id }] : [];
+	});
+}
 
 const numberOf = (id: string, letter: "q" | "g") => Number(new RegExp(`-${letter}(\\d+)$`).exec(id)?.[1] ?? 0);
 

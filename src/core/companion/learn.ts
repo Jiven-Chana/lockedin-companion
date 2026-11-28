@@ -16,8 +16,8 @@ import { sideSegmentId } from "../side-chat.ts";
 import { notesForTutor, type TutorNotes } from "./notes.ts";
 import { LEARN_COPY, LEARN_RULES, LEARN_SAYS, RESUME_RULES } from "./policy.ts";
 import { isGuess, isShowMeAnswer, questionDataFromCall, toSessionQuestion } from "./question-data.ts";
-import { parseSlideRefs, trimSlides } from "./slides.ts";
-import type { CompanionSession, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, Lecture, SessionSpec, SessionView, StudyMode } from "./types.ts";
+import { lastSlideRef, parseSlideRefs, trimSlides } from "./slides.ts";
+import type { CompanionSession, IntentSuggestion, LearnArtifactKind, LearnItem, LearnPlanView, LearnScope, LearnStage, LearnWhere, LeveledStep, Lecture, SessionSpec, SessionView, StudyMode, Verdict, WhereLevel, WrittenMark } from "./types.ts";
 
 /** How many ideas a plan may hold for a sitting of this length: about one per ten minutes. */
 export function planSize(minutes: number): number {
@@ -50,6 +50,27 @@ export interface LearnOpeningInput {
 	firstStep?: { stem: string; slide: number | null };
 	/** What LockedIn knows about the student in this module (V-53). */
 	notes?: TutorNotes;
+	/** The module's other units (v3.1): one line each, so the tutor can go to them when the goal is there. */
+	others?: LearnOtherUnit[];
+}
+
+export interface LearnOtherUnit {
+	lecture: Lecture;
+	/** The titles of its ideas, from its concept map. */
+	ideas: string[];
+	ideasFile: string | null;
+	slidesFile: string | null;
+}
+
+/** The titles of a concept map's ideas, in the order written, without their slide numbers ("· S4, S5"). */
+export function mapIdeaTitles(mermaid: string, max = Infinity): string[] {
+	const out: string[] = [];
+	for (const m of mermaid.matchAll(/[A-Za-z0-9_-]+\[(?:"([^"]+)"|([^\]"]+))\]/g)) {
+		const title = (m[1] ?? m[2] ?? "").replace(/\s*·\s*S\d+(?:\s*,\s*S\d+)*\s*$/, "").trim();
+		if (title && !out.includes(title)) out.push(title);
+		if (out.length >= max) break;
+	}
+	return out;
 }
 
 const COVERS: Record<LearnScope, (n: number) => string> = {
@@ -63,7 +84,7 @@ const DEFAULT_WANT: Record<LearnScope, string> = {
 	week: "Teach me this week's lectures.",
 };
 
-const unitLine = (l: Lecture) => `${l.title}${l.week > 0 ? ` (week ${l.week})` : ""}${l.attended === false ? " (I missed it)" : ""}`;
+const unitLine = (l: Lecture) => `${l.title}${l.week > 0 ? (l.weekTo && l.weekTo > l.week ? ` (weeks ${l.week} to ${l.weekTo})` : ` (week ${l.week})`) : ""}${l.attended === false ? " (I missed it)" : ""}`;
 
 /**
  * The first message of a Learn session. The tutor's instructions
@@ -80,12 +101,18 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 		...(week ? [] : [`Lecture: ${unitLine(lecture)}`]),
 		`What I want: ${learn.goal?.replace(/\s+/g, " ").trim() || DEFAULT_WANT[learn.scope]}`,
 		`Time: about ${learn.minutes} minutes. I may stop at any point and pick it up later.`,
-		`Opening questions: at most ${probeSize(learn.scope)}.`,
+		// v3.1: the student chose on the first step. A session from before has no choice recorded.
+		learn.check === false ? "Opening check: skipped. Ask nothing; start from what I want." : learn.check === true ? `Opening check: yes, at most ${probeSize(learn.scope)} questions.` : `Opening questions: at most ${probeSize(learn.scope)}.`,
 		`Plan: at most ${planSize(learn.minutes)} ideas.`,
 		...(spec.nodes?.length ? [`Focus: only the ideas ${spec.nodes.join(", ")}.`] : []),
 		...(input.firstStep ? [`First step: start on the same point as "${input.firstStep.stem}"${input.firstStep.slide ? ` (Slide ${input.firstStep.slide})` : ""}.`] : []),
 	];
 	lines.push(...notesForTutor(input.notes ?? {}));
+	// The rest of the module, a line a unit (v3.1): enough to know where a topic lives and what to read for it.
+	if (input.others?.length) {
+		lines.push("", "OTHER UNITS OF THIS MODULE (read one only when what I want is in it)");
+		input.others.forEach((o, i) => lines.push([`M${i + 1}: ${unitLine(o.lecture)}`, o.ideas.length ? `ideas: ${o.ideas.join("; ")}` : null, o.ideasFile ? `IDEAS FILE: ${o.ideasFile}` : null, o.slidesFile ? `SLIDES FILE: ${o.slidesFile}` : null].filter(Boolean).join(" · ")));
+	}
 	let trimmed = false;
 	if (week) {
 		// A week in one session opens on the maps of its units; the slides are read as the plan reaches each idea.
@@ -105,11 +132,15 @@ export function buildLearnOpening(input: LearnOpeningInput): { text: string; sli
 	return { text: `${lines.join("\n")}\n`, slidesTrimmed: trimmed };
 }
 
-/** Which unit a plan idea belongs to: in a week session ideas are written `u2-<slug>`. */
-export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | undefined, fallbackLectureId?: string): { lectureId: string; nodeId: string } {
-	const m = /^u(\d+)-(.+)$/.exec(nodeId);
-	const unit = m && lectureIds ? lectureIds[Number(m[1]) - 1] : undefined;
-	if (m && unit) return { lectureId: unit, nodeId: m[2]! };
+/**
+ * Which unit a plan idea belongs to. In a week session ideas are written
+ * `u2-<slug>`; an idea from one of the module's other units (v3.1, `reach`)
+ * is written `m2-<slug>`. Anything else belongs to the session's own unit.
+ */
+export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | undefined, fallbackLectureId?: string, reach?: readonly string[]): { lectureId: string; nodeId: string } {
+	const m = /^([um])(\d+)-(.+)$/.exec(nodeId);
+	const unit = m ? (m[1] === "u" ? lectureIds : reach)?.[Number(m[2]) - 1] : undefined;
+	if (m && unit) return { lectureId: unit, nodeId: m[3]! };
 	return { lectureId: lectureIds?.[0] ?? fallbackLectureId ?? "", nodeId };
 }
 
@@ -117,7 +148,9 @@ export function learnNodeRef(nodeId: string, lectureIds: readonly string[] | und
 
 const OPENING_RE = /^(LEARN|APP) SESSION\b/;
 /** Lines LockedIn sends for a button press. They are not something the student typed, so the step doesn't repeat them. */
-const OWN_LINES: readonly string[] = Object.values(LEARN_SAYS);
+const OWN_LINES: readonly string[] = (Object.values(LEARN_SAYS) as unknown[]).filter((v): v is string => typeof v === "string");
+/** A correction to "Where you are" is a button press too: it shows on its block, not as something typed. */
+const CORRECTION_RE = /^Correction: "(.+)" is (solid|shaky|not yet) for me\./;
 const ARTIFACT_KINDS: readonly string[] = ["visual", "demo", "research"];
 /** Markers that are bookkeeping, not something that happened in the lesson. */
 const QUIET_MARKERS: readonly string[] = ["plan-block", "compaction", "side-question", "side-question-told", "graph-context"];
@@ -133,6 +166,17 @@ function answerOf(m: LhMessage): QuestionAnswerData | null {
 	const d = m.details as QuestionAnswerData | null | undefined;
 	if (!d || typeof d !== "object" || d.dismissed || typeof d.kind !== "string") return null;
 	return d;
+}
+
+/** The tutor's mark on a written check: the first line of its reply, alone on its line (it is told to write it that way). */
+const VERDICT_RE = /^\s*[`*_]*\s*verdict:\s*(right|partly|not yet)\s*[`*_]*\s*(?:\n|$)/i;
+
+/** Split a reply into its verdict line and the rest. The line is for the record; the student never sees it. */
+export function verdictOf(text: string): { verdict: Verdict | null; rest: string } {
+	const m = VERDICT_RE.exec(text);
+	if (!m) return { verdict: null, rest: text };
+	const word = m[1]!.toLowerCase();
+	return { verdict: word === "not yet" ? "notyet" : (word as Verdict), rest: text.slice(m[0].length).trim() };
 }
 
 function answeredItem(id: string, tool: string, d: QuestionAnswerData, type: unknown): LearnItem {
@@ -151,6 +195,8 @@ function answeredItem(id: string, tool: string, d: QuestionAnswerData, type: unk
 		...(written ? { written } : {}),
 		dontKnow: d.dontKnow,
 		...(d.kind === "quiz" && !guess && !shown ? { correct: d.correct === true } : {}),
+		// A written check answered "I don't know" is not yet, without waiting for the tutor to say so.
+		...(d.kind === "explain" && !guess && d.dontKnow && !shown ? { verdict: "notyet" as const } : {}),
 		...(explanation ? { explanation } : {}),
 		...(d.thinking && !shown ? { why: d.thinking } : {}),
 	};
@@ -207,10 +253,12 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 	const steps: LearnItem[][] = [[]];
 	let step = steps[0]!;
 	let planShown = false;
+	/** Answers given in the student's own words to a question with a committed answer. */
+	const written = new Set<string>();
 	for (const m of messages) {
 		if (m.role === "user") {
 			const t = userText(m).trim();
-			if (t && !OPENING_RE.test(t) && !OWN_LINES.includes(t)) step.push({ type: "you", id: m.id, text: t });
+			if (t && !OPENING_RE.test(t) && !OWN_LINES.includes(t) && !CORRECTION_RE.test(t)) step.push({ type: "you", id: m.id, text: t });
 		} else if (m.role === "assistant") {
 			m.content.forEach((b, i) => {
 				if (b.type === "text") {
@@ -236,6 +284,7 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 		} else if (m.role === "toolResult") {
 			const d = answerOf(m);
 			if (d) {
+				if (d.kind === "explain") written.add(m.toolCallId);
 				step = [answeredItem(m.toolCallId, m.toolName, d, callTypes.get(m.toolCallId))];
 				steps.push(step);
 			}
@@ -245,6 +294,18 @@ export function learnSteps(messages: readonly LhMessage[], made: readonly LearnM
 			const made = m.customType === "subagent-steer" ? artifactItem(d.toolCallId, d.kind, d.result) : null;
 			step.push(made ?? { type: "failed", id: d.toolCallId, kind: d.kind as LearnArtifactKind });
 		}
+	}
+	// A written check's mark (v3.1) is the first line of the tutor's reply to it. It is taken off the words shown, always;
+	// it marks the answer only when the answer was a check in the student's own words.
+	for (const s of steps) {
+		const first = s[0];
+		const reply = s.find((i): i is Extract<LearnItem, { type: "tutor" }> => i.type === "tutor");
+		if (!reply) continue;
+		const { verdict, rest } = verdictOf(reply.text);
+		if (verdict === null) continue;
+		if (rest) reply.text = rest;
+		else s.splice(s.indexOf(reply), 1);
+		if (first?.type === "answered" && written.has(first.id) && !first.guess && first.verdict === undefined) first.verdict = verdict;
 	}
 	// Still on its way from an earlier step: keep it in view (AFF-H).
 	const last = steps.at(-1)!;
@@ -308,17 +369,20 @@ function currentChecked(tree: PlanTree, messages: readonly LhMessage[]): boolean
  */
 export function tutorOwesNextStep(messages: readonly LhMessage[]): boolean {
 	let said = "";
+	// The tutor has had its turn since whatever set it off. A turn that came back empty (seen with the real tutor, v3.1) counts: it is a stall.
+	let replied = false;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i]!;
 		if (m.role === "custom" && QUIET_MARKERS.includes(m.customType)) continue;
 		if (m.role === "assistant") {
 			if (m.stopReason === "error" || m.stopReason === "aborted") return false;
 			// It asked its next question itself: nothing is owed.
-			if (!said && m.content.some((b) => b.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(b.name))) return false;
-			if (!said) said = m.content.flatMap((b) => (b.type === "text" ? [b.text] : sendToUserText(b) ? [sendToUserText(b)!] : [])).join("\n").trim();
+			if (!replied && m.content.some((b) => b.type === "toolCall" && (QUESTION_TOOLS as readonly string[]).includes(b.name))) return false;
+			if (!replied) said = m.content.flatMap((b) => (b.type === "text" ? [b.text] : sendToUserText(b) ? [sendToUserText(b)!] : [])).join("\n").trim();
+			replied = true;
 			continue;
 		}
-		if (!said) return false;
+		if (!replied) return false;
 		// What set this turn off.
 		if (m.role === "toolResult" && !answerOf(m)) continue;
 		if (/\?\s*$/.test(said)) return false;
@@ -326,6 +390,17 @@ export function tutorOwesNextStep(messages: readonly LhMessage[]): boolean {
 		return m.role === "custom" && (m.customType === "subagent-steer" || m.customType === "subagent-abort");
 	}
 	return false;
+}
+
+/**
+ * The newest answer is a written check the tutor has not marked (v3.1): its
+ * reply was empty, or carried no verdict line. LockedIn then asks for the
+ * mark (LEARN_SAYS.markIt) instead of "Carry on.".
+ */
+export function unmarkedCheck(messages: readonly LhMessage[]): boolean {
+	const first = learnSteps(messages).at(-1)?.[0];
+	return first?.type === "answered" && !first.guess && !first.options.length && !first.dontKnow && first.verdict === undefined && first.written !== undefined && first.correct === undefined
+		&& messages.some((m) => m.role === "toolResult" && m.toolCallId === first.id && answerOf(m)?.kind === "explain");
 }
 
 export interface LearnViewInput {
@@ -367,6 +442,9 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 		else if (item.type === "aside") for (const n of parseSlideRefs(item.answer)) cited.add(n);
 	}
 
+	const slideAt = learnSlideAt(step);
+	const where = learnWhere(messages as LhMessage[]);
+	const marks = writtenMarks(messages as LhMessage[]);
 	const base: SessionView = {
 		id: session.id,
 		engine: "learnharness",
@@ -388,6 +466,9 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 			...(endsAt ? { endsAt: endsAt.toISOString() } : {}),
 			timeUp: !!endsAt && now.getTime() >= endsAt.getTime(),
 			finished,
+			...(slideAt !== null ? { slideAt } : {}),
+			...(where ? { where } : {}),
+			...(marks.length ? { marks } : {}),
 		},
 	};
 
@@ -401,7 +482,9 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	if (pending && supported) {
 		const qd = questionDataFromCall(pending.toolCallId, pending.tool, pending.input);
 		const canHint = qd.kind === "quiz" && sideSegmentId(messages as LhMessage[], pending.messageId) !== null;
-		return { ...base, status: "question", question: toSessionQuestion(qd, pending.tool), canHint };
+		const question = toSessionQuestion(qd, pending.tool);
+		const at = learnSlideAt(step, question);
+		return { ...base, status: "question", question, canHint, learn: { ...base.learn!, ...(at !== null ? { slideAt: at } : {}) } };
 	}
 	if (pending) return { ...base, status: "error", error: `unsupported_question:${pending.tool}` };
 
@@ -417,6 +500,170 @@ export function mapLearnView(input: LearnViewInput): SessionView {
 	const age = typeof newest?.timestamp === "number" ? now.getTime() - newest.timestamp : 0;
 	if (age > LEARN_RULES.stalledMs) return { ...base, status: "reply" };
 	return { ...base, status: "thinking", activity: LEARN_COPY.writing };
+}
+
+/**
+ * Every written check the tutor has marked in this session (v3.1), for the
+ * student's record: the idea, the question, what they wrote, the answer the
+ * tutor committed before asking, and its mark. A guess is never in it.
+ */
+export function writtenMarks(messages: readonly LhMessage[]): WrittenMark[] {
+	const calls = new Map<string, { nodeId?: string; correctAnswer?: string }>();
+	for (const m of messages) {
+		if (m.role !== "assistant") continue;
+		for (const b of m.content) {
+			if (b.type !== "toolCall" || b.name !== "explain") continue;
+			const a = (b.arguments ?? {}) as { nodeId?: unknown; correctAnswer?: unknown };
+			calls.set(b.id, { ...(typeof a.nodeId === "string" ? { nodeId: a.nodeId } : {}), ...(typeof a.correctAnswer === "string" ? { correctAnswer: a.correctAnswer } : {}) });
+		}
+	}
+	const out: WrittenMark[] = [];
+	const answers = new Map<string, QuestionAnswerData>();
+	for (const m of messages) if (m.role === "toolResult") { const d = answerOf(m); if (d) answers.set(m.toolCallId, d); }
+	for (const step of learnSteps(messages)) {
+		const first = step[0];
+		if (first?.type !== "answered" || first.verdict === undefined || first.guess) continue;
+		const call = calls.get(first.id);
+		const d = answers.get(first.id);
+		if (!call || !d) continue;
+		out.push({ questionId: first.id, ...(call.nodeId ? { nodeId: call.nodeId } : {}), questionText: first.stem, written: first.written ?? "", committed: d.committed ?? call.correctAnswer ?? "", verdict: first.verdict, answeredAt: d.answeredAt });
+	}
+	return out;
+}
+
+// ─── the first step and "Where you are" (v3.1) ───────────────────────────────
+
+/**
+ * What the first step of a Learn session suggests, from the student's own
+ * module: the unit they started from, where they stopped, this week's unit,
+ * what is waiting to be revisited, and working through a sheet. Tapping one
+ * fills in the goal; nothing here calls the AI.
+ */
+export function intentSuggestions(input: {
+	unit: { title: string; week: number } | null;
+	stopped: { idea: string; unit: string } | null;
+	thisWeek: readonly { title: string; week: number }[];
+	revisit: readonly string[];
+}): IntentSuggestion[] {
+	const out: IntentSuggestion[] = [];
+	if (input.unit) out.push({ id: "unit", ...LEARN_COPY.intent.unit(input.unit.title) });
+	if (input.stopped) out.push({ id: "stopped", ...LEARN_COPY.intent.stopped(input.stopped.idea, input.stopped.unit) });
+	const week = input.thisWeek.find((u) => u.title !== input.unit?.title);
+	if (week) out.push({ id: "week", ...LEARN_COPY.intent.week(week.title) });
+	if (input.revisit.length) {
+		const named = input.revisit.slice(0, LEARN_RULES.revisitNamed);
+		const more = input.revisit.length - named.length;
+		out.push({ id: "revisit", ...LEARN_COPY.intent.revisit(input.revisit.length, `${named.join(", ")}${more > 0 ? ` and ${more} more` : ""}`) });
+	}
+	out.push({ id: "sheet", ...LEARN_COPY.intent.sheet, attach: true });
+	return out;
+}
+
+/** What the tutor said of one idea, as a level. It is told to start with "Solid", "Shaky", "Not yet" or "Not asked"; the older phrases are read too. */
+export function whereLevel(said: string): WhereLevel {
+	const t = said.trim().toLowerCase();
+	if (/^(solid|got it)/.test(t)) return "solid";
+	if (/^(shaky|right but)/.test(t)) return "shaky";
+	if (/^not yet/.test(t)) return "notyet";
+	return "unchecked";
+}
+
+/**
+ * "Where you are": the check's hand-over as blocks, basic first, or null
+ * while the check is still running. A correction the student sent
+ * (LEARN_SAYS.correct) overrides the tutor's reading of that idea.
+ */
+export function learnWhere(messages: readonly LhMessage[]): LearnWhere[] | null {
+	let strands: { strand?: unknown; assessment?: unknown }[] | null = null;
+	const corrections = new Map<string, WhereLevel>();
+	for (const m of messages) {
+		if (m.role === "assistant") {
+			for (const b of m.content) {
+				if (b.type !== "toolCall" || b.name !== "probe_done" || strands) continue;
+				const given = (b.arguments as { assessment?: { strands?: unknown } } | undefined)?.assessment?.strands;
+				if (Array.isArray(given)) strands = given as { strand?: unknown; assessment?: unknown }[];
+			}
+		} else if (m.role === "user") {
+			const c = CORRECTION_RE.exec(userText(m).trim());
+			if (c) corrections.set(c[1]!, c[2] === "not yet" ? "notyet" : (c[2] as WhereLevel));
+		}
+	}
+	if (!strands || !hasProbeDone(messages as LhMessage[])) return null;
+	const named = new Set<string>();
+	const fromCheck = strands.flatMap((s): LearnWhere[] => {
+		const title = typeof s.strand === "string" ? s.strand.trim() : "";
+		if (!title) return [];
+		const said = typeof s.assessment === "string" ? s.assessment.trim() : "";
+		const note = said.replace(/^(solid|shaky|not yet|not asked|not checked|got it, and sure|right but guessing)\s*[:.,;-]?\s*/i, "").trim();
+		const fixed = corrections.get(title);
+		named.add(title);
+		return [{ title, level: fixed ?? whereLevel(said), ...(note && !fixed ? { note } : {}), ...(fixed ? { corrected: true } : {}) }];
+	}).slice(0, LEARN_RULES.whereMax);
+	// A step of the plan the check said nothing about, changed by the student (v3.1.1): their word on it is kept too.
+	const own = [...corrections].filter(([title]) => !named.has(title)).map(([title, level]): LearnWhere => ({ title, level, corrected: true }));
+	return [...fromCheck, ...own];
+}
+
+const ideaWords = (title: string) => new Set(title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(" ").filter((x) => x.length > 2 && !["and", "the", "for", "with", "from"].includes(x)));
+
+/**
+ * One plan (v3.1.1): each step with what the check found for it. A step and
+ * a checked idea are matched by name, loosely (the tutor is told to use the
+ * same names, and mostly does); each checked idea goes to one step, the
+ * closest. `have`: ideas found solid that the plan leaves out. `also`:
+ * anything else the check found that matches no step, so nothing is lost.
+ */
+export function planWithLevels(plan: LearnPlanView, where: readonly LearnWhere[] | null | undefined): { steps: LeveledStep[]; have: LearnWhere[]; also: LearnWhere[] } {
+	const steps: LeveledStep[] = plan.nodes.map((n) => ({ ...n }));
+	if (!where?.length) return { steps, have: [], also: [] };
+	const stepWords = steps.map((s) => ideaWords(s.title));
+	const score = (a: Set<string>, b: Set<string>) => {
+		const shared = [...a].filter((x) => b.has(x)).length;
+		// Of the shorter name: "Mixed strategies" is the same idea as "Mixed strategies and guaranteed payoffs".
+		const least = Math.min(a.size, b.size);
+		// One shared word is not the same idea ("Generator inputs" is not "GAN roles and generator objective"), unless it is the whole of the shorter name.
+		if (least === 0 || (shared < 2 && shared < least)) return 0;
+		return shared / least + shared / (a.size + b.size - shared) / 100;
+	};
+	const pairs = where.flatMap((w, wi) => stepWords.map((words, si) => ({ wi, si, s: score(ideaWords(w.title), words) }))).filter((p) => p.s >= LEARN_RULES.sameIdea).sort((a, b) => b.s - a.s || a.si - b.si);
+	const usedW = new Set<number>();
+	const usedS = new Set<number>();
+	for (const p of pairs) {
+		if (usedW.has(p.wi) || usedS.has(p.si)) continue;
+		usedW.add(p.wi);
+		usedS.add(p.si);
+		const w = where[p.wi]!;
+		steps[p.si] = { ...steps[p.si]!, level: w.level, ...(w.note ? { note: w.note } : {}), ...(w.corrected ? { corrected: true } : {}), checked: w.title };
+	}
+	const rest = where.filter((_, i) => !usedW.has(i));
+	return { steps, have: rest.filter((w) => w.level === "solid"), also: rest.filter((w) => w.level !== "solid" && w.level !== "unchecked") };
+}
+
+/** The stage a Learn session is at, named on screen (v3.1.1), or null when it is over. */
+export function learnStage(v: { phase: "probe" | "plan" | "teach"; status: string; question?: { role?: string; guess?: boolean } | null | undefined }): LearnStage | null {
+	if (v.status === "done" || v.status === "error") return null;
+	if (v.phase === "probe") return "level";
+	if (v.phase === "plan") return "plan";
+	if (v.status === "question" && v.question) return v.question.role === "predict" || v.question.guess ? "guess" : "check";
+	return "learn";
+}
+
+/**
+ * The slide to show beside a Learn step (v3.1): the one the open question
+ * names, else the latest one the tutor cited in the step, in reading order.
+ * Not the lowest, and not from the question's own explanation, which the
+ * student has not seen yet.
+ */
+export function learnSlideAt(step: readonly LearnItem[], question?: { stem?: string } | null): number | null {
+	const own = lastSlideRef(question?.stem);
+	if (own !== null) return own;
+	for (let i = step.length - 1; i >= 0; i--) {
+		const item = step[i]!;
+		const text = item.type === "tutor" ? item.text : item.type === "answered" ? item.explanation : item.type === "aside" ? item.answer : undefined;
+		const n = lastSlideRef(text);
+		if (n !== null) return n;
+	}
+	return null;
 }
 
 // ─── a study block: Learn or Practise ───────────────────────────────────────

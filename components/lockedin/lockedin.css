@@ -349,8 +349,10 @@ button.li-hero:active .li-hero-cta { transform: translate(4px, 4px); box-shadow:
 .li-diagram-loading { min-height: 120px; display: grid; place-items: center; border: 2px dashed var(--li-quiet); border-radius: 14px; }
 .li-diagram-failed pre { margin: 6px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--li-surface); border: 2px solid var(--li-edge); overflow-x: auto; }
 .li-diagram-overlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px; background: color-mix(in oklch, var(--li-ink) 55%, transparent); }
-.li-diagram-large { max-width: min(1100px, 100%); max-height: 80vh; overflow: auto; padding: 20px; border-radius: 18px; background: var(--li-surface); }
-.li-diagram-large svg { width: 100%; height: auto; max-width: none; }
+/* Enlarged, a diagram fills the window (v3.1.1). Mermaid writes its natural width on the svg as an inline max-width, which kept
+   a small diagram small: the drawing is told to take the room, and its own viewBox keeps its shape. */
+.li-diagram-large { width: min(96vw, 1800px); height: calc(100vh - 150px); padding: 20px; border-radius: 18px; border: var(--li-edge-w) solid var(--li-edge); background: var(--li-card); }
+.li-diagram-large svg { display: block; width: 100% !important; height: 100% !important; max-width: none !important; }
 
 
 /* ── maps drawn by LockedIn (v3.0, V-33): rows of blocks, links as straight ink lines behind them ── */
@@ -380,6 +382,41 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-idea[data-s="notyet"] .li-status { background: transparent; color: var(--li-ink); border-color: var(--li-ink); }
 /* A block in a diagram that is not a concept map: it only shows something, so it is flat. */
 .li-idea.plain { background: var(--li-card); color: var(--li-ink); border-color: var(--li-edge); box-shadow: none; justify-content: center; }
+/* A picture that builds up (v3.2). A block that has not arrived keeps its place, unseen. The step's own blocks are in the
+   module's colour and lifted; the others stand back. A guessed block is mint; the reason is mint when right and lilac when not. */
+.li-pic { display: flex; flex-direction: column; gap: 12px; border: var(--li-edge-w) solid var(--li-edge); border-radius: 18px; background: var(--li-card); color: var(--li-ink); padding: 14px 16px; }
+.li-pic-head { gap: 10px; min-height: 38px; }
+.li-pic-ask { margin: 0; font-family: var(--li-font-display); font-weight: 800; font-size: 1.1em; line-height: 1.25; }
+/* The picture's box is exactly as wide as the picture. What is said about it sits beside it when the row has room, and under it when not. */
+.li-pic-main { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: flex-start; }
+.li-pic-map { flex-grow: 0; flex-shrink: 1; min-width: 0; max-width: 100%; }
+.li-pic-map .li-map-box { padding: 0; }
+.li-pic-side { flex: 1 1 210px; min-width: min(210px, 100%); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.li-pic-all { margin-top: 4px; }
+.li-pic-block { position: relative; padding: 6px 10px; text-align: center; align-items: center; transition: opacity 200ms ease, transform 200ms ease, background-color 200ms ease; }
+.li-pic-block[data-gone] { opacity: 0; transform: translateY(8px); visibility: hidden; }
+.li-pic-block[data-lit] { background: var(--li-mod); color: var(--li-on); border-color: var(--li-on); box-shadow: 4px 4px 0 var(--li-edge); }
+.li-pic-block[data-dim] { opacity: 0.5; }
+.li-pic-block[data-hole] { border-style: dashed; font-size: 1.5em; }
+.li-pic-block[data-tone="mint"] { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-pic-note { position: absolute; top: -13px; right: 10px; padding: 0 10px; border-radius: 999px; background: var(--li-ink); color: var(--li-card); font-style: normal; font-size: 0.74em; font-weight: 700; white-space: nowrap; }
+.li-map-links g[data-gone] { visibility: hidden; }
+.li-pic-dots { display: inline-flex; gap: 6px; }
+.li-pic-dots i { width: 22px; height: 12px; border: 2px solid var(--li-edge); border-radius: 4px; background: var(--li-card); }
+.li-pic-dots i[data-s="done"] { background: var(--li-mint); }
+.li-pic-dots i[data-s="now"] { background: var(--li-mod); width: 34px; }
+.li-pic-say { min-height: 3.2em; align-self: stretch; }
+.li-pic-say > :last-child { margin-bottom: 0; }
+.li-pic-tray { display: flex; flex-wrap: wrap; gap: 10px; }
+.li-pic-tray .li-btn { text-align: left; }
+.li-pic-tray .li-btn[aria-pressed="true"] { outline: 3px solid var(--li-ink); outline-offset: 2px; opacity: 1; }
+.li-pic-skip { align-self: flex-start; }
+.li-pic-verdict { align-self: stretch; border: var(--li-edge-w) solid var(--li-on); border-radius: 12px; padding: 10px 14px; color: var(--li-on); }
+.li-pic-verdict[data-tone="mint"] { background: var(--li-mint); }
+.li-pic-verdict[data-tone="lilac"] { background: var(--li-lilac); }
+.li-pic-large { width: min(96vw, 1500px); max-height: calc(100vh - 64px); overflow: auto; border-radius: 20px; }
+.li-pic[data-large] { padding: 18px 24px 24px; }
+.li-pic[data-large] .li-pic-side { font-size: 1.12em; }
 .li-map-col .li-idea { position: static; flex-direction: row-reverse; align-items: center; justify-content: space-between; min-height: 58px; }
 .li-map-col .li-idea b { flex: 1 1 auto; }
 /* The ideas arrive in order the first time; one whose standing changed pulses once. */
@@ -603,14 +640,44 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-answered ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .li-answered li { display: flex; gap: 10px; align-items: baseline; }
 .li-answered li[data-answer="true"] { font-weight: 700; }
+/* One plan (v3.1.1): what the check found is on each step. Solid is mint (secured), shaky and not yet are lilac (to work on),
+   not checked has no colour. A level is its word as well as its colour. */
+.li-plan-main { display: flex; flex-direction: column; flex: 1 1 200px; min-width: 0; }
+.li-plan-note { font-weight: 400; }
+.li-plan li { flex-wrap: wrap; }
+.li-plan-level { flex: none; padding: 1px 11px; border-radius: 999px; border: 2px solid var(--li-edge); background: var(--li-card); color: var(--li-ink); font-size: 0.84em; font-weight: 700; white-space: nowrap; }
+.li-plan-level[data-level="solid"] { background: var(--li-mint); color: var(--li-on); border-color: var(--li-on); }
+.li-plan-level[data-level="shaky"], .li-plan-level[data-level="notyet"] { background: var(--li-lilac); color: var(--li-on); border-color: var(--li-on); }
+.li-plan-pick { flex-basis: 100%; }
+.li-plan li .li-link { color: inherit; }
+/* The stages of a Learn session (v3.1.1). In the bar: the path, with the stage you are in filled. On each part of the
+   lesson: its name and what happens there, so a guess, the teaching and a check never look alike. */
+.li-stages { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.li-stages i { font-style: normal; font-size: 0.8em; font-weight: 700; padding: 1px 10px; border-radius: 8px; border: 2px solid var(--li-bar-quiet); color: var(--li-bar-quiet); white-space: nowrap; }
+.li-stages i[data-on="true"] { background: var(--li-bar-ink); border-color: var(--li-bar-ink); color: var(--li-bar); text-transform: uppercase; letter-spacing: 0.03em; }
+.li-stage-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.li-stage-head b { font-family: var(--li-font-display); font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.95em; padding: 1px 10px; border-radius: 8px; border: 2px solid currentColor; }
+.li-stage-head > span:last-child { font-size: 0.88em; }
+.li-step > .li-stage-head { color: var(--li-quiet); }
+/* A unit's week is a button: it can be changed, and can be a range. */
+.li-week-chip { cursor: pointer; font-family: var(--li-font-display); font-weight: 800; font-size: 1em; padding: 2px 12px; box-shadow: 3px 3px 0 var(--li-edge); }
+.li-week-chip:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--li-edge); }
+/* The first step of a Learn session: a suggestion is a block to tap; the one tapped stays pressed. */
+.li-suggest { width: auto; min-height: 46px; padding: 8px 16px; }
+.li-suggest[aria-pressed="true"] { background: var(--li-sand); transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--li-edge); }
+/* Files attached and waiting to go with the next message. */
+.li-attached { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.li-attached li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; border: 2px solid var(--li-edge); background: var(--li-card); font-size: 0.92em; }
+.li-attached svg { width: 16px; height: 16px; flex: none; }
 .li-answered .li-tag { font-size: 0.8em; font-weight: 700; color: var(--li-muted); white-space: nowrap; }
 .li-artifact { border: 2px solid var(--li-edge); border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .li-artifact img { display: block; max-width: 100%; height: auto; margin: 0 auto; background: #ffffff; border-radius: 10px; }
 .li-artifact iframe { width: 100%; border: 0; border-radius: 10px; background: #ffffff; }
 .li-making { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--li-soft); }
 /* The line to the tutor stays in reach at the bottom of the window, however long the step is. */
-.li-say { display: flex; gap: 10px; align-items: flex-end; border-top: 2px dashed var(--li-sand); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-card); z-index: 2; }
-.li-say textarea { resize: none; }
+.li-say { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; border-top: 2px dashed var(--li-sand); padding: 14px 0 12px; margin-bottom: -12px; position: sticky; bottom: 0; background: var(--li-card); z-index: 2; }
+/* The box keeps room to write in: in a narrow column Speak and Send drop to the line below it (v3.1.1). */
+.li-say textarea { resize: none; flex: 1 1 220px; min-width: 0; width: auto; }
 /* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
 .li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
 .li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }

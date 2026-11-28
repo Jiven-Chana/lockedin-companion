@@ -37,6 +37,7 @@ Five steps (sign in, timetable, slides, week, phone); every step but sign-in can
 | POST | `/modules` | `{ name }` | `{ code, name }`: "+ Add a module" (V-64), in setup and the Library. `400` for an empty or repeated name, or more than 20 modules |
 | PUT | `/modules/:code/share` | `{ share: "less" \| "normal" \| "more" }` | The module with its share of the week (V-63). `GET /course` carries `share` when it isn't normal |
 | PUT | `/modules/:code/colour` | `{ colour: "tangerine" \| "rose" \| "sky" \| "lime" \| "aqua" \| "orchid" \| "sunflower" \| null }` | **v3.0.** The module's colour on every screen and on the phone; `null` gives it back its place in the student's list. `400` for anything else (mint and lilac are not module colours) → the module with its `colour`. Event `module_colour_changed` |
+| POST | `/modules/:code/questions` | | **v3.1.** "Rewrite questions": each unit of the module that has questions gets them written again, one unit at a time, keeping its map and explainers → `{ units }`. Only on request. `409 not_connected`, `409 no_questions`. Event `questions_rewrite` |
 | POST | `/modules/:code/materials/quick` | multipart `file` fields | `{ units, skipped }`: read, split and save every unit with enough text, with no checklist (V-66). `400` when nothing is worth studying |
 | PUT | `/lectures/:id/title` | `{ title }` (1 to 120 characters) | The unit. Only for a unit made from the student's own material |
 
@@ -66,7 +67,7 @@ The student's AI connection and LearnHarness's three model slots (Strong, Cheap,
 | GET | `/modules` | | `{ modules: [{ code, name }], label }` for onboarding |
 | GET | `/lectures` | `?module=HCI&q=personas` | `{ lectures: (Lecture & { status: "answered" \| "revisit" \| "not-started", revisit })[] }` |
 | POST | `/lectures/:id/missed` | `{ missed?: boolean }` (default true; false undoes) | `Lecture` |
-| PUT | `/lectures/:id/week` | `{ week: 1–52 }` | The unit, with its week set (v1.0, V-25: "Set week" on a unit that reads "Week not set"). `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
+| PUT | `/lectures/:id/week` | `{ week: 1–52, weekTo?: 1–52 }` | The unit, with its week set (v1.0, V-25), at any time and not only while it reads "Week not set" (v3.1.1, V-99). `weekTo` after `week` makes a range ("Weeks 7 to 9"); the same week or none is one week. `400` when `weekTo` is before `week`. `400` for a timetabled lecture, whose week comes from the calendar. Logs `unit_week_set` |
 | GET | `/roadmap` | | `{ [module]: LectureWithStatus[] }` in course order |
 | GET | `/materials/:lectureId` | | `{ lectureId, hasMaterials, hasPdf, slides: [{ number, title }] }` |
 | GET | `/materials/:lectureId/slides` | | `{ slides: [{ number, title, body }], hasPdf }` for the slide panel. Slide numbers are the original file's page numbers, so a unit can run 18 to 38. `hasPdf` is true only when the stored PDF has content |
@@ -136,8 +137,11 @@ A **course unit** is a `Lecture` with no `start`/`end`, made from the student's 
 | POST | `/sessions/:id/retry` | | 204. Recovers a failed or interrupted turn. On a session that never reached question 1 it asks the teacher again and the view goes back to `preparing` |
 | POST | `/sessions/:id/practice` | | `{ sessionId }`: "Use practice questions". A new session for the same lecture on its question bank, without the AI. Only for a failed session whose view has `practiceAvailable: true`; logged as `engine_fallback {chosen: true}` |
 | GET | `/learn?module=CODE` | | The module's Learn start sheet (v2.0 step 5): `{ module, connected, minutes, suggestion: { type: "resume", sessionId, lectureId, title, at } \| { type: "next", lectureId, title } \| null, week: { week, lectureIds } \| null, lectures, topics }`. `topics` are what a typed goal is matched against in the browser |
-| POST | `/learn` | `{ lectureId, nodes?, goal? }` or `{ module, week: true, goal? }` | `{ sessionId }`: start Learn (V-47). `409 not_connected` with no AI connected, `409 no_material`, `409 nothing_this_week` |
-| POST | `/sessions/:id/say` | `{ text, questionId? }` or `{ say: "skipProbe" \| "planOk" \| "carryOn" }` | `{ queued, answer }`. Learn only (`409 not_learn`). With `questionId` the tutor answers beside the open question (`answer`), which stays open. `queued: true` when the tutor was writing and takes it at its next pause |
+| POST | `/learn` | `{ lectureId, nodes?, goal? }`, `{ module, week: true, goal? }` or **v3.1** `{ module }` (the unit the module is at) | `{ sessionId }`: start Learn (V-47). `409 not_connected` with no AI connected, `409 no_material`, `409 nothing_this_week` |
+| POST | `/sessions/:id/say` | `{ text, questionId? }`, `{ say: "skipProbe" \| "planOk" \| "carryOn" }` or **v3.1** `{ correct: { title, level: "solid" \| "shaky" \| "notyet" } }` | `{ queued, answer }`. Learn only (`409 not_learn`). With `questionId` the tutor answers beside the open question (`answer`), which stays open. `queued: true` when the tutor was writing and takes it at its next pause |
+| POST | `/sessions/:id/intent` | `{ goal?, check: boolean, suggestion? }` or `{ resume: true }` | **v3.1.** The first step of a Learn session, "What do you want from this session?". Until it is answered the session is `status: "ask"` with `intent: { name, suggestions }` and nothing has been sent to the AI. `resume` drops this session (the student picked up a stopped one). `409 already_started`. Event `learn_intent` |
+| POST | `/sessions/:id/attachments` | multipart `file` (PDF, Markdown, text, a web page, PNG, JPEG or WebP; one a request) | **v3.1.** Attach a file to a Learn session → `{ attachments }`. Read with no AI; sent to the tutor with the opening message or the next `say` (an empty `text` then sends "I've attached …"). At most 5 a session. `409 question_open` when sent over an open question, `409 tutor_writing` while the tutor is writing. Event `learn_attached` |
+| DELETE | `/sessions/:id/attachments/:attId` | | **v3.1.** Take an attachment back before it is sent → `{ attachments }`. `409 already_sent` |
 | POST | `/sessions/:id/how` | `{ start?: "examples" \| "questions" \| "explanations", steps?: "small" \| "big", check?: "often" \| "end", more? }`, `{ same: true }` or `{ skip: true }` | `{ ok }`: the first-time card (v2.0 step 6, V-52). A module's first Learn session has `status: "ask"` and `ask: { module, name, canCopy }` until this is called; the tutor then starts. The module is never asked again |
 | GET / PUT | `/modules/:code/notes` | PUT `{ how?: string, where?: string }` (120 and 250 words at most; an empty string clears) | `{ module, asked, how, where, last }`: what LockedIn knows about the student in that module (V-53). `where` is rewritten by the AI after each Learn session; `last` is the last session's plan and where it stopped |
 | POST | `/sessions/:id/finish` | | `{ ok }`: the student's "Finish". A Learn session is never ended for them |
@@ -233,7 +237,7 @@ The list of lectures by week (`roadmap`) is no longer part of this response (V-3
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| POST | `/events` | `{ type, data }` or an array (types: `CLIENT_EVENT_TYPES` in `src/core/companion/types.ts`, e.g. `onboarding_step`, `settings_changed`, `block_started`, `explainer_opened`, `dictation_used`, `error`) | `{ logged }` |
+| POST | `/events` | `{ type, data }` or an array (types: `CLIENT_EVENT_TYPES` in `src/core/companion/types.ts`, e.g. `onboarding_step`, `settings_changed`, `block_started`, `explainer_opened`, `dictation_used`, `picture_gap`, `picture_done`, `error`) | `{ logged }` |
 | GET | `/events.csv` | **demo.** | CSV: `t, wall, participant, type, data` |
 
 Server-side events are logged automatically: `onboarding_done`, `nudge_fired/opened/snoozed/dismissed`, `wasnt_there`, `session_prepare_started`, `session_prepared` (with `latencyMs`), `session_opened`, `question_shown` (with `msSinceOpen`), `answer` (correct, confidence, why length, assisted, `msOnQuestion`, miss reason), `hint`, `show_me`, `keep_going`, `session_done`, `session_stopped`, `block_started`, `app_open_blocked`, `lock_override`, `settings_changed`, `engine_fallback`, `error`.
@@ -249,3 +253,9 @@ Server-side events are logged automatically: `onboarding_done`, `nudge_fired/ope
 | POST | `/demo/reset` | | Reset all data and the clock; the event log is **archived** to `data/companion/archive/`, never lost |
 | POST | `/demo/participant` | `{ participant: "P03" \| null }` | Stamped on every event |
 | POST | `/demo/engine` | `{ engine: "learnharness" \| "scripted" \| null }` | Engine for the next sessions |
+
+**v3.1:**
+- Course material: `POST /modules/:code/materials` and `…/materials/quick` take PDF, Markdown, text and a saved web page (`.html`, `.htm`), and return `failed: [{ name, error }]` for files that could not be read; the others are kept. With none readable the first reason is the `400`. The screens send one file a request. `POST /materials/:lectureId` takes the same kinds (multipart `file`); bare bytes are still a PDF.
+- `POST /lectures/:id/pack` also takes `{ questions: true }`: only that unit's questions are written again.
+- A session view (`GET /sessions/:id`) gains `attachments`, and in Learn `learn.where` ("Where you are": `{ title, level, note?, corrected? }[]`), `learn.slideAt` (the slide to show beside the step) and on an answered item `verdict` (`"right" | "partly" | "notyet"`) for a written check the tutor has marked.
+- A question bank's `stem` and `explanation` may be up to 200 characters (were 90 and 140). The phone is sent the same questions; a notification prefers one of 90 or fewer.

@@ -85,6 +85,16 @@ export function parseSlideRefs(text: string | undefined): number[] {
 	return [...refs].sort((x, y) => x - y);
 }
 
+/** The last slide a text names, in reading order ("… (Slide 12) … (Slide 4)" is 4), or null. */
+export function lastSlideRef(text: string | undefined): number | null {
+	const all = [...(text ?? "").matchAll(/\(\s*Slides?\s+[^)]*\)/gi)];
+	for (let i = all.length - 1; i >= 0; i--) {
+		const first = /\d+/.exec(all[i]![0]);
+		if (first && Number(first[0]) > 0) return Number(first[0]);
+	}
+	return null;
+}
+
 export interface SlidePosition {
 	/** The slide shown, or null when the unit has none. */
 	number: number | null;

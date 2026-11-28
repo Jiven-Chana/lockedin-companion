@@ -15,8 +15,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SvgImage } from "@/components/artifacts/svg-image";
-import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type SessionView } from "@/src/core";
+import { CONFIDENCE_TAPS, LEARN_COPY, learnDemoDoc, learnDemoHeight, MATERIALS_RULES, SESSION_COPY, SESSION_FAILURE_ACTIONS, sessionFailure, slidePosition, slidePositionLabel, type LearnItem, type LearnStage, type SessionAttachment, type SessionView, learnStage } from "@/src/core";
 import { ApiError, lockedIn, type SlideSection } from "../api";
+import { Attach } from "../attach";
 import { fmtDay, fmtTime, usePoll } from "../hooks";
 import { LearnPlan } from "../learn-plan";
 import { MicButton, useMic } from "../mic";
@@ -44,7 +45,7 @@ function Demo({ title, html }: { title: string; html: string }) {
 	return <iframe ref={frame} title={title || "Something to try"} sandbox="allow-scripts" srcDoc={doc} style={{ height }} />;
 }
 
-function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["learn"]; onSlide: (n: number) => void }) {
+function Item({ item, plan, onSlide, onCorrect, busy }: { item: LearnItem; plan: SessionView["learn"]; onSlide: (n: number) => void; onCorrect?: (title: string, level: "solid" | "shaky" | "notyet") => void; busy?: boolean }) {
 	switch (item.type) {
 		case "tutor":
 			return <Prose text={item.text} onSlide={onSlide} />;
@@ -61,7 +62,8 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 			return plan?.plan ? (
 				<div className="li-answered">
 					<span className="li-eyebrow">{LEARN_COPY.planTitle}</span>
-					<LearnPlan plan={plan.plan} />
+					{/* One plan (v3.1.1): what the check found is on each step, and can be changed while the plan is being agreed. */}
+					<LearnPlan plan={plan.plan} where={plan.where} {...(onCorrect && plan.phase === "plan" ? { onCorrect } : {})} busy={busy} />
 				</div>
 			) : null;
 		case "making":
@@ -94,9 +96,12 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 			);
 		case "answered": {
 			// A guess is never marked (V-47): it shows the guess and the answer, with no right or wrong.
-			const title = item.guess ? null : item.correct === true ? "Right" : item.correct === false ? (item.dontKnow ? "Here's the answer" : "Not quite") : null;
+			// A written check is marked by the tutor (v3.1): right is mint, partly and not yet are lilac. Never red, never a score.
+			const title = item.guess ? null : item.verdict ? LEARN_COPY.verdict[item.verdict] : item.correct === true ? "Right" : item.correct === false ? (item.dontKnow ? "Here's the answer" : "Not quite") : null;
+			const good = item.correct === true || item.verdict === "right";
+			const miss = item.correct === false || item.verdict === "partly" || item.verdict === "notyet";
 			return (
-				<div className={`li-answered${item.correct === true ? " li-feedback right" : item.correct === false ? " li-feedback miss" : ""}`}>
+				<div className={`li-answered${good ? " li-feedback right" : miss ? " li-feedback miss" : ""}`}>
 					{item.stem.includes("\n") ? <div className="li-small"><Prose text={item.stem} /></div> : <span className="li-small"><b><InlineProse text={item.stem} /></b></span>}
 					{item.options.length ? (
 						<ul>
@@ -108,8 +113,9 @@ function Item({ item, plan, onSlide }: { item: LearnItem; plan: SessionView["lea
 							))}
 						</ul>
 					) : null}
-					{item.written ? <div className="li-you"><b>{LEARN_COPY.you}:</b> {item.written}</div> : null}
+					{item.written ? <div className="li-you"><b>{item.options.length ? LEARN_COPY.you : LEARN_COPY.yourAnswer}:</b> <InlineProse text={item.written} /></div> : null}
 					{title ? <span className="li-fb-title" style={{ fontSize: "1.15em" }}>{title}</span> : null}
+					{item.explanation && item.written && !item.options.length ? <span className="li-small"><b>{LEARN_COPY.fullAnswer}</b></span> : null}
 					{item.explanation ? <Prose text={item.explanation} onSlide={onSlide} /> : null}
 					{item.why ? <span className="li-small"><b>Your why:</b> {item.why}</span> : null}
 				</div>
@@ -143,6 +149,10 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const [busy, setBusy] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [earlier, setEarlier] = useState<LearnItem[][] | null>(null);
+	// Files attached and waiting to go with the next message (v3.1).
+	const [files, setFiles] = useState<SessionAttachment[]>(view.attachments ?? []);
+	useEffect(() => { setFiles(view.attachments ?? []); }, [view.attachments]);
+	const waitingFiles = files.filter((a) => !a.sent).length;
 	const [, setTick] = useState(0);
 	const stem = useRef<HTMLHeadingElement & HTMLDivElement>(null);
 
@@ -184,6 +194,8 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	// A new step starts at its top; something added to the step is brought into view.
 	const stepKey = learn.step[0]?.type === "answered" ? learn.step[0].id : "first";
 	useEffect(() => { window.scrollTo({ top: 0 }); }, [stepKey]);
+	// A slide the student picked holds until the next step or question arrives; then the panel follows the lesson again (v3.1).
+	useEffect(() => { setSlide(null); }, [stepKey, q?.id]);
 	useEffect(() => { if (view.status === "thinking") setSent(false); }, [view.status, learn.step.length]);
 
 	const openSlide = useCallback((n: number) => { setSlide(n); setPanel("slide"); }, []);
@@ -191,7 +203,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 
 	async function submit() {
 		if (!q || busy) return;
-		const body = q.kind === "write" ? { questionId: q.id, text: written }
+		const body = q.kind === "write" && !dontKnow ? { questionId: q.id, text: written }
 			: dontKnow ? { questionId: q.id, dontKnow: true, why: why.trim() || undefined }
 			: { questionId: q.id, ...(picked.length ? { indices: picked } : {}), ...(q.kind === "ask" && written.trim() ? { text: written } : {}), ...(conf === null ? {} : { confidence: conf }), why: why.trim() || undefined };
 		setBusy("answer");
@@ -221,7 +233,8 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 			setBusy(null);
 		}
 	}
-	const sendSay = () => (say.trim() ? tell(q ? { text: say.trim(), questionId: q.id } : { text: say.trim() }, true) : undefined);
+	// With a file waiting, an empty line still sends: the file is the message.
+	const sendSay = () => (say.trim() || (waitingFiles && !q) ? tell(q ? { text: say.trim(), questionId: q.id } : { text: say.trim() }, true) : undefined);
 	async function askHint() {
 		if (!q || busy) return;
 		setBusy("hint");
@@ -277,7 +290,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 		setEarlier((await lockedIn.steps(id).catch(() => [])).slice(0, -1));
 	}
 
-	const canSubmit = !!q && (q.kind === "write" ? !!written.trim() : dontKnow || picked.length > 0 || (q.kind === "ask" && !!written.trim()));
+	const canSubmit = !!q && (q.kind === "write" ? !!written.trim() || dontKnow : dontKnow || picked.length > 0 || (q.kind === "ask" && !!written.trim()));
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
@@ -301,13 +314,18 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 	const where = learn.phase === "probe" ? LEARN_COPY.finding : plan && plan.index > 0 && plan.current ? LEARN_COPY.position(plan.index, plan.total, plan.current, plan.next) : plan ? LEARN_COPY.before(plan.total) : view.goal;
 	const left = learn.endsAt ? Math.max(0, Math.ceil((new Date(learn.endsAt).getTime() - Date.now()) / 60_000)) : null;
 	const timeUp = learn.timeUp || left === 0;
-	const cited = q?.slides?.[0] ?? view.slideRefs[0];
+	// The slide beside the step (v3.1): the open question's own, else the latest one the tutor cited.
+	const cited = learn.slideAt ?? q?.slides?.[0] ?? view.slideRefs[0];
 	const pos = slidePosition(slides.map((x) => x.number), slide ?? cited);
 	const s = slides.find((x) => x.number === pos.number);
 	const items = learn.step.filter((i) => i.type !== "aside");
 	const asides = learn.step.filter((i) => i.type === "aside");
 	const talking = view.status === "question" || view.status === "reply" || view.status === "thinking";
-	const label = !q ? null : q.guess ? LEARN_COPY.guess : q.kind === "write" ? LEARN_COPY.yourTurn : q.kind === "quiz" ? LEARN_COPY.check : null;
+	// Where the session is (v3.1.1): finding the level, the plan, then for each idea a guess, the teaching and a check.
+	const stage = learnStage({ phase: learn.phase, status: view.status, question: q });
+	const strip: LearnStage[] = learn.phase === "teach" ? ["guess", "learn", "check"] : ["level", "plan"];
+	// A question says which stage it is and what happens to the answer. A choice with no right answer (the tutor asking a preference) has no stage.
+	const label = !q || !stage || (q.kind === "ask" && !q.guess) ? null : { name: LEARN_COPY.stages[stage], note: stage === "check" ? (q.kind === "write" ? LEARN_COPY.stageNote.check : LEARN_COPY.stageNote.checkPick) : LEARN_COPY.stageNote[stage] };
 
 	return (
 		<Tint module={view.lecture.module}>
@@ -326,6 +344,13 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 								{plan.current ? <span className="li-steps-name">{plan.current}</span> : null}
 							</span>
 						) : <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{view.status === "done" ? SESSION_COPY.setFinishedShort : where}</span>}
+						{/* The stages, with the one you are in filled (v3.1.1). Before teaching: find your level, then the plan. For each idea: guess, learn, check. */}
+						{stage ? (
+							<span className="li-stages" role="img" aria-label={`Stage: ${LEARN_COPY.stages[stage]}`}>
+								{strip.map((s) => <i key={s} data-on={String(s === stage)}>{LEARN_COPY.stages[s]}</i>)}
+								{learn.phase !== "teach" ? <i data-on="false">{LEARN_COPY.stageIdeas(plan?.total ?? 0)}</i> : null}
+							</span>
+						) : null}
 						{timeUp && view.status !== "done" ? <span className="li-small" style={{ color: "var(--li-bar-quiet)" }}>{LEARN_COPY.timeUp(learn.minutes)}</span> : null}
 					</span>
 					{plan ? <button type="button" className="li-x" aria-pressed={panel === "plan"} onClick={() => setPanel(panel === "plan" ? null : "plan")}><Icon.plan />{LEARN_COPY.planTab}</button> : null}
@@ -360,7 +385,11 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 								{earlier ? earlier.map((st, i) => <div key={i} className="li-step" style={{ opacity: 0.85, borderBottom: "2px dashed var(--li-sand)", paddingBottom: 14 }}>{st.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}</div>) : null}
 
 								<div className="li-step" aria-live="polite">
-									{items.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} />)}
+									{/* What this part of the lesson is (v3.1.1): the teaching is named, as a guess and a check are. */}
+									{stage === "learn" && items.some((i) => i.type === "tutor") ? <span className="li-stage-head" data-stage="learn"><b>{LEARN_COPY.stages.learn}</b><span>{LEARN_COPY.stageNote.learn}</span></span> : null}
+									{items.map((it) => <Item key={`${it.type}-${it.id}`} item={it} plan={learn} onSlide={openSlide} busy={!!busy || view.status === "thinking"} onCorrect={(title, level) => void tell({ correct: { title, level } })} />)}
+									{/* A written answer is with the tutor: say so, so the wait reads as marking, not as nothing happening. */}
+									{view.status === "thinking" && items[0]?.type === "answered" && !!items[0].written && !items[0].options.length && !items[0].guess && !items[0].verdict ? <span className="li-small li-muted" role="status">{LEARN_COPY.marking}</span> : null}
 								</div>
 
 								{view.status === "done" ? (
@@ -388,13 +417,15 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 
 								{error ? <div className="li-note" role="alert">{error}</div> : null}
 
+								{/* A problem sheet, a worked solution or a photo of working (v3.1): when it is the student's turn, not over an open question. */}
+								{view.status === "reply" ? <Attach sessionId={id} attachments={files} onChange={setFiles} disabled={!!busy} /> : null}
 								{talking ? (
 									<form className="li-say" onSubmit={(e) => { e.preventDefault(); void sendSay(); }}>
 										<textarea className="li-input" rows={1} value={say} aria-label="Ask or say something to your tutor" placeholder={mic.available ? LEARN_COPY.saySpeak : LEARN_COPY.say}
 											onFocus={() => { target.current = "say"; }} onChange={(e) => setSay(e.target.value)}
 											onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendSay(); } }} />
 										<span onPointerDown={() => { target.current = "say"; }}><MicButton mic={mic} /></span>
-										<button type="submit" className="li-btn" disabled={!say.trim() || !!busy}>{busy === "say" ? "Sending…" : "Send"}<Icon.send /></button>
+										<button type="submit" className="li-btn" disabled={(!say.trim() && !(waitingFiles && !q)) || !!busy}>{busy === "say" ? "Sending…" : "Send"}<Icon.send /></button>
 									</form>
 								) : null}
 							</>
@@ -405,7 +436,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 						<div className="li-stack li-learn-side" style={{ gap: 22 }}>
 							{q ? (
 								<section className="li-qcard li-ask" aria-label="Question">
-										{label ? <span className="li-eyebrow"><span className="li-mark small on-colour">{q.guess ? <Icon.question /> : <Icon.check />}</span>{label}</span> : null}
+										{label ? <span className="li-stage-head" data-stage={stage ?? undefined}><span className="li-mark small on-colour">{q.guess ? <Icon.question /> : <Icon.check />}</span><b>{label.name}</b><span>{label.note}</span></span> : null}
 										{/* A question is one line, or (a table, a worked set-up) several blocks. */}
 										{q.stem.includes("\n")
 											? <div className="li-q-stem" style={{ fontSize: "1.15em", fontWeight: 400 }} tabIndex={-1} ref={stem}><Prose text={q.stem} onSlide={openSlide} /></div>
@@ -431,6 +462,13 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 												<span onPointerDown={() => { target.current = "written"; }}><MicButton mic={mic} /></span>
 											</div>
 										) : null}
+										{/* Maths is shown as it is typed (v3.1), so a derivation can be checked before it is sent. */}
+										{q.kind === "write" && /[$\\^_]/.test(written) ? <div className="li-note li-small" aria-label="How your answer reads"><Prose text={written} /></div> : null}
+										{q.kind === "write" && !q.guess ? (
+											<button type="button" role="checkbox" aria-checked={dontKnow} className="li-opt" style={{ alignSelf: "flex-start", width: "auto", minHeight: 46 }} onClick={() => setDontKnow(!dontKnow)}>
+												<Icon.question /><span>I don&apos;t know</span>
+											</button>
+										) : null}
 										{/* How sure, and why, belong to a Check. A guess stays light: nothing is marked. */}
 										{q.kind === "quiz" && !q.guess && !dontKnow && picked.length > 0 ? (
 											<>
@@ -450,7 +488,7 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 										{asides.map((it) => <Item key={it.id} item={it} plan={learn} onSlide={openSlide} />)}
 										<div className="li-row">
 											{view.canHint ? <button type="button" className="li-btn" onClick={askHint} disabled={!!busy || !!hint}><Icon.question />{busy === "hint" ? "Thinking…" : "Hint"}</button> : null}
-											{q.kind === "quiz" && learn.phase !== "probe" ? <button type="button" className="li-btn" onClick={showMe} disabled={!!busy}><Icon.eye />{busy === "show" ? "Getting it…" : "Show me first"}</button> : null}
+											{(q.kind === "quiz" || (q.kind === "write" && !q.guess)) && learn.phase !== "probe" ? <button type="button" className="li-btn" onClick={showMe} disabled={!!busy}><Icon.eye />{busy === "show" ? "Getting it…" : "Show me first"}</button> : null}
 											{learn.phase === "probe" ? <button type="button" className="li-btn" onClick={() => void tell({ say: "skipProbe" })} disabled={!!busy}>{LEARN_COPY.skipProbe}</button> : null}
 											<button type="button" className="li-btn primary big" style={{ marginLeft: "auto" }} onClick={submit} disabled={!canSubmit || !!busy}>{busy === "answer" ? "Sending…" : q.kind === "quiz" && !q.guess ? "Check" : q.guess ? "That's my guess" : "Send"}<Icon.arrow /></button>
 										</div>
@@ -458,14 +496,12 @@ export function LearnScreen({ id, view, reload, loadError }: { id: string; view:
 							) : null}
 					{panel ? (
 							<aside className="li-slides" aria-label={panel === "plan" ? "Plan" : "Slides"}>
+								{/* One switch (v3.1.1): Plan and Slide in the bar open and change this panel. It has a name and a way to close, not a second pair of the same buttons. */}
 								<div className="li-row" style={{ gap: 8 }}>
-									<span className="li-tabs" role="tablist" style={{ flexGrow: 1 }}>
-										{plan ? <button type="button" role="tab" aria-selected={panel === "plan"} onClick={() => setPanel("plan")}>{LEARN_COPY.planTab}</button> : null}
-										<button type="button" role="tab" aria-selected={panel === "slide"} onClick={() => setPanel("slide")}>{LEARN_COPY.slideTab}</button>
-									</span>
+									<b className="li-eyebrow" style={{ flexGrow: 1 }}>{panel === "plan" ? LEARN_COPY.planTitle : LEARN_COPY.slideTab}</b>
 									<button type="button" className="li-icon-btn" aria-label="Close" onClick={() => setPanel(null)}><Icon.close /></button>
 								</div>
-								{panel === "plan" && plan ? <LearnPlan plan={plan} /> : null}
+								{panel === "plan" && plan ? <LearnPlan plan={plan} where={learn.where} /> : null}
 								{panel === "slide" ? (
 									<>
 										<div className="li-row" style={{ gap: 8 }}>

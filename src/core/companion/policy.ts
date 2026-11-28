@@ -299,7 +299,14 @@ export const PRACTISE_COPY = {
  * section 1); a sitting is as long as a study block and never ends by itself.
  */
 export const LEARN_RULES = {
-	probe: { week: 4, lecture: 2, section: 1 } as Record<LearnScope, number>,
+	/** The opening check, when the student asks for one (v3.1): a few short questions, about two minutes. */
+	probe: { week: 4, lecture: 4, section: 2 } as Record<LearnScope, number>,
+	/** "Where you are": at most this many blocks. */
+	whereMax: 6,
+	/** A plan step and a checked idea are the same idea when they share this share of their words (v3.1.1). */
+	sameIdea: 0.5,
+	/** "Ideas to revisit" named in a suggested goal before "and n more". */
+	revisitNamed: 3,
 	/** The plan is sized to the time: about one idea per this many minutes, and never fewer or more than these. */
 	minutesPerIdea: 10,
 	minIdeas: 2,
@@ -308,14 +315,47 @@ export const LEARN_RULES = {
 	defaultMinutes: 50,
 	/** Slides sent in the opening message, in estimated tokens. The tutor reads the rest from the file as the plan reaches it. */
 	slideTokenBudget: 8_000,
+	/** The module's other units a session is told about (v3.1), and how many of each one's ideas are named. About 60 tokens a unit. */
+	reachUnits: 16,
+	reachIdeas: 6,
 	/** A typed goal: how many matching topics the start sheet offers. */
 	suggestions: 3,
 	/** A typed goal is at most this long. */
-	goalMax: 300,
+	goalMax: 500,
 	/** What the student types to the tutor is at most this long. */
 	sayMax: 2_000,
 	/** Nothing running and the tutor's turn still not started after this long: the student can carry on themselves. */
 	stalledMs: 20_000,
+} as const;
+
+/**
+ * A file attached to a Learn session (v3.1): a problem sheet, a worked solution, a photo of working.
+ * AI usage is the constraint: text is sent as text, and only a page with no text, or a picture, goes as a picture.
+ */
+export const ATTACH_RULES = {
+	maxPerSession: 5,
+	maxFileBytes: 25 * 1024 * 1024,
+	maxImageBytes: 8 * 1024 * 1024,
+	/** All the attached text sent with one message, in estimated tokens (~4 characters each), shared between the files. */
+	textTokenBudget: 6_000,
+	/** Pages of a PDF with no text that are sent as pictures. */
+	pageImages: 3,
+	accept: ".pdf,.md,.markdown,.txt,.html,.htm,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/markdown,text/html,image/png,image/jpeg,image/webp",
+} as const;
+
+export const ATTACH_COPY = {
+	button: "Attach",
+	hint: "A problem sheet, a worked solution or a photo of your working. It stays with this session.",
+	wrongKind: (name: string) => `${name}: attach a PDF, text, a web page or a picture (PNG, JPG or WebP)`,
+	tooBig: (name: string) => `${name} is too big to attach`,
+	tooMany: "A session takes up to 5 files.",
+	busy: "Your tutor is writing. Send the file when it stops.",
+	noPictures: "Your AI can't read pictures. Attach a PDF or text instead.",
+	remove: "Remove",
+	cut: "(cut here: the file is longer)",
+	noTextPage: "(no text on this page: see its picture)",
+	/** What is sent for the student when they attach something and type nothing. */
+	sentWith: (names: readonly string[]) => `I've attached ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0]}.`,
 } as const;
 
 /** What LockedIn sends the tutor on the student's behalf. The tutor's instructions (companion/seed/prompts) name these exact lines. */
@@ -323,9 +363,99 @@ export const LEARN_SAYS = {
 	skipProbe: "Skip, just teach me.",
 	planOk: "Looks good.",
 	carryOn: "Carry on.",
+	/** Sent for the student when a written check came back with no mark (v3.1): the tutor's reply was empty, or had no verdict line. */
+	markIt: "Mark my answer.",
+	/** The student corrects a block of "Where you are" (v3.1). `learnWhere` reads these back. */
+	correct: (title: string, level: "solid" | "shaky" | "notyet") => `Correction: "${title}" is ${level === "notyet" ? "not yet" : level} for me. Plan from that.`,
+} as const;
+
+/** Pictures that build up (v3.2): how much of the AI's step and gap lines is kept. */
+export const PICTURE_RULES = {
+	/** One step is not a build-up. */
+	minSteps: 2,
+	maxSteps: 8,
+	titleMax: 60,
+	sayMax: 300,
+	/** A note on a block ("held still"): a few words. */
+	noteMax: 24,
+	askMax: 200,
+	whyMax: 200,
+	optionsMin: 2,
+	optionsMax: 4,
+	/** Enlarged, a picture may be drawn up to this many times its size, within the window. */
+	grow: 1.6,
+	/** A picture's blocks hold one label of up to two lines, so they are smaller and closer than a concept map's: five rows, with the sentence and the buttons beside them, fit a 13-inch window. */
+	size: { w: 184, h: 64, slot: 24, gapX: 26, gapY: 34 },
+	/** Enlarged, the room the window's edge and the picture's header need, in px. The rest of the height is the picture's. */
+	largeChrome: 170,
+} as const;
+
+/** The words on a picture that builds up (v3.2). A guess is never marked, and never red. */
+export const PICTURE_COPY = {
+	gapHead: "Guess",
+	gapNote: "Before it builds up · nothing is marked",
+	showMe: "Show me instead",
+	yes: "Yes.",
+	no: "Not this one.",
+	itIs: (label: string) => `It is “${label}”.`,
+	build: "Build it up",
+	seeIt: "See the picture",
+	back: "Back",
+	next: "Next",
+	done: "Done",
+	again: "From the start",
+	all: "Show it all",
+	bySteps: "Step by step",
+	stepOf: (n: number, total: number) => `Step ${n} of ${total}`,
+	whole: "The whole picture",
+	enlarge: "Enlarge",
+	close: "Close",
+	label: "A picture that builds up",
 } as const;
 
 export const LEARN_COPY = {
+	/** The first step of every Learn session (v3.1): plain screen, no AI until it is answered. */
+	intent: {
+		title: "What do you want from this session?",
+		placeholder: "Say it your way, e.g. I want to solve problems on GANs from weeks 7 to 9",
+		unsure: "Not sure? Pick one:",
+		check: "Check what I know first",
+		checkNote: "A few short questions, about 2 minutes. Nothing is marked.",
+		skip: "Skip, start teaching",
+		attach: "Attach a problem sheet or worked solution",
+		unit: (title: string) => ({ label: `This unit: ${title}`, goal: `Teach me ${title}.` }),
+		stopped: (idea: string, unit: string) => ({ label: `Pick up: ${idea}`, goal: idea === unit ? `Carry on with ${unit}.` : `Carry on from ${idea} in ${unit}.` }),
+		week: (title: string) => ({ label: `This week: ${title}`, goal: `Teach me this week's unit, ${title}.` }),
+		revisit: (n: number, named: string) => ({ label: `${n} ${n === 1 ? "idea" : "ideas"} to revisit`, goal: `Go back over what I got wrong: ${named}.` }),
+		sheet: { label: "Work through a sheet", goal: "I'll attach a problem sheet or a worked solution: walk me through it, then set me one like it to try myself." },
+	},
+	/** The stages of a Learn session, named on screen (v3.1.1): a guess, the teaching and a check never look alike. */
+	stages: { level: "Find your level", plan: "Plan", guess: "Guess", learn: "Learn", check: "Check" },
+	stageNote: {
+		level: "A few short questions · nothing is marked",
+		plan: "What we'll cover, from where you are",
+		guess: "Before you are taught · nothing is marked",
+		learn: "Read it through, ask anything",
+		check: "In your own words · your tutor marks this",
+		checkPick: "Pick an answer · it counts",
+	},
+	stageIdeas: (n: number) => (n > 0 ? `Ideas 1 to ${n}` : "Ideas"),
+	/** One plan (v3.1.1): what the check found is on each step. */
+	have: (ideas: readonly string[]) => `You already have: ${ideas.join(", ")}`,
+	alsoChecked: "Also from your check:",
+	/** A written check marked by the tutor (v3.1). Never red, never a score. */
+	verdict: { right: "Right", partly: "Partly there", notyet: "Not yet" },
+	marking: "Your tutor is reading it…",
+	yourAnswer: "What you wrote",
+	fullAnswer: "A full answer",
+	/** The check's result (v3.1): each idea the goal needs, as a block the student can correct. */
+	where: {
+		title: "Where you are",
+		note: "From what you said. Change any that are wrong, and the plan follows.",
+		skipped: "You skipped the check, so the plan starts from what you asked for.",
+		levels: { solid: "Solid", shaky: "Shaky", notyet: "Not yet", unchecked: "Not checked" },
+		change: "Change",
+	},
 	button: "Learn this",
 	moduleButton: "Learn",
 	ideaButton: "Learn this idea",
@@ -449,9 +579,15 @@ export const BLOCK_RULES = {
 
 /** Study packs (F-105). Slots per stage: open decision O-13, built with the spec's proposed default. */
 export const PACK_RULES = {
-	/** A bank stem must fit a phone notification body (N-1 v2). */
-	stemMax: 90,
-	explanationMax: 140,
+	/** A question stands on its own (v3.1), so it has room to state the numbers or the case it needs. It was 90, to fit a notification: the phone now prefers the short ones (PHONE_RULES.notifyStemMax). */
+	stemMax: 200,
+	explanationMax: 200,
+	/** The right answer gives itself away when it is this many times, and this many characters, longer than the longest wrong one. */
+	giveaway: { ratio: 1.8, chars: 20 },
+	/** Two stems sharing this share of their words are the same question. */
+	duplicateOverlap: 0.8,
+	/** The second check has no slides: when acting on its disagreements would leave fewer questions than this, they are not acted on. */
+	coldFloor: 8,
 	explainerWords: 120,
 	bankMin: 12,
 	bankMax: 20,
@@ -459,7 +595,7 @@ export const PACK_RULES = {
 	/** Explainers per pack: one per map node, at most this many. */
 	maxExplainers: 8,
 	/** Which of the student's model slots writes each stage (O-13). */
-	slots: { map: "strong", explainers: "strong", bank: "cheap" } as const,
+	slots: { map: "strong", explainers: "strong", bank: "cheap", check: "cheap" } as const,
 	/** Slides text sent to the model, in estimated tokens (~4 characters each). */
 	slideTokenBudget: 12_000,
 	/** A failed stage is tried again after each of these waits (V-23). */
@@ -470,6 +606,15 @@ export const PACK_RULES = {
 
 /** What the lecture page says about a study pack that isn't being written right now (v1.0 T-4, T-5). */
 export const PACK_COPY = {
+	/** "Rewrite questions" on a module (v3.1): only on request, because it uses the student's AI. */
+	rewrite: {
+		button: "Rewrite questions",
+		confirm: (units: number) => `Write new questions for ${units} ${units === 1 ? "unit" : "units"}? This uses your AI, and takes a few minutes.`,
+		yes: "Rewrite them",
+		no: "Keep these",
+		started: (units: number) => `Writing new questions for ${units} ${units === 1 ? "unit" : "units"}. The ones you have stay until the new ones are ready.`,
+		none: "This module has no questions to rewrite yet.",
+	},
 	queued: "Waiting its turn.",
 	retrying: (seconds: number) => `Your AI was busy. Trying again in ${seconds} seconds.`,
 	waitingForConnection: "Waiting for your AI connection.",
@@ -579,7 +724,7 @@ export const SETUP_COPY = {
 		title: "Your slides and notes",
 		lead: "Drop them in. LockedIn prepares them while you finish setting up.",
 		drop: "Drop files here, or click to choose",
-		formats: "PDF, Markdown or text",
+		formats: "PDF, Markdown, text or a web page (.html)",
 		reading: "Reading…",
 		found: (units: number) => `${units} ${units === 1 ? "chapter" : "chapters"} found`,
 		preparing: "preparing",
@@ -748,6 +893,8 @@ export const MATERIALS_RULES = {
 	/** Per file, as v0.0's upload. */
 	maxFileBytes: 25 * 1024 * 1024,
 	maxFilesPerUpload: 20,
+	/** What the file pickers offer (v3.1): exactly the kinds `materialKind` takes. */
+	accept: ".pdf,.md,.markdown,.txt,.html,.htm,application/pdf,text/plain,text/markdown,text/html",
 	/** Below this many pages a file with no week in its name stays one unit (not worth an AI call). */
 	aiSplitMinPages: 12,
 	/** Pasted text or a notes file is cut into pages of about this many characters when it has no headings. */
@@ -765,8 +912,14 @@ export const MATERIALS_RULES = {
 /** A unit whose material doesn't say which week it belongs to has week 0. It never reads "Week 0" (v1.0 V-25). */
 export const WEEK_COPY = {
 	week: (n: number) => `Week ${n}`,
+	/** A unit that covers several weeks (v3.1.1). */
+	weeks: (from: number, to: number) => `Weeks ${from} to ${to}`,
 	notSet: "Week not set",
 	set: "Set week",
+	change: "Change its weeks",
+	from: "From week",
+	to: "to week",
+	save: "Save",
 } as const;
 
 /**
@@ -792,6 +945,13 @@ export const LIBRARY_COPY = {
 /** The upload screen's wording (v1.0 S-4, T-5). */
 export const MATERIALS_COPY = {
 	drop: "Drop all your slides and notes here. Several files at once is fine.",
+	/** The kinds of file taken (v3.1 adds a saved web page). */
+	formats: "PDF, Markdown, text or a web page (.html)",
+	wrongKind: (name: string) => `${name}: add PDF, Markdown (.md), text (.txt) or a web page (.html)`,
+	noText: (name: string) => `${name} has no text to read`,
+	/** Several files, one request each (v3.1): how far through, and which were not added. */
+	reading: (done: number, of: number) => (of > 1 ? `Reading file ${Math.min(done + 1, of)} of ${of}…` : "Reading your material…"),
+	couldNotRead: (failed: readonly { name: string; error: string }[]) => `Not added: ${failed.map((f) => f.error).join("; ")}`,
 	/** Was "Week 1: …", which invited typing a week label on its own. */
 	pastePlaceholder: "Paste your notes here",
 } as const;
@@ -998,6 +1158,8 @@ export const keepGoingText = (n: number) => `Keep going: ${n} more questions on 
  */
 /** The laptop's phone link (F-112): upload at least every 30 min, pull events every minute; the facilitator's "send now" question. */
 export const PHONE_RULES = {
+	/** A notification's question is one short enough to read on a lock screen, when the unit has one (v3.1). */
+	notifyStemMax: 90,
 	uploadEveryMs: 30 * 60_000,
 	pullEveryMs: 60_000,
 	timeoutMs: 10_000,

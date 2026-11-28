@@ -9,15 +9,17 @@
  * (R-7, AFF-H).
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { NOTE_COPY, NOTE_RULES, wordCount, type ModuleNotesView } from "@/src/core";
 import { ApiError, lockedIn } from "./api";
 import { fmtDay, useData } from "./hooks";
+import { MicButton, useMic } from "./mic";
 import { useLockedIn } from "./root";
 
 function Note({ title, text, empty, meta, max, onSave }: { title: string; text: string | null; empty: string; meta?: string; max: number; onSave: (text: string) => Promise<void> }) {
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
+	const mic = useMic(useCallback((t: string) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)), []), "module-notes");
 	const [error, setError] = useState<string | null>(null);
 	const over = wordCount(draft) > max;
 	async function save() {
@@ -40,6 +42,7 @@ function Note({ title, text, empty, meta, max, onSave }: { title: string; text: 
 					<textarea className="li-input" rows={4} value={draft} aria-label={title} onChange={(e) => setDraft(e.target.value)} />
 					{over || error ? <span className="li-small" role="alert">{over ? NOTE_COPY.tooLong(max) : error}</span> : null}
 					<div className="li-row" style={{ gap: 8 }}>
+						<MicButton mic={mic} />
 						<button type="button" className="li-btn primary" disabled={over} onClick={() => void save()}>{NOTE_COPY.save}</button>
 						<button type="button" className="li-btn" onClick={() => setEditing(false)}>{NOTE_COPY.cancel}</button>
 					</div>

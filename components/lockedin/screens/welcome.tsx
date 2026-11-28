@@ -14,7 +14,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CALENDAR_COPY, ENERGY_TIMES, SETUP_COPY, SETUP_RULES, WEEK_COPY, type DetectedModule, type EnergyTime, type SetupModuleLine, type SetupView, type SetupWeek } from "@/src/core";
+import { CALENDAR_COPY, ENERGY_TIMES, SETUP_COPY, SETUP_RULES, WEEK_COPY, type DetectedModule, type EnergyTime, type SetupModuleLine, type SetupView, type SetupWeek, MATERIALS_COPY, MATERIALS_RULES, eachFile } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn } from "../api";
 import { usePoll } from "../hooks";
@@ -156,22 +156,24 @@ function SlidesModule({ line, onChanged }: { line: SetupModuleLine; onChanged: (
 	const [over, setOver] = useState(false);
 	const [note, setNote] = useState<string | null>(null);
 	const [changing, setChanging] = useState(false);
+	const [at, setAt] = useState<[number, number] | null>(null);
 
+	// Each file travels by itself (v3.1): several lectures' PDFs together were too big for one request, and one unreadable file lost the rest.
 	async function add(files: File[]) {
 		if (files.length === 0 || busy) return;
 		setBusy(true);
 		setNote(null);
-		try {
+		const r = await eachFile(files, (f, i) => {
+			setAt([i, files.length]);
 			const form = new FormData();
-			for (const f of files) form.append("file", f);
-			const r = await lockedIn.quickMaterials(line.code, form);
-			if (r.skipped) setNote(SETUP_COPY.slides.skipped(r.skipped));
-			onChanged();
-		} catch (e) {
-			setNote(message(e, SETUP_COPY.slides.failed));
-		} finally {
-			setBusy(false);
-		}
+			form.append("file", f);
+			return lockedIn.quickMaterials(line.code, form).then((x) => { onChanged(); return x; });
+		});
+		const skipped = r.done.reduce((n, x) => n + x.skipped, 0);
+		const notes = [skipped ? SETUP_COPY.slides.skipped(skipped) : null, r.failed.length ? MATERIALS_COPY.couldNotRead(r.failed) : null].filter(Boolean);
+		setNote(notes.length ? notes.join(" ") : null);
+		setAt(null);
+		setBusy(false);
 	}
 	const change = async (fn: () => Promise<unknown>) => {
 		try {
@@ -194,9 +196,9 @@ function SlidesModule({ line, onChanged }: { line: SetupModuleLine; onChanged: (
 					onDragLeave={() => setOver(false)}
 					onDrop={(e) => { e.preventDefault(); setOver(false); void add(Array.from(e.dataTransfer.files)); }}
 				>
-					<span>{busy ? SETUP_COPY.slides.reading : SETUP_COPY.slides.drop}</span>
+					<span>{busy ? (at ? MATERIALS_COPY.reading(at[0], at[1]) : SETUP_COPY.slides.reading) : SETUP_COPY.slides.drop}</span>
 					{!busy ? <span className="li-small li-muted">{SETUP_COPY.slides.formats}</span> : null}
-					<input type="file" multiple accept=".pdf,.md,.markdown,.txt,application/pdf,text/plain,text/markdown" className="li-sr" disabled={busy} onChange={(e) => { void add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+					<input type="file" multiple accept={MATERIALS_RULES.accept} className="li-sr" disabled={busy} onChange={(e) => { void add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
 				</label>
 				{line.units > 0 ? (
 					<div className="li-row li-small" aria-live="polite">

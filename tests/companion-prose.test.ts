@@ -46,6 +46,11 @@ describe("inline marks", () => {
 	const cases: Array<[string, string, string[]]> = [
 		["inline maths", "so $x^2$ grows", ["text:so ", "math:x^2", "text: grows"]],
 		["a one-character formula", "let $n$ be", ["text:let ", "math:n", "text: be"]],
+		// v3.1.1: maths that ends on an escaped character was left as raw text (Jiven, 28 Nov: "the widgets in the learn box sometimes dont render math").
+		["maths ending in an escaped brace", "is exactly $S(i)=\\{\\mathrm{yes}\\}$ or $S(i)=\\{\\mathrm{no}\\}$, never empty", ["text:is exactly ", "math:S(i)=\\{\\mathrm{yes}\\}", "text: or ", "math:S(i)=\\{\\mathrm{no}\\}", "text:, never empty"]],
+		["maths ending in a thin space or a bar", "norm $\\|x\\|$ and $a\\,$ here", ["text:norm ", "math:\\|x\\|", "text: and ", "math:a\\,", "text: here"]],
+		["a set written out", "the set $\\{1,2\\}$.", ["text:the set ", "math:\\{1,2\\}", "text:."]],
+		["an escaped dollar is still not the end of maths", "costs $5\\$ maybe", ["text:costs $5\\$ maybe"]],
 		["prices are not maths", "It costs $5 and $10 now", ["text:It costs $5 and $10 now"]],
 		["a dollar with a space inside is not maths", "pay $ 5 $ later", ["text:pay $ 5 $ later"]],
 		["slide chips", "See (Slide 4) and (Slides 6, 7).", ["text:See ", "slides:4", "text: and ", "slides:6,7", "text:."]],

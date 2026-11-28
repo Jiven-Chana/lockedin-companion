@@ -9,10 +9,11 @@
  */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PLAN_COPY, type Routine } from "@/src/core";
 import { ApiError, lockedIn } from "../api";
 import { useData } from "../hooks";
+import { MicButton, useMic } from "../mic";
 import { PageHead } from "../shell";
 
 type Msg = { role: "assistant" | "student"; text: string };
@@ -106,6 +107,7 @@ export function SetupChatScreen() {
 	const [draft, setDraft] = useState<Draft | null>(null);
 	const [form, setForm] = useState(false);
 	const [text, setText] = useState("");
+	const mic = useMic(useCallback((t: string) => setText((x) => (x ? `${x.trimEnd()} ${t}` : t)), []), "setup-chat");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const started = useRef(false);
@@ -184,7 +186,8 @@ export function SetupChatScreen() {
 				<div className="li-stack" style={{ gap: 10 }}>
 					<div className="li-row" style={{ gap: 8 }}>{chips.map((c) => <button key={c} type="button" className="li-chip" disabled={busy} onClick={() => answer(c)}>{c}</button>)}</div>
 					<form className="li-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); answer(text); }}>
-						<input className="li-input" style={{ flex: "1 1 280px" }} value={text} onChange={(e) => setText(e.target.value)} placeholder="Or type your answer" aria-label="Your answer" />
+						<input className="li-input" style={{ flex: "1 1 280px" }} value={text} onChange={(e) => setText(e.target.value)} placeholder={mic.available ? "Or type or say your answer" : "Or type your answer"} aria-label="Your answer" />
+						<MicButton mic={mic} />
 						<button type="submit" className="li-btn primary" disabled={busy || !text.trim()}>Send</button>
 					</form>
 				</div>

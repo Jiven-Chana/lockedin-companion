@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LEARN_COPY, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel } from "@/src/core";
+import { LEARN_COPY, PACK_COPY, PRACTISE_COPY, packStatusLine, weekLabel, MATERIALS_RULES } from "@/src/core";
 import { ApiError, lockedIn, type PackData, type SlideSection } from "../api";
 import { ConceptMap } from "../concept-map";
 import { ExplainerCard } from "../explainer-card";
@@ -64,11 +64,11 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 			<div className="li-stack" style={{ gap: 24 }}>
 				<header className="li-row" style={{ alignItems: "flex-end", paddingRight: 420 }}>
 					<div style={{ display: "flex", flexDirection: "column", gap: 4, flexGrow: 1 }}>
-						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · ${weekLabel(lecture.week)}` : ""}</Link>
+						<Link href="/app/library" className="li-eyebrow">‹ Library · {lecture.module}{lecture.week > 0 ? ` · ${weekLabel(lecture.week, lecture.weekTo)}` : ""}</Link>
 						<h1 className="li-h1">{lecture.title}</h1>
 						<span className="li-muted li-row" style={{ gap: 8 }}>
-							{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : `${weekLabel(lecture.week)} · from your course material`}{lecture.attended === false ? " · you weren't there" : ""}
-							{!lecture.start && !(lecture.week > 0) ? <SetWeek lectureId={lecture.id} title={lecture.title} onSaved={() => void lectures.reload()} /> : null}
+							{lecture.start && lecture.end ? `${fmtDay(lecture.start, now)} ${fmtTime(lecture.start)}–${fmtTime(lecture.end)}` : null}{lecture.attended === false ? " · you weren't there" : ""}
+							{!lecture.start ? <SetWeek lectureId={lecture.id} title={lecture.title} week={lecture.week} weekTo={lecture.weekTo} onSaved={() => void lectures.reload()} /> : null}
 						</span>
 					</div>
 				</header>
@@ -78,8 +78,8 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 					<button type="button" className="li-btn" disabled={openMisses.length === 0 || busy} onClick={() => void practise("retest")}>Revisit what I missed{openMisses.length ? ` (${openMisses.length})` : ""}</button>
 					{lecture.start ? <button type="button" className="li-btn ghost" onClick={async () => { await lockedIn.missed(lectureId, lecture.attended !== false); void lectures.reload(); }}>{lecture.attended === false ? "Actually, I was there" : "I wasn't there"}</button> : null}
 					<label className="li-btn ghost" style={{ cursor: "pointer" }}>
-						{lecture.hasMaterials ? "Replace material" : "Add slides (PDF)"}
-						<input type="file" accept=".pdf,application/pdf" className="li-sr" onChange={async (e) => {
+						{lecture.hasMaterials ? "Replace material" : "Add slides or notes"}
+						<input type="file" accept={MATERIALS_RULES.accept} className="li-sr" onChange={async (e) => {
 							const f = e.target.files?.[0];
 							if (!f) return;
 							setMsg("Reading your slides…");
@@ -88,7 +88,7 @@ export function LectureScreen({ lectureId }: { lectureId: string }) {
 								setMsg(`${r.slideCount} slides added${r.needsCaption.length ? `; no text found on ${r.needsCaption.length}` : ""}.`);
 								void lectures.reload(); void slides.reload(); void map.reload();
 							} catch (err) {
-								setMsg(err instanceof ApiError ? err.message : "Couldn't read that PDF");
+								setMsg(err instanceof ApiError ? err.message : "Couldn't read that file");
 							}
 						}} />
 					</label>
