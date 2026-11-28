@@ -52,7 +52,8 @@ body { min-height: 100vh; }
 .li-map g.node.li-node-in { animation: li-fade-in var(--li-m-medium) ease-out both; }
 .li-map g.node.li-node-pulse > :is(rect, polygon, circle, path) { transform-box: fill-box; transform-origin: center; animation: li-node-pulse 600ms ease-out 1; }
 .li-pulse-once { display: inline-flex; animation: li-pop var(--li-m-medium) ease-out; }
-.li-root[data-motion="full"] .li-page { animation: li-rise var(--li-m-page) ease-out; }
+/* A page change, and anything that arrives on a page afterwards, fades in and rises a little (v3.0.1): Calm and Full. Off and the system's reduce motion switch it off below. */
+.li-page > *, .li-focus > * { animation: li-rise var(--li-m-page) ease-out backwards; }
 .li-root[data-motion="off"], .li-root[data-motion="off"] * { transition: none !important; animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .li-root, .li-root * { transition: none !important; animation: none !important; } }
 
@@ -85,6 +86,39 @@ body { min-height: 100vh; }
 .li-clock b { color: var(--li-bar-ink); }
 .li-main { flex: 1 1 auto; width: 100%; max-width: 1320px; min-width: 0; margin: 0 auto; padding: 28px 32px 64px; display: flex; flex-direction: column; gap: 22px; }
 .li-main > .li-page { display: flex; flex-direction: column; gap: inherit; min-width: 0; }
+/* A page that fits one screen (v3.0.1: Today, Week, Progress) marks itself with .li-fit: less air round it, a smaller heading, tighter gaps. */
+.li-main:has(.li-fit) { padding: 18px 32px 16px; gap: 14px; }
+.li-main:has(.li-fit) .li-h1 { font-size: 2.3em; }
+.li-week-head { align-items: center; gap: 18px; }
+/* A page that fills the window (.li-fill: Today, Progress): the app is exactly as tall as the window, and the page shares that
+   height out among its rows. A window too short for it scrolls instead of squashing. */
+.li-app:has(.li-fill) { height: 100dvh; min-height: 690px; }
+.li-main:has(.li-fill) { min-height: 0; }
+.li-main:has(.li-fill) > .li-page { flex: 1 1 auto; min-height: 0; }
+.li-main:has(.li-fill) > .li-page > * { flex: none; }
+.li-main:has(.li-fill) :is(.li-card, .li-panel) { padding: 16px 20px; }
+.li-main:has(.li-fill) .li-h2 { font-size: 1.3em; }
+/* A slim band across the page: one thing to do, said on one line with its button. */
+.li-band { display: flex; align-items: center; gap: 18px; padding: 12px 20px !important; width: 100%; text-align: left; }
+.li-band-main { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.li-band .li-chip { flex: none; }
+.li-band-text { font-family: var(--li-font-display); font-weight: 800; font-size: 1.3em; letter-spacing: -0.01em; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-band > .li-btn { flex: 0 1 auto; max-width: 46%; flex-wrap: nowrap; }
+.li-band > .li-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-band > .li-btn > svg { flex: none; }
+.li-band-more { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.li-band-more > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-link { flex: none; padding: 0; border: none; background: none; color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+/* One line of a block: a mark, a quiet label, then the thing itself, cut short with its full text as the tooltip. */
+.li-one-line { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+.li-one-line > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.li-grow { flex: 1 1 0 !important; min-height: 0; }
+/* A panel at the side of the page, for a long list the page only summarises. */
+.li-side-back { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: color-mix(in srgb, var(--li-edge) 45%, transparent); animation: li-fade-in var(--li-m-page) ease-out; }
+.li-side { width: min(620px, 100vw); height: 100%; display: flex; flex-direction: column; background: var(--li-paper); border-left: var(--li-edge-w) solid var(--li-edge); outline: none; animation: li-side-in var(--li-m-medium) ease-out; }
+.li-side-head { padding: 18px 24px; border-bottom: var(--li-edge-w) solid var(--li-edge); flex-wrap: nowrap; }
+.li-side-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 18px; }
+@keyframes li-side-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 .li-page-head { display: flex; flex-direction: column; gap: 2px; }
 .li-h1 { margin: 0; font-family: var(--li-font-display); font-size: 3em; font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; }
 .li-h2 { margin: 0; font-family: var(--li-font-display); font-size: 1.55em; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
@@ -174,6 +208,19 @@ button.li-hero:active .li-hero-cta { transform: translate(4px, 4px); box-shadow:
 @media (max-width: 1180px) { .li-tower { display: none; } }
 /* Today's second row: lectures, what to revisit, the week. */
 .li-today-three { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: stretch; }
+.li-today-num { font-size: 4.4em; }
+/* Today on one screen (v3.0.1): the next step and the next block take the room the rest leaves; the tower's blocks share its height. */
+.li-main:has(.li-fill) > .li-page > .li-today-top { flex: 1 1 0; min-height: 200px; gap: 14px; grid-template-rows: minmax(0, 1fr); }
+.li-main:has(.li-fill) .li-today-top > * { min-height: 0; }
+.li-main:has(.li-fill) .li-today-top > * > * { min-height: 0; overflow: hidden; }
+.li-main:has(.li-fill) .li-today-three { gap: 14px; max-height: 42%; }
+.li-main:has(.li-fill) .li-today-three > * { min-height: 0; overflow: hidden; }
+.li-main:has(.li-fill) .li-today-three > section:first-child { overflow-y: auto; }
+.li-main:has(.li-fill) .li-today-num { font-size: 3.2em; }
+.li-main:has(.li-fill) .li-hero { padding: 20px 26px; gap: 18px; min-height: 0; }
+.li-main:has(.li-fill) .li-hero-title { font-size: 2.3em; }
+.li-main:has(.li-fill) .li-tower { align-self: stretch; justify-content: center; gap: 8px; min-height: 0; }
+.li-main:has(.li-fill) .li-tower i { flex: 0 1 54px; min-height: 16px; width: 132px; }
 @media (max-width: 1100px) { .li-today-three { grid-template-columns: minmax(0, 1fr); } }
 
 /* A module's colour to pick, in Me. The one in use has a tick: never colour alone. */
@@ -398,13 +445,58 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 
 /* Progress (V-34 to V-36; v3.0): the score on the dark panel with blocks you can count, a thick rising line
    beside the steady-pace line, a ring for where it came from, and milestones as tick boxes. */
-.li-score { font-size: 7.5em; }
-.li-progress-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 22px; align-items: stretch; }
-.li-progress-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: start; }
+.li-score { font-size: 5.2em; }
+/* Progress on one screen (v3.0.1): the score and its line, one band of what to do, then three blocks side by side. */
+.li-progress-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 14px; align-items: stretch; }
+.li-main:has(.li-fill) > .li-page > .li-progress-top { flex: 1 1 0; min-height: 246px; }
+.li-progress-top > * { min-height: 0; overflow: hidden; }
+.li-progress-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+/* The three blocks are as tall as the tallest needs (a row per module), up to half the page; the score and its line take the rest. */
+.li-main:has(.li-fill) > .li-page > .li-progress-three { flex: 0 1 auto; min-height: 200px; max-height: 50%; }
+.li-progress-three > * { min-height: 0; overflow: hidden; }
+.li-progress-three > * > *, .li-progress-top > * > * { flex-shrink: 0; }
+.li-from-rows { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto !important; min-width: 0; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.li-from-rows > * { min-height: 26px; }
+.li-progress-three .li-count i { width: 16px; height: 16px; border-radius: 5px; }
+.li-ring { width: clamp(88px, 13vh, 150px); height: auto; }
+.li-progress-top .li-count i { width: 16px; height: 16px; border-radius: 5px; }
+/* The chart takes the room its card has left, and is drawn at that size (score-chart.tsx measures the box). */
+.li-chart { position: relative; aspect-ratio: 820 / 280; }
+.li-chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.li-chart-card .li-chart { aspect-ratio: auto; flex: 1 1 0 !important; min-height: 90px; }
+.li-chart-card .li-chart-detail { padding: 8px 14px; gap: 2px; }
+@media (max-height: 940px) { .li-pace-help { display: none; } }
+@media (max-width: 1100px) { .li-progress-three { grid-template-columns: minmax(0, 1fr); } .li-app:has(.li-fill) { height: auto; } }
+/* A short window (a 13-inch laptop with the dock and a bookmarks bar showing leaves about 720 to 800): the same pages, a size smaller,
+   so they still fit. Only what a page can spare goes: a starter card's second line, the reassurance under a count, a second thing needing attention. */
+@media (max-height: 820px) {
+	.li-main:has(.li-fit) { padding: 12px 32px 12px; gap: 12px; }
+	.li-main:has(.li-fit) .li-h1 { font-size: 2em; }
+	.li-main:has(.li-fill) :is(.li-card, .li-panel) { padding: 12px 18px; }
+	.li-main:has(.li-fill) .li-tall-only { display: none; }
+	.li-main:has(.li-fill) .li-hero { padding: 16px 22px; }
+	.li-main:has(.li-fill) .li-hero > span:first-child { gap: 10px !important; }
+	.li-main:has(.li-fill) .li-hero-title { font-size: 2em; }
+	.li-main:has(.li-fill) .li-hero .li-btn.big { min-height: 48px; padding: 9px 24px; font-size: 1.1em; }
+	.li-main:has(.li-fill) .li-today-num { font-size: 2.6em; }
+	.li-main:has(.li-fill) > .li-page > .li-today-top, .li-main:has(.li-fill) .li-today-three, .li-progress-top, .li-progress-three { gap: 12px; }
+	.li-main:has(.li-fill) > .li-page > .li-progress-top { min-height: 214px; }
+	.li-score { font-size: 4em; }
+	.li-progress-top .li-count i, .li-progress-three .li-count i { width: 14px; height: 14px; border-radius: 4px; }
+	.li-progress-top .li-count { gap: 4px; }
+	.li-chart-card .li-seg button { min-height: 32px; padding: 4px 14px; }
+	.li-chart-card .li-chart-detail { padding: 6px 12px; }
+	.li-chart-card .li-chart { min-height: 78px; }
+	.li-band { padding: 8px 18px !important; }
+	.li-band-more { display: none; }
+	.li-from-rows > * { min-height: 23px; }
+	.li-from-rows { gap: 2px; }
+	.li-tt-head b { padding: 6px 0; }
+}
 @media (max-width: 1000px) { .li-progress-top, .li-progress-two { grid-template-columns: 1fr; } }
 .li-panel.ink .li-count i { border-color: var(--li-bar-ink); }
 .li-panel.ink .li-count i[data-on="false"] { background: transparent; }
-.li-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.li-chart svg { display: block; overflow: visible; }
 .li-chart-grid { stroke: var(--li-sand); stroke-width: 1.5; }
 .li-chart-axis { fill: var(--li-quiet); font-size: 13px; font-family: inherit; font-weight: 700; }
 .li-chart-axis[data-on="true"] { fill: var(--li-ink); }
@@ -427,11 +519,13 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-bar > span { display: block; height: 100%; background: var(--li-mint); min-width: 0; transition: width var(--li-m-medium, 240ms) ease; }
 .li-attention { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 14px 18px; }
 .li-attention > span { flex: 1 1 220px; }
-.li-milestones { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.li-milestones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 10px; }
 .li-milestone { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 16px; border: 2px dashed var(--li-quiet); color: var(--li-quiet); }
 .li-milestone[data-earned="true"] { border: var(--li-edge-w) solid var(--li-edge); background: var(--li-paper); color: var(--li-ink); }
 .li-tickbox { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; border: 2px dashed currentColor; margin-bottom: 4px; }
-.li-milestone[data-earned="true"] .li-tickbox { border: var(--li-edge-w) solid var(--li-on); background: var(--li-mint); color: var(--li-on); }
+.li-tickbox[data-on="true"] { border: var(--li-edge-w) solid var(--li-on); background: var(--li-mint); color: var(--li-on); }
+.li-tickbox.small { width: 26px; height: 26px; border-radius: 8px; margin: 0; flex: none; }
+.li-tickbox.small svg { width: 15px; height: 15px; }
 
 /* The Week page as a timetable (V-37; v3.0). Things that are fixed only show, so they are soft and flat.
    A study block can be moved, so it is bright, in its module's colour, with the hard shadow. A suggested one is dashed. */
@@ -445,9 +539,9 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-tt-head b[data-today="true"] { background: var(--li-ink); color: var(--li-paper); }
 .li-tt-body { position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); background: var(--li-card); border: var(--li-edge-w) solid var(--li-edge); border-radius: 0 0 22px 22px; overflow: hidden; }
 .li-tt-hours { position: relative; }
-.li-tt-hours span { position: absolute; right: 8px; transform: translateY(-50%); font-size: 0.75em; font-weight: 700; color: var(--li-quiet); }
-.li-tt-hours span:first-child { transform: translateY(2px); }
-.li-tt-hours span:last-child { transform: translateY(-100%); }
+/* Each hour's label sits just under its line, so the first and the second never crowd each other however short an hour is. */
+.li-tt-hours span { position: absolute; right: 8px; transform: translateY(3px); font-size: 0.75em; font-weight: 700; color: var(--li-quiet); }
+.li-tt-hours span:last-child { display: none; }
 .li-tt-days { position: relative; border-left: 2px solid var(--li-sand); }
 .li-tt-line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px solid var(--li-sand); }
 .li-tt-day { position: absolute; top: 0; bottom: 0; width: calc(100% / 7); border-left: 2px solid var(--li-sand); }
@@ -456,6 +550,20 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-tt-item { position: absolute; left: 4px; right: 4px; border-radius: 10px; overflow: hidden; font-size: 0.8em; line-height: 1.25; }
 .li-tt-item b, .li-tt-item span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .li-tt-what { display: flex !important; align-items: center; gap: 5px; font-weight: 700; }
+/* A short item says itself on one line (v3.0.1): its time, then what it is. A block's state is then its mark; the word is in its tooltip and what a screen reader hears. */
+.li-tt-fixed[data-compact="true"], .li-tt-commit[data-compact="true"], .li-tt-item[data-compact="true"] .li-tt-grab { display: flex; align-items: center; gap: 6px; padding-block: 0; }
+.li-tt-item[data-compact="true"] > b, .li-tt-item[data-compact="true"] .li-tt-top { flex: none; }
+.li-tt-item[data-compact="true"] .li-tt-what { flex: 1 1 0; min-width: 0; order: 1; }
+.li-tt-item[data-compact="true"] .li-tt-what svg { display: none; }
+.li-tt-item[data-compact="true"] .li-tt-top { order: 0; }
+.li-tt-item[data-compact="true"] .li-tt-top i { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+.li-tt-item[data-compact="true"] .li-tt-word { display: none !important; }
+.li-tt-item[data-compact="true"] .li-tt-grab { position: relative; width: 100%; padding-right: 24px; }
+.li-tt-item[data-compact="true"] .li-tt-grab:not(:has(.li-tt-mark, .li-tt-tick)) { padding-right: 7px; }
+.li-tt-item:not([data-compact="true"]) .li-tt-mark { display: none !important; }
+.li-tt-mark { display: inline-flex !important; overflow: visible !important; }
+.li-tt-mark svg { width: 13px; height: 13px; }
+.li-tt-word { display: inline !important; }
 .li-tt-what svg { width: 14px; height: 14px; flex: none; }
 .li-tt-fixed { padding: 4px 7px; background: var(--li-mod-soft); color: var(--li-mod-soft-ink); border: 2px solid var(--li-edge); }
 .li-tt-commit { padding: 4px 7px; color: var(--li-ink); border: 2px solid var(--li-edge); background: repeating-linear-gradient(135deg, var(--li-card) 0 7px, var(--li-sand) 7px 14px); }
@@ -473,7 +581,7 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-tt-grab[data-moving="true"] { cursor: grabbing; box-shadow: 7px 7px 0 var(--li-edge); transform: translate(-2px, -2px); }
 .li-tt-grab[data-moving="true"][data-ok="false"] { background: var(--li-card); color: var(--li-ink); border: 2px dashed var(--li-ink); box-shadow: none; }
 /* A tapped block's options stay at the bottom of the screen, so they are seen without scrolling past the grid. */
-.li-tt-options { position: sticky; bottom: 12px; z-index: 5; max-width: 460px; border-radius: 16px; box-shadow: 6px 6px 0 var(--li-edge); }
+.li-tt-options { position: fixed; left: 32px; bottom: 16px; z-index: 25; width: min(460px, calc(100vw - 64px)); border-radius: 16px; box-shadow: 6px 6px 0 var(--li-edge); }
 .li-week-list { display: none; }
 @media (max-width: 900px) {
 	.li-tt-wrap { display: none; }
@@ -491,12 +599,15 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 .li-qcard.li-ask { background: var(--li-mod-soft); color: var(--li-mod-soft-ink); }
 /* A tool in the bar that is switched on. */
 .li-focus-top .li-x[aria-pressed="true"] { background: var(--li-bar-ink); color: var(--li-bar); }
-/* Where you are in the plan, as steps in the bar: done, now (named), next (named), to come. */
-.li-steps { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.li-steps i { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 24px; padding: 0 8px; border-radius: 8px; border: 2px dashed var(--li-bar-quiet); font-style: normal; font-size: 0.8em; font-weight: 700; color: var(--li-bar-quiet); white-space: nowrap; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; }
-.li-steps i svg { width: 14px; height: 14px; }
-.li-steps i[data-state="done"] { border-style: solid; border-color: var(--li-bar-ink); background: var(--li-bar-ink); color: var(--li-bar); }
-.li-steps i[data-state="current"] { border-style: solid; border-color: var(--li-mod); background: var(--li-mod); color: var(--li-on); display: inline-block; line-height: 20px; }
+/* Where you are in the plan, in the bar: "Step 1 of 3", a square per step (done is filled with a tick, the one you are on is the module's colour, to come is an outline), and the name of the step. */
+.li-steps { display: flex; gap: 10px; align-items: center; min-width: 0; font-size: 0.92em; color: var(--li-bar-ink); }
+.li-steps b { flex: none; font-weight: 800; }
+.li-steps-marks { display: inline-flex; gap: 5px; flex: none; }
+.li-steps-marks i { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--li-bar-quiet); }
+.li-steps-marks i svg { width: 12px; height: 12px; }
+.li-steps-marks i[data-state="done"] { border-color: var(--li-bar-ink); background: var(--li-bar-ink); color: var(--li-bar); }
+.li-steps-marks i[data-state="current"] { width: 28px; border-color: var(--li-mod); background: var(--li-mod); }
+.li-steps-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .li-step { display: flex; flex-direction: column; gap: 14px; }
 .li-step > .li-prose-block > :first-child, .li-you > :first-child { margin-top: 0; }
 .li-you { border-left: 3px solid var(--li-accent); padding: 2px 0 2px 14px; color: var(--li-muted); }
@@ -516,9 +627,9 @@ button.li-idea:active { transform: translate(4px, 4px); box-shadow: 1px 1px 0 va
 /* The input line stays at the bottom of the window, so anything the keyboard lands on (the next question, "Looks good") stops above it, never underneath. */
 .li-learn .li-qcard :is(button, h2, [tabindex]) { scroll-margin-bottom: 110px; }
 .li-plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 16px; border: var(--li-edge-w) dashed var(--li-quiet); color: var(--li-quiet); }
+.li-plan li { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 16px; border: 2px solid var(--li-quiet); color: var(--li-quiet); }
 .li-plan li + li::before { content: ""; position: absolute; left: 27px; top: -17px; height: 14px; border-left: var(--li-edge-w) solid var(--li-ink); }
-.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 9px; border: 2px dashed currentColor; display: inline-flex; align-items: center; justify-content: center; }
+.li-plan-mark { flex: none; width: 28px; height: 28px; border-radius: 9px; border: 2px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9em; }
 .li-plan-mark svg { width: 16px; height: 16px; }
 .li-plan-title { flex: 1 1 auto; font-weight: 700; }
 .li-plan li[data-state="done"] { border-style: solid; border-color: var(--li-on); background: var(--li-mint); color: var(--li-on); }

@@ -10,12 +10,12 @@
  * "behind": the line is a pace, not a verdict (v1.1-research.md, section 2).
  */
 
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { PROGRESS_COPY, type ScoreRange } from "@/src/core";
 import type { ProgressPoint } from "./api";
 
-const W = 820;
-const H = 280;
+/** The chart's size until its box has been measured, and its shape where nothing else sets a height. */
+const DEFAULT = { w: 820, h: 280 };
 const PAD = { top: 18, right: 18, bottom: 34, left: 46 };
 
 /** A round number at or above `v` for the top of the scale: 155 → 200, 2,205 → 2,500. */
@@ -43,6 +43,21 @@ export function pointTitle(p: ProgressPoint, range: ScoreRange): string {
 export function ScoreChart({ points, range, selected, onSelect }: { points: ProgressPoint[]; range: ScoreRange; selected: number; onSelect: (i: number) => void }) {
 	const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
 	const n = points.length;
+	// The chart is drawn at the size of its box (v3.0.1), one unit to a pixel, so it fills the room its card has without
+	// stretching its text. The drawing sits over the box and never sets the box's size, so measuring cannot feed itself.
+	const box = useRef<HTMLDivElement>(null);
+	const [size, setSize] = useState(DEFAULT);
+	useEffect(() => {
+		const el = box.current;
+		if (!el || typeof ResizeObserver === "undefined") return;
+		const ro = new ResizeObserver(() => {
+			const w = Math.round(el.clientWidth), h = Math.round(el.clientHeight);
+			if (w > 0 && h > 0) setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, []);
+	const W = size.w, H = size.h;
 	const top = niceCeil(Math.max(...points.map((p) => Math.max(p.future ? 0 : p.score, p.pace ?? 0)), 1));
 	const x = (i: number) => PAD.left + (n <= 1 ? 0 : (i * (W - PAD.left - PAD.right)) / (n - 1));
 	const y = (v: number) => PAD.top + (1 - v / top) * (H - PAD.top - PAD.bottom);
@@ -50,11 +65,12 @@ export function ScoreChart({ points, range, selected, onSelect }: { points: Prog
 	const line = past.map(({ p, i }) => `${x(i).toFixed(1)},${y(p.score).toFixed(1)}`).join(" ");
 	const area = past.length ? `M${x(past[0]!.i).toFixed(1)},${y(0).toFixed(1)} L${line.replace(/ /g, " L")} L${x(past.at(-1)!.i).toFixed(1)},${y(0).toFixed(1)} Z` : "";
 	const pace = points.filter((p) => p.pace !== null).length > 1 ? points.map((p, i) => (p.pace === null ? null : `${x(i).toFixed(1)},${y(p.pace).toFixed(1)}`)).filter(Boolean).join(" ") : "";
-	const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(top * f));
+	// A short chart has room for three lines of scale, not five.
+	const grid = (H < 190 ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1]).map((f) => Math.round(top * f));
 	const move = (by: number) => onSelect(Math.min(n - 1, Math.max(0, selected + by)));
 
 	return (
-		<div className="li-chart">
+		<div className="li-chart" ref={box}>
 			<svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${PROGRESS_COPY.score}, ${PROGRESS_COPY.ranges[range].toLowerCase()}`} onKeyDown={(e) => { if (e.key === "ArrowLeft") { e.preventDefault(); move(-1); } else if (e.key === "ArrowRight") { e.preventDefault(); move(1); } }}>
 				{grid.map((v) => (
 					<g key={v}>

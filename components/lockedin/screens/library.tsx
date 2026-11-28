@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, weekLabel, type WeekShare } from "@/src/core";
+import { LEARN_COPY, NOTE_COPY, PRACTISE_COPY, SHARE_COPY, WEEK_SHARES, unitNotes, weekLabel, type WeekShare } from "@/src/core";
 import { AddModule } from "../add-module";
 import { ApiError, lockedIn, type CourseModule, type LectureWithStatus } from "../api";
 import { fmtDay, useData } from "../hooks";
@@ -111,18 +111,22 @@ export function LibraryScreen() {
 	const hits = search.data ? new Set(search.data.map((l) => l.id)) : null;
 	const modules = course.data ?? [];
 
-	const unitRow = (l: LectureWithStatus) => (
+	// A unit is one row: its week, said once (v3.0.1), its title, and a line under the title only when there is something to say.
+	const unitRow = (l: LectureWithStatus, thisWeek: boolean) => {
+		const notes = [l.start ? fmtDay(l.start, now) : null, ...unitNotes(l, thisWeek)].filter(Boolean);
+		return (
 		<div key={l.id} className="li-tl">
 			<span className="li-tl-time">{l.week > 0 || l.start ? weekLabel(l.week) : <SetWeek lectureId={l.id} title={l.title} onSaved={() => void course.reload()} />}</span>
 			<span style={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
 				<Link href={`/app/library/${l.id}`}><b>{l.title}</b></Link>
-				<span className="li-small li-muted">{l.start ? fmtDay(l.start, now) : "From your course material"}{l.attended === false ? " · you weren't there" : ""}{l.hasMaterials ? "" : " · no material yet"}</span>
+				{notes.length ? <span className="li-small li-muted">{notes.join(" · ")}</span> : null}
 			</span>
 			{l.status === "revisit" ? <StatusTag status="revisit" /> : l.status === "answered" ? <StatusTag status="answered" /> : <StatusTag status="notyet" />}
 			<Link className="li-btn soft" href={`/app/library/${l.id}`}>Open</Link>
 			<button type="button" className="li-btn" disabled={!l.hasMaterials} onClick={() => void learn(l.id)}><Icon.learn />{LEARN_COPY.button}</button>
 		</div>
-	);
+		);
+	};
 
 	return (
 		<>
@@ -153,11 +157,12 @@ export function LibraryScreen() {
 								{/* The two ways to study a module (V-40): the tutor, or a quick round. Each needs a unit with material. */}
 								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" aria-expanded={learning === m.code} onClick={() => setLearning(learning === m.code ? null : m.code)}>{LEARN_COPY.moduleButton}</button> : null}
 								{!hits && m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn" onClick={() => void practise(m.code)}>{PRACTISE_COPY.button}</button> : null}
-								{!hits ? <button type="button" className="li-btn" onClick={() => setAdding(adding === m.code ? null : m.code)}>Add course material</button> : null}
 							</div>
 							{/* What the app holds about you here (V-53): one quiet link, closed until asked for. */}
 							{!hits ? (
-								<div className="li-row" style={{ gap: 16 }}>
+								<div className="li-row" style={{ gap: 12 }}>
+									{/* Beside the module's other quiet actions (v3.0.1), so a long module name never pushes it onto a row of its own. */}
+									<button type="button" className="li-btn ghost" onClick={() => setAdding(adding === m.code ? null : m.code)}><Icon.plus />Add course material</button>
 									{m.units.some((l) => l.hasMaterials) ? <button type="button" className="li-btn ghost li-small" aria-expanded={knowing === m.code} onClick={() => setKnowing(knowing === m.code ? null : m.code)}>{NOTE_COPY.link} ›</button> : null}
 									<span style={{ flexGrow: 1 }} />
 									<ShareControl mod={m} onChange={() => void course.reload()} onError={setMsg} />
@@ -173,12 +178,7 @@ export function LibraryScreen() {
 							) : null}
 							{shown.length ? (
 								<div className="li-card" style={{ padding: "8px 24px" }}>
-									{weeks.map((w) => (
-										<div key={w}>
-											{weeks.length > 1 ? <div className="li-eyebrow" style={{ marginTop: 12 }}>{weekLabel(w)}{w > 0 && m.week === w ? " · this week" : ""}</div> : null}
-											{shown.filter((u) => u.week === w).map(unitRow)}
-										</div>
-									))}
+									{weeks.flatMap((w) => shown.filter((u) => u.week === w).map((u) => unitRow(u, w > 0 && m.week === w)))}
 								</div>
 							) : null}
 						</section>
